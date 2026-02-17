@@ -36,6 +36,7 @@ const getCurrentWindow = window.__TAURI__?.window?.getCurrentWindow;
 // 缓存目录路径
 let cacheDir = null;
 let configDir = null;
+let cdsDir = null;
 
 // 初始化缓存目录
 async function initCacheDir() {
@@ -43,8 +44,10 @@ async function initCacheDir() {
         try {
             cacheDir = await invoke('get_cache_dir');
             configDir = await invoke('get_config_dir');
+            cdsDir = await invoke('get_cds_dir');
             console.log('缓存目录:', cacheDir);
             console.log('配置目录:', configDir);
+            console.log('CDS目录:', cdsDir);
         } catch (error) {
             console.error('获取缓存目录失败:', error);
         }
@@ -85,6 +88,8 @@ let state = {
     startDistance: 0,
     startScaleX: 0,
     startScaleY: 0,
+    startCanvasX: 0,
+    startCanvasY: 0,
     historyStack: [],
     currentStep: -1,
     MAX_UNDO_STEPS: 15,
@@ -98,6 +103,8 @@ let state = {
     isCameraOpen: false,
     isMirrored: false,
     cameraAnimationId: null,
+    cameraRotation: 0,
+    enhanceEnabled: false,
     currentImage: null,
     useFrontCamera: false,
     imageList: [],
@@ -121,21 +128,10 @@ window.addEventListener('DOMContentLoaded', async () => {
     
     await initCacheDir();
     
-    if (window.__TAURI__) {
-        const loaded = await loadAppState();
-        if (loaded && state.fileList.length > 0) {
-            expandFileSidebar();
-        }
-    }
-    
     openCamera();
     
     if (window.__TAURI__) {
         listenForPdfFileOpen();
-        
-        window.addEventListener('beforeunload', () => {
-            saveAppState();
-        });
     }
     
     console.log('画布初始化完成');
@@ -470,6 +466,7 @@ function initDOM() {
     dom.drawCanvas = document.getElementById('drawCanvas');
     dom.eraserHint = document.getElementById('eraserHint');
     dom.penControlPanel = document.getElementById('penControlPanel');
+    dom.settingsPanel = document.getElementById('settingsPanel');
     
     dom.penSizeSlider = document.getElementById('penSizeSlider');
     dom.penSizeValue = document.getElementById('penSizeValue');
@@ -488,6 +485,7 @@ function initDOM() {
     dom.btnSave = document.getElementById('btnSave');
     dom.btnMinimize = document.getElementById('btnMinimize');
     dom.btnMenu = document.getElementById('btnMenu');
+    dom.btnEnhance = document.getElementById('btnEnhance');
     
     dom.bgCtx = dom.bgCanvas.getContext('2d');
     dom.imageCtx = dom.imageCanvas.getContext('2d');
@@ -584,7 +582,23 @@ function bindAllEvents() {
     bindCanvasMouseEvents();
     bindCanvasTouchEvents();
     bindSidebarEvents();
+    bindSettingsEvents();
     bindClickOutside();
+}
+
+// 设置面板事件
+function bindSettingsEvents() {
+    document.getElementById('btnRotateLeft')?.addEventListener('click', () => {
+        rotateImage('left');
+    });
+    
+    document.getElementById('btnRotateRight')?.addEventListener('click', () => {
+        rotateImage('right');
+    });
+    
+    dom.btnEnhance?.addEventListener('click', () => {
+        toggleEnhance();
+    });
 }
 
 // 点击外部关闭面板
@@ -597,6 +611,14 @@ function bindClickOutside() {
         
         if (!isClickInsidePanel && !isClickOnBtnComment && !isClickOnBtnEraser) {
             hidePenControlPanel();
+        }
+        
+        const settingsPanel = dom.settingsPanel;
+        const isClickInsideSettings = settingsPanel.contains(e.target);
+        const isClickOnBtnSettings = dom.btnSettings.contains(e.target);
+        
+        if (!isClickInsideSettings && !isClickOnBtnSettings) {
+            hideSettingsPanel();
         }
     });
 }
@@ -1000,10 +1022,14 @@ function handleTouchStart(e) {
         }
     } else if (touches.length === 2) {
         state.isScaling = true;
+        state.isDragging = false;
+        state.isDrawing = false;
         state.startDistance = getTouchDistance(touches[0], touches[1]);
         state.startScale = state.scale;
         state.startScaleX = (touches[0].clientX + touches[1].clientX) / 2;
         state.startScaleY = (touches[0].clientY + touches[1].clientY) / 2;
+        state.startCanvasX = state.canvasX;
+        state.startCanvasY = state.canvasY;
     }
 }
 
@@ -1040,23 +1066,38 @@ function handleTouchMove(e) {
         let newScale = state.startScale * scaleRatio;
         newScale = Math.max(DRAW_CONFIG.minScale, Math.min(DRAW_CONFIG.maxScale, newScale));
         
+        const centerX = (touches[0].clientX + touches[1].clientX) / 2;
+        const centerY = (touches[0].clientY + touches[1].clientY) / 2;
+        
         const finalRatio = newScale / state.startScale;
-        state.canvasX = state.startScaleX - (state.startScaleX - state.canvasX) * finalRatio;
-        state.canvasY = state.startScaleY - (state.startScaleY - state.canvasY) * finalRatio;
+        state.canvasX = centerX - (state.startScaleX - state.startCanvasX) * finalRatio;
+        state.canvasY = centerY - (state.startScaleY - state.startCanvasY) * finalRatio;
         state.scale = newScale;
         
+        clampCanvasPosition();
         updateCanvasTransform();
     }
 }
 
 function handleTouchEnd(e) {
     e.preventDefault();
-    state.isDragging = false;
-    state.isScaling = false;
     
-    if (state.isDrawing) {
-        state.isDrawing = false;
-        saveSnapshot();
+    if (e.touches.length === 0) {
+        state.isDragging = false;
+        state.isScaling = false;
+        
+        if (state.isDrawing) {
+            state.isDrawing = false;
+            saveSnapshot();
+        }
+    } else if (e.touches.length === 1) {
+        state.isScaling = false;
+        const touch = e.touches[0];
+        if (state.drawMode === 'move') {
+            state.isDragging = true;
+            state.startDragX = touch.clientX - state.canvasX;
+            state.startDragY = touch.clientY - state.canvasY;
+        }
     }
 }
 
@@ -1156,7 +1197,26 @@ function takePhoto() {
     if (state.isCameraOpen) {
         captureCamera();
     } else if (state.currentImageIndex >= 0 && state.imageList.length > 0) {
+        state.currentImageIndex = -1;
+        state.currentImage = null;
+        clearImageLayer();
+        clearDrawCanvas();
         openCamera();
+        updateSidebarSelection();
+        updatePhotoButtonState();
+        updateEnhanceButtonState();
+        console.log('返回摄像头');
+    } else if (state.currentFolderIndex >= 0 && state.currentFolderPageIndex >= 0) {
+        state.currentFolderIndex = -1;
+        state.currentFolderPageIndex = -1;
+        state.currentImage = null;
+        clearImageLayer();
+        clearDrawCanvas();
+        openCamera();
+        updateFolderPageSelection(-1, -1);
+        updatePhotoButtonState();
+        updateEnhanceButtonState();
+        console.log('返回摄像头');
     } else {
         saveMergedCanvas();
     }
@@ -1191,11 +1251,12 @@ function updatePhotoButtonState() {
             拍照
         `;
         btnPhoto.title = '捕获摄像头画面';
-    } else if (state.currentImageIndex >= 0 && state.imageList.length > 0) {
+    } else if ((state.currentImageIndex >= 0 && state.imageList.length > 0) || 
+               (state.currentFolderIndex >= 0 && state.currentFolderPageIndex >= 0)) {
         btnPhoto.classList.remove('camera-active');
         btnPhoto.innerHTML = `
-            <img src="assets/javascript.svg" width="16" height="16" alt="摄像头" style="filter: invert(1);">
-            摄像头
+            <img src="assets/javascript.svg" width="16" height="16" alt="切换到摄像头" style="filter: invert(1);">
+            切换到摄像头
         `;
         btnPhoto.title = '返回摄像头';
     } else {
@@ -1227,7 +1288,195 @@ function updatePhotoButtonState() {
 
 // 设置功能
 function openSettings() {
-    console.log('打开设置面板');
+    const existingPanel = dom.settingsPanel.classList.contains('visible');
+    if (existingPanel) {
+        hideSettingsPanel();
+    } else {
+        showSettingsPanel();
+    }
+}
+
+function showSettingsPanel() {
+    hidePenControlPanel();
+    
+    const panel = dom.settingsPanel;
+    const btnRect = dom.btnSettings.getBoundingClientRect();
+    const containerRect = document.querySelector('.main-function').getBoundingClientRect();
+    
+    const panelWidth = 130;
+    const panelHeight = panel.offsetHeight || 50;
+    
+    let left = btnRect.left - containerRect.left + (btnRect.width / 2) - (panelWidth / 2);
+    let top = btnRect.top - containerRect.top - panelHeight - 10;
+    
+    if (left < 10) left = 10;
+    if (left + panelWidth > containerRect.width - 10) {
+        left = containerRect.width - panelWidth - 10;
+    }
+    
+    if (top < 10) {
+        top = btnRect.bottom - containerRect.top + 10;
+    }
+    
+    panel.style.left = `${left}px`;
+    panel.style.top = `${top}px`;
+    panel.classList.add('visible');
+}
+
+function hideSettingsPanel() {
+    dom.settingsPanel.classList.remove('visible');
+}
+
+function rotateImage(direction) {
+    if (state.isCameraOpen) {
+        if (direction === 'left') {
+            state.cameraRotation = (state.cameraRotation - 90 + 360) % 360;
+        } else {
+            state.cameraRotation = (state.cameraRotation + 90) % 360;
+        }
+        console.log(`摄像头画面已旋转到 ${state.cameraRotation}°`);
+        return;
+    }
+    
+    if (!state.currentImage) {
+        console.log('没有图片可旋转');
+        return;
+    }
+    
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    
+    if (direction === 'left') {
+        canvas.width = state.currentImage.height;
+        canvas.height = state.currentImage.width;
+        ctx.translate(canvas.width / 2, canvas.height / 2);
+        ctx.rotate(-Math.PI / 2);
+        ctx.drawImage(state.currentImage, -state.currentImage.width / 2, -state.currentImage.height / 2);
+    } else {
+        canvas.width = state.currentImage.height;
+        canvas.height = state.currentImage.width;
+        ctx.translate(canvas.width / 2, canvas.height / 2);
+        ctx.rotate(Math.PI / 2);
+        ctx.drawImage(state.currentImage, -state.currentImage.width / 2, -state.currentImage.height / 2);
+    }
+    
+    const rotatedImg = new Image();
+    rotatedImg.onload = () => {
+        state.currentImage = rotatedImg;
+        
+        if (state.currentImageIndex >= 0 && state.currentImageIndex < state.imageList.length) {
+            const maxSize = 150;
+            let thumbW, thumbH;
+            if (rotatedImg.width > rotatedImg.height) {
+                thumbW = maxSize;
+                thumbH = (rotatedImg.height / rotatedImg.width) * maxSize;
+            } else {
+                thumbH = maxSize;
+                thumbW = (rotatedImg.width / rotatedImg.height) * maxSize;
+            }
+            
+            const thumbCanvas = document.createElement('canvas');
+            thumbCanvas.width = thumbW;
+            thumbCanvas.height = thumbH;
+            const thumbCtx = thumbCanvas.getContext('2d');
+            thumbCtx.drawImage(rotatedImg, 0, 0, thumbW, thumbH);
+            
+            state.imageList[state.currentImageIndex].full = rotatedImg.src;
+            state.imageList[state.currentImageIndex].thumbnail = thumbCanvas.toDataURL('image/jpeg', 0.7);
+            state.imageList[state.currentImageIndex].width = rotatedImg.width;
+            state.imageList[state.currentImageIndex].height = rotatedImg.height;
+            
+            updateSidebarContent();
+        }
+        
+        drawImageToCenter(rotatedImg);
+        console.log(`图片已向${direction === 'left' ? '左' : '右'}旋转`);
+    };
+    rotatedImg.src = canvas.toDataURL('image/png');
+}
+
+function toggleEnhance() {
+    state.enhanceEnabled = !state.enhanceEnabled;
+    
+    if (dom.btnEnhance) {
+        dom.btnEnhance.classList.toggle('primary-btn', state.enhanceEnabled);
+    }
+    
+    console.log(`文档增强已${state.enhanceEnabled ? '开启' : '关闭'}`);
+}
+
+function updateEnhanceButtonState() {
+    if (!dom.btnEnhance) return;
+    
+    const toolbarCenter = document.querySelector('.toolbar-center');
+    
+    if (state.isCameraOpen) {
+        if (toolbarCenter) {
+            toolbarCenter.classList.remove('compact');
+        }
+        
+        setTimeout(() => {
+            dom.btnEnhance.classList.remove('fade-out');
+            dom.btnEnhance.classList.add('fade-in');
+        }, 400);
+    } else {
+        dom.btnEnhance.classList.remove('fade-in');
+        dom.btnEnhance.classList.add('fade-out');
+        
+        setTimeout(() => {
+            if (toolbarCenter) {
+                toolbarCenter.classList.add('compact');
+            }
+        }, 500);
+    }
+}
+
+function applyEnhanceFilter(imageData) {
+    if (!state.enhanceEnabled) return imageData;
+    
+    const data = imageData.data;
+    
+    for (let i = 0; i < data.length; i += 4) {
+        const r = data[i];
+        const g = data[i + 1];
+        const b = data[i + 2];
+        
+        const contrast = 1.4;
+        const brightness = 10;
+        
+        let newR = ((r - 128) * contrast) + 128 + brightness;
+        let newG = ((g - 128) * contrast) + 128 + brightness;
+        let newB = ((b - 128) * contrast) + 128 + brightness;
+        
+        const saturation = 1.2;
+        const gray = 0.299 * newR + 0.587 * newG + 0.114 * newB;
+        newR = gray + (newR - gray) * saturation;
+        newG = gray + (newG - gray) * saturation;
+        newB = gray + (newB - gray) * saturation;
+        
+        data[i] = Math.max(0, Math.min(255, newR));
+        data[i + 1] = Math.max(0, Math.min(255, newG));
+        data[i + 2] = Math.max(0, Math.min(255, newB));
+    }
+    
+    return imageData;
+}
+
+function enhanceCanvas(sourceCanvas) {
+    if (!state.enhanceEnabled) return sourceCanvas;
+    
+    const canvas = document.createElement('canvas');
+    canvas.width = sourceCanvas.width;
+    canvas.height = sourceCanvas.height;
+    const ctx = canvas.getContext('2d');
+    
+    ctx.drawImage(sourceCanvas, 0, 0);
+    
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const enhancedData = applyEnhanceFilter(imageData);
+    ctx.putImageData(enhancedData, 0, 0);
+    
+    return canvas;
 }
 
 // 保存画布
@@ -1291,7 +1540,7 @@ function expandSidebar() {
     }
     
     sidebarElement.innerHTML = `
-        <div class="sidebar-header">图片列表</div>
+        <div class="sidebar-header"><span class="sidebar-header-text">图片列表</span></div>
         <div class="sidebar-content">
             ${imageListHTML}
         </div>
@@ -1324,7 +1573,19 @@ function expandSidebar() {
 
 function selectImage(index) {
     if (index < 0 || index >= state.imageList.length) return;
-    if (index === state.currentImageIndex && state.currentImage) return;
+    
+    if (index === state.currentImageIndex && state.currentImage) {
+        state.currentImageIndex = -1;
+        state.currentImage = null;
+        clearImageLayer();
+        clearDrawCanvas();
+        openCamera();
+        updateSidebarSelection();
+        updatePhotoButtonState();
+        updateEnhanceButtonState();
+        console.log('返回摄像头');
+        return;
+    }
     
     saveCurrentDrawData();
     saveCurrentFolderPageDrawData();
@@ -1348,6 +1609,7 @@ function selectImage(index) {
         restoreDrawData(index);
         updateSidebarSelection();
         updatePhotoButtonState();
+        updateEnhanceButtonState();
     };
     img.onerror = () => {
         console.error(`加载图片 ${index + 1} 失败`);
@@ -1508,7 +1770,7 @@ function expandFileSidebar() {
     }
     
     fileSidebarElement.innerHTML = `
-        <div class="sidebar-header">文件列表</div>
+        <div class="sidebar-header"><span class="sidebar-header-text">文件列表</span></div>
         <div class="sidebar-content">
             ${contentHTML}
         </div>
@@ -1555,8 +1817,9 @@ function openFolder(folderIndex) {
     
     sidebarHeader.innerHTML = `
         <button class="folder-back-btn" id="btnBackFolder">←</button>
-        ${folder.name}
+        <span class="sidebar-header-text">${folder.name}</span>
     `;
+    sidebarHeader.classList.add('has-back');
     
     let pagesHTML = '';
     folder.pages.forEach((page, index) => {
@@ -1589,7 +1852,8 @@ function openFolder(folderIndex) {
 function closeFolder() {
     const sidebarHeader = document.querySelector('.file-sidebar .sidebar-header');
     if (sidebarHeader) {
-        sidebarHeader.textContent = '文件列表';
+        sidebarHeader.innerHTML = '<span class="sidebar-header-text">文件列表</span>';
+        sidebarHeader.classList.remove('has-back');
     }
     
     updateFileSidebarContent();
@@ -1621,6 +1885,7 @@ function selectFolderPage(folderIndex, pageIndex) {
         restoreFolderPageDrawData(folderIndex, pageIndex);
         updateFolderPageSelection(folderIndex, pageIndex);
         updatePhotoButtonState();
+        updateEnhanceButtonState();
     };
     img.src = page.full;
     
@@ -1877,6 +2142,7 @@ async function openCamera() {
         createCameraVideo();
         createCameraControls();
         clearSidebarSelection();
+        updateEnhanceButtonState();
         
         console.log('摄像头已打开');
     } catch (error) {
@@ -1949,10 +2215,19 @@ function startCameraPreview() {
             const videoH = video.videoHeight;
             
             if (videoW && videoH) {
-                const videoRatio = videoW / videoH;
+                const canvasW = DRAW_CONFIG.canvasW;
+                const canvasH = DRAW_CONFIG.canvasH;
+                
+                const rotation = state.cameraRotation;
+                const isRotated = rotation === 90 || rotation === 270;
+                
+                let effectiveVideoW = isRotated ? videoH : videoW;
+                let effectiveVideoH = isRotated ? videoW : videoH;
+                
+                const videoRatio = effectiveVideoW / effectiveVideoH;
                 const screenRatio = screenW / screenH;
                 
-                let drawW, drawH, drawX, drawY;
+                let drawW, drawH;
                 
                 if (videoRatio > screenRatio) {
                     drawW = screenW;
@@ -1962,18 +2237,24 @@ function startCameraPreview() {
                     drawW = screenH * videoRatio;
                 }
                 
-                const canvasW = DRAW_CONFIG.canvasW;
-                const canvasH = DRAW_CONFIG.canvasH;
-                
-                drawX = (canvasW - drawW) / 2;
-                drawY = (canvasH - drawH) / 2;
+                const drawX = (canvasW - drawW) / 2;
+                const drawY = (canvasH - drawH) / 2;
                 
                 dom.imageCtx.save();
+                dom.imageCtx.translate(canvasW / 2, canvasH / 2);
+                
                 if (state.isMirrored) {
-                    dom.imageCtx.translate(canvasW, 0);
                     dom.imageCtx.scale(-1, 1);
                 }
-                dom.imageCtx.drawImage(video, drawX, drawY, drawW, drawH);
+                
+                dom.imageCtx.rotate(rotation * Math.PI / 180);
+                
+                if (isRotated) {
+                    dom.imageCtx.drawImage(video, -drawH / 2, -drawW / 2, drawH, drawW);
+                } else {
+                    dom.imageCtx.drawImage(video, -drawW / 2, -drawH / 2, drawW, drawH);
+                }
+                
                 dom.imageCtx.restore();
             }
         }
@@ -2007,6 +2288,7 @@ function closeCamera() {
     }
     
     updatePhotoButtonState();
+    updateEnhanceButtonState();
     
     if (state.currentImage && state.currentImageIndex >= 0) {
         drawImageToCenter(state.currentImage);
@@ -2033,8 +2315,52 @@ async function captureCamera() {
     
     tempCtx.drawImage(video, 0, 0);
     
+    if (state.isMirrored) {
+        tempCtx.setTransform(1, 0, 0, 1, 0, 0);
+    }
+    
+    let finalCanvas = tempCanvas;
+    if (state.enhanceEnabled) {
+        const imageData = tempCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
+        const enhancedData = applyEnhanceFilter(imageData);
+        tempCtx.putImageData(enhancedData, 0, 0);
+    }
+    
+    const dataUrl = finalCanvas.toDataURL('image/png');
+    
+    if (window.__TAURI__ && cdsDir) {
+        try {
+            const { fs } = window.__TAURI__;
+            const now = new Date();
+            const dateStr = now.toISOString().slice(0, 10);
+            const timeStr = now.toTimeString().slice(0, 8).replace(/:/g, '-');
+            
+            const dateDir = `${cdsDir}/${dateStr}`;
+            
+            try {
+                await fs.mkdir(dateDir, { recursive: true });
+            } catch (e) {
+            }
+            
+            const fileName = `photo_${timeStr}.png`;
+            const filePath = `${dateDir}/${fileName}`;
+            
+            const base64Data = dataUrl.split(',')[1];
+            const binaryString = atob(base64Data);
+            const bytes = new Uint8Array(binaryString.length);
+            for (let i = 0; i < binaryString.length; i++) {
+                bytes[i] = binaryString.charCodeAt(i);
+            }
+            
+            await fs.writeFile(filePath, bytes);
+            console.log('图片已保存到:', filePath);
+        } catch (error) {
+            console.error('保存图片失败:', error);
+        }
+    }
+    
     const img = new Image();
-    img.src = tempCanvas.toDataURL('image/png');
+    img.src = dataUrl;
     img.onload = () => {
         addImageToListNoHighlight(img, `拍摄${state.imageList.length + 1}`);
         expandSidebarIfCollapsed();
@@ -2045,6 +2371,9 @@ async function captureCamera() {
 function expandSidebarIfCollapsed() {
     const sidebar = document.querySelector('.sidebar');
     if (!sidebar) {
+        expandSidebar();
+    } else if (sidebar.classList.contains('file-sidebar')) {
+        sidebar.remove();
         expandSidebar();
     }
 }
