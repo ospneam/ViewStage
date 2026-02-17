@@ -24,8 +24,8 @@ jobs:
           target: x86_64-pc-windows-msvc # 本地Windows默认编译目标
 
       # 3. 安装cargo-tauri CLI工具（核心修复步骤！）
-      - name: Install cargo-tauri
-        run: cargo install cargo-tauri --locked
+      - name: Install tauri-cli
+        run: cargo install tauri-cli --locked
 
 
       # 4. 缓存Rust依赖（加速cargo build，和本地cargo缓存逻辑一致）
