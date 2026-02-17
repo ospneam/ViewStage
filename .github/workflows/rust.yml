@@ -23,18 +23,23 @@ jobs:
           toolchain: stable
           target: x86_64-pc-windows-msvc # 本地Windows默认编译目标
 
-      # 3. 缓存Rust依赖（加速cargo build，和本地cargo缓存逻辑一致）
+      # 3. 安装cargo-tauri CLI工具（核心修复步骤！）
+      - name: Install cargo-tauri
+        run: cargo install cargo-tauri --locked
+
+
+      # 4. 缓存Rust依赖（加速cargo build，和本地cargo缓存逻辑一致）
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: './src-tauri -> target'
 
-      # 4. 执行和本地完全一致的编译命令（核心步骤）
+      # 5. 执行和本地完全一致的编译命令（核心步骤）
       - name: Build Tauri app with cargo tauri build --release
         run: cargo tauri build --release
         working-directory: . # 确保在项目根目录执行，和本地一致
 
-      # 5. 上传Windows编译产物（和本地target目录输出一致）
+      # 6. 上传Windows编译产物（和本地target目录输出一致）
       - name: Upload Windows build artifacts
         uses: actions/upload-artifact@v4
         with:
