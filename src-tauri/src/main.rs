@@ -2,5 +2,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    classroom_document_station_lib::run()
+    viewstage_lib::run()
 }
