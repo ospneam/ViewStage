@@ -43,6 +43,19 @@
                 </div>
             </div>
             
+            <!-- 设置面板 -->
+            <div class="settings-panel" id="settingsPanel">
+                <div class="settings-row">
+                    <span class="settings-label">旋转：</span>
+                    <button class="settings-btn" id="btnRotateLeft" title="向左旋转">
+                        ↺
+                    </button>
+                    <button class="settings-btn" id="btnRotateRight" title="向右旋转">
+                        ↻
+                    </button>
+                </div>
+            </div>
+            
             <!-- 底部工具栏 -->
             <div class="toolbar">
                 <div class="toolbar-left">
@@ -87,7 +100,12 @@
                         <img src="assets/tauri.svg" width="16" height="16" alt="拍照" style="filter: invert(1);">
                         拍照
                     </button>
-                    <div class="toolbar-separator"></div>
+                    <div class="toolbar-separator enhance-separator"></div>
+                    <button class="toolbar-btn function-btn enhance-btn" id="btnEnhance">
+                        <img src="assets/tauri.svg" width="16" height="16" alt="文档增强" style="filter: invert(1);">
+                        文档增强
+                    </button>
+                    <div class="toolbar-separator enhance-separator"></div>
                     <button class="toolbar-btn function-btn" id="btnSettings">
                         <img src="assets/tauri.svg" width="16" height="16" alt="设置" style="filter: invert(1);">
                         设置
