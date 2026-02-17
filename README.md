@@ -1,6 +1,6 @@
 # ViewStage
 
-一个基于 Tauri 构建的轻量级桌面应用，采用原生 HTML、CSS 和 JavaScript 开发，提供简洁高效的视频/文档展示功能。
+一个基于 Tauri 构建的摄像头及PDF展台应用，采用原生 HTML、CSS 和 JavaScript 开发，提供简洁高效的课堂及其他用途的全屏展台。
 
 ## 技术栈
 
@@ -11,33 +11,32 @@
 ## 功能特点
 
 - 🚀 **轻量高性能**：基于 Tauri 框架，应用体积小、启动快、内存占用低
-- 🖥️ **跨平台支持**：可编译为 Windows、macOS、Linux 多平台安装包
 - 🎨 **原生 UI 体验**：使用系统原生 WebView，提供流畅的桌面应用交互
 - 📦 **开箱即用**：无复杂前端框架依赖，代码结构清晰易维护
 
 ## 快速开始
+ - 前往release下载最新安装包
+ - 下一步、下一步~~~~ 直到安装完成
+ - 尽情使用吧
 
-### 环境要求
+### 开发环境要求
 - Node.js（推荐 20.x）
 - Rust（稳定版）
 - Tauri CLI
 
-## 项目结构
+## 项目进展
+项目还在施工，很多功能可能还没有写完，很多图标都是随便搞的，后面还会换
+ - ✅批注
+ - ✅触控
+ - ✅PDF打开
+ - ✅允许PDF以ViewStage为默认打开程序
+ - ✅在拍摄时实现文档增强（ps：实时实现增强太卡了）
+ - ✅允许从外部导入图片
+ - ❎图标完善
+ - ❎设置
+ - ❎笔颜色
+ - ❓更多功能(欢迎到issues提交(*^_^*))
 
-```
-ViewStage/
-├── .github/workflows/    # GitHub Actions 自动编译配置
-├── src-tauri/            # Tauri Rust 后端代码
-│   ├── src/              # Rust 源码
-│   ├── Cargo.toml        # Rust 依赖配置
-│   └── Cargo.lock        # Rust 依赖锁定文件
-├── src/                  # 前端代码
-│   ├── assets/           # 静态资源（图片、脚本等）
-│   └── ...               # HTML/CSS/JS 文件
-├── .gitignore            # Git 忽略文件
-├── LICENSE               # 许可证
-└── README.md             # 项目说明
-```
 ## 许可证
 
 本项目采用开源许可证，详见 [LICENSE](https://github.com/ospneam/ViewStage/blob/main/LICENSE) 文件。
