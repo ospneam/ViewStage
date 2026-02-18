@@ -346,7 +346,7 @@ async function loadPdfFromPath(filePath) {
             }).promise;
             
             const fullImage = canvas.toDataURL('image/png');
-            const thumbnail = await generateThumbnail(fullImage, 150);
+            const thumbnail = await generateThumbnail(fullImage, 150, false);
             
             folder.pages.push({
                 full: fullImage,
@@ -1321,7 +1321,7 @@ function hideSettingsPanel() {
     dom.settingsPanel.classList.remove('visible');
 }
 
-function rotateImage(direction) {
+async function rotateImage(direction) {
     if (state.isCameraOpen) {
         if (direction === 'left') {
             state.cameraRotation = (state.cameraRotation - 90 + 360) % 360;
@@ -1337,21 +1337,22 @@ function rotateImage(direction) {
         return;
     }
     
-    const canvas = document.createElement('canvas');
-    const ctx = canvas.getContext('2d');
+    let rotatedDataUrl;
     
-    if (direction === 'left') {
-        canvas.width = state.currentImage.height;
-        canvas.height = state.currentImage.width;
-        ctx.translate(canvas.width / 2, canvas.height / 2);
-        ctx.rotate(-Math.PI / 2);
-        ctx.drawImage(state.currentImage, -state.currentImage.width / 2, -state.currentImage.height / 2);
+    if (window.__TAURI__) {
+        try {
+            const { invoke } = window.__TAURI__.core;
+            rotatedDataUrl = await invoke('rotate_image', { 
+                imageData: state.currentImage.src, 
+                direction: direction 
+            });
+            console.log('Rust 图片旋转完成');
+        } catch (error) {
+            console.error('Rust 图片旋转失败，使用前端降级方案:', error);
+            rotatedDataUrl = rotateImageFallback(state.currentImage, direction);
+        }
     } else {
-        canvas.width = state.currentImage.height;
-        canvas.height = state.currentImage.width;
-        ctx.translate(canvas.width / 2, canvas.height / 2);
-        ctx.rotate(Math.PI / 2);
-        ctx.drawImage(state.currentImage, -state.currentImage.width / 2, -state.currentImage.height / 2);
+        rotatedDataUrl = rotateImageFallback(state.currentImage, direction);
     }
     
     const rotatedImg = new Image();
@@ -1372,7 +1373,28 @@ function rotateImage(direction) {
         drawImageToCenter(rotatedImg);
         console.log(`图片已向${direction === 'left' ? '左' : '右'}旋转`);
     };
-    rotatedImg.src = canvas.toDataURL('image/png');
+    rotatedImg.src = rotatedDataUrl;
+}
+
+function rotateImageFallback(img, direction) {
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    
+    if (direction === 'left') {
+        canvas.width = img.height;
+        canvas.height = img.width;
+        ctx.translate(canvas.width / 2, canvas.height / 2);
+        ctx.rotate(-Math.PI / 2);
+        ctx.drawImage(img, -img.width / 2, -img.height / 2);
+    } else {
+        canvas.width = img.height;
+        canvas.height = img.width;
+        ctx.translate(canvas.width / 2, canvas.height / 2);
+        ctx.rotate(Math.PI / 2);
+        ctx.drawImage(img, -img.width / 2, -img.height / 2);
+    }
+    
+    return canvas.toDataURL('image/png');
 }
 
 function toggleEnhance() {
@@ -1459,13 +1481,14 @@ function enhanceCanvas(sourceCanvas) {
     return canvas;
 }
 
-async function generateThumbnail(imageData, maxSize = 150) {
+async function generateThumbnail(imageData, maxSize = 150, fixedRatio = true) {
     if (window.__TAURI__) {
         try {
             const { invoke } = window.__TAURI__.core;
             const thumbnail = await invoke('generate_thumbnail', { 
                 imageData: imageData, 
-                maxSize: maxSize 
+                maxSize: maxSize,
+                fixedRatio: fixedRatio
             });
             return thumbnail;
         } catch (error) {
@@ -1473,28 +1496,55 @@ async function generateThumbnail(imageData, maxSize = 150) {
         }
     }
     
-    return generateThumbnailFallback(imageData, maxSize);
+    return generateThumbnailFallback(imageData, maxSize, fixedRatio);
 }
 
-function generateThumbnailFallback(imageData, maxSize = 150) {
+function generateThumbnailFallback(imageData, maxSize = 150, fixedRatio = true) {
     const img = new Image();
     img.src = imageData;
     
-    const thumbCanvas = document.createElement('canvas');
-    let thumbW, thumbH;
+    let thumbW, thumbH, scaledW, scaledH, offsetX, offsetY;
     
-    if (img.width > img.height) {
+    if (fixedRatio) {
         thumbW = maxSize;
-        thumbH = (img.height / img.width) * maxSize;
+        thumbH = Math.round(maxSize * 9 / 16);
+        
+        const imgRatio = img.width / img.height;
+        const canvasRatio = 16 / 9;
+        
+        if (imgRatio > canvasRatio) {
+            scaledW = thumbW;
+            scaledH = thumbW / imgRatio;
+        } else {
+            scaledH = thumbH;
+            scaledW = thumbH * imgRatio;
+        }
+        
+        offsetX = (thumbW - scaledW) / 2;
+        offsetY = (thumbH - scaledH) / 2;
     } else {
-        thumbH = maxSize;
-        thumbW = (img.width / img.height) * maxSize;
+        if (img.width > img.height) {
+            thumbW = maxSize;
+            thumbH = (img.height / img.width) * maxSize;
+        } else {
+            thumbH = maxSize;
+            thumbW = (img.width / img.height) * maxSize;
+        }
+        scaledW = thumbW;
+        scaledH = thumbH;
+        offsetX = 0;
+        offsetY = 0;
     }
     
+    const thumbCanvas = document.createElement('canvas');
     thumbCanvas.width = thumbW;
     thumbCanvas.height = thumbH;
     const thumbCtx = thumbCanvas.getContext('2d');
-    thumbCtx.drawImage(img, 0, 0, thumbW, thumbH);
+    
+    thumbCtx.fillStyle = '#000000';
+    thumbCtx.fillRect(0, 0, thumbW, thumbH);
+    
+    thumbCtx.drawImage(img, offsetX, offsetY, scaledW, scaledH);
     
     return thumbCanvas.toDataURL('image/jpeg', 0.7);
 }
@@ -2075,7 +2125,7 @@ function importPDF() {
                 }).promise;
                 
                 const fullImage = canvas.toDataURL('image/png');
-                const thumbnail = await generateThumbnail(fullImage, 150);
+                const thumbnail = await generateThumbnail(fullImage, 150, false);
                 
                 folder.pages.push({
                     full: fullImage,

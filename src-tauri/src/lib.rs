@@ -69,7 +69,7 @@ fn apply_enhance_filter(img: &DynamicImage) -> DynamicImage {
 }
 
 #[tauri::command]
-fn generate_thumbnail(image_data: String, max_size: u32) -> Result<String, String> {
+fn generate_thumbnail(image_data: String, max_size: u32, fixed_ratio: bool) -> Result<String, String> {
     let base64_data = if image_data.starts_with("data:image") {
         image_data.split(',')
             .nth(1)
@@ -88,20 +88,95 @@ fn generate_thumbnail(image_data: String, max_size: u32) -> Result<String, Strin
     
     let (width, height) = (img.width(), img.height());
     
-    let (thumb_w, thumb_h) = if width > height {
-        (max_size, (height as f32 * max_size as f32 / width as f32) as u32)
+    let (thumb_w, thumb_h, scaled_w, scaled_h, offset_x, offset_y) = if fixed_ratio {
+        let tw = max_size;
+        let th = (max_size as f32 * 9.0 / 16.0) as u32;
+        
+        let mut canvas: ImageBuffer<Rgba<u8>, Vec<u8>> = ImageBuffer::new(tw, th);
+        
+        for pixel in canvas.pixels_mut() {
+            *pixel = Rgba([0, 0, 0, 255]);
+        }
+        
+        let img_ratio = width as f32 / height as f32;
+        let canvas_ratio = 16.0 / 9.0;
+        
+        let (sw, sh) = if img_ratio > canvas_ratio {
+            (tw, (tw as f32 / img_ratio) as u32)
+        } else {
+            ((th as f32 * img_ratio) as u32, th)
+        };
+        
+        let ox = (tw - sw) / 2;
+        let oy = (th - sh) / 2;
+        
+        (tw, th, sw, sh, ox, oy)
     } else {
-        ((width as f32 * max_size as f32 / height as f32) as u32, max_size)
+        let (tw, th) = if width > height {
+            (max_size, (height as f32 * max_size as f32 / width as f32) as u32)
+        } else {
+            ((width as f32 * max_size as f32 / height as f32) as u32, max_size)
+        };
+        
+        (tw, th, tw, th, 0, 0)
     };
     
-    let thumbnail = img.thumbnail(thumb_w, thumb_h);
+    let scaled_img = img.thumbnail(scaled_w, scaled_h);
+    
+    let mut canvas: ImageBuffer<Rgba<u8>, Vec<u8>> = ImageBuffer::new(thumb_w, thumb_h);
+    
+    for pixel in canvas.pixels_mut() {
+        *pixel = Rgba([0, 0, 0, 255]);
+    }
+    
+    for (x, y, pixel) in scaled_img.pixels() {
+        let canvas_x = x + offset_x;
+        let canvas_y = y + offset_y;
+        if canvas_x < thumb_w && canvas_y < thumb_h {
+            canvas.put_pixel(canvas_x, canvas_y, pixel);
+        }
+    }
     
     let mut buffer = Vec::new();
-    thumbnail
+    DynamicImage::ImageRgba8(canvas)
         .write_to(&mut std::io::Cursor::new(&mut buffer), image::ImageFormat::Jpeg)
         .map_err(|e| format!("Failed to encode thumbnail: {}", e))?;
     
     let result = format!("data:image/jpeg;base64,{}", general_purpose::STANDARD.encode(&buffer));
+    
+    Ok(result)
+}
+
+#[tauri::command]
+fn rotate_image(image_data: String, direction: String) -> Result<String, String> {
+    let base64_data = if image_data.starts_with("data:image") {
+        image_data.split(',')
+            .nth(1)
+            .ok_or("Invalid base64 image data")?
+            .to_string()
+    } else {
+        image_data
+    };
+    
+    let decoded = general_purpose::STANDARD
+        .decode(&base64_data)
+        .map_err(|e| format!("Failed to decode base64: {}", e))?;
+    
+    let img = image::load_from_memory(&decoded)
+        .map_err(|e| format!("Failed to load image: {}", e))?;
+    
+    let rotated = if direction == "left" {
+        img.rotate270()
+    } else {
+        img.rotate90()
+    };
+    
+    let mut buffer = Vec::new();
+    rotated
+        .write_to(&mut std::io::Cursor::new(&mut buffer), image::ImageFormat::Png)
+        .map_err(|e| format!("Failed to encode rotated image: {}", e))?;
+    
+    let result = format!("data:image/png;base64,{}", general_purpose::STANDARD.encode(&buffer));
     
     Ok(result)
 }
@@ -200,7 +275,7 @@ pub fn run() {
             
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![greet, get_cache_dir, get_config_dir, get_cds_dir, enhance_image, generate_thumbnail])
+        .invoke_handler(tauri::generate_handler![greet, get_cache_dir, get_config_dir, get_cds_dir, enhance_image, generate_thumbnail, rotate_image])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
