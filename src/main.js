@@ -197,85 +197,6 @@ function listenForPdfFileOpen() {
     });
 }
 
-// 缓存数据保存和加载
-async function saveCacheData(key, data) {
-    if (!cacheDir || !window.__TAURI__) return;
-    
-    try {
-        const { fs } = window.__TAURI__;
-        const filePath = `${cacheDir}/${key}.json`;
-        const jsonData = JSON.stringify(data);
-        await fs.writeTextFile(filePath, jsonData);
-        console.log(`缓存已保存: ${key}`);
-    } catch (error) {
-        console.error(`保存缓存失败: ${key}`, error);
-    }
-}
-
-async function loadCacheData(key) {
-    if (!cacheDir || !window.__TAURI__) return null;
-    
-    try {
-        const { fs } = window.__TAURI__;
-        const filePath = `${cacheDir}/${key}.json`;
-        const jsonData = await fs.readTextFile(filePath);
-        console.log(`缓存已加载: ${key}`);
-        return JSON.parse(jsonData);
-    } catch (error) {
-        console.log(`加载缓存失败或不存在: ${key}`);
-        return null;
-    }
-}
-
-async function clearCacheData(key) {
-    if (!cacheDir || !window.__TAURI__) return;
-    
-    try {
-        const { fs } = window.__TAURI__;
-        const filePath = `${cacheDir}/${key}.json`;
-        await fs.removeFile(filePath);
-        console.log(`缓存已清除: ${key}`);
-    } catch (error) {
-        console.log(`清除缓存失败或不存在: ${key}`);
-    }
-}
-
-// 保存应用状态到缓存
-async function saveAppState() {
-    const appState = {
-        imageList: state.imageList.map(img => ({
-            ...img,
-            drawData: null
-        })),
-        fileList: state.fileList.map(folder => ({
-            ...folder,
-            pages: folder.pages.map(page => ({
-                ...page,
-                drawData: null
-            }))
-        })),
-        currentImageIndex: state.currentImageIndex,
-        currentFolderIndex: state.currentFolderIndex,
-        currentFolderPageIndex: state.currentFolderPageIndex
-    };
-    
-    await saveCacheData('app_state', appState);
-}
-
-// 从缓存加载应用状态
-async function loadAppState() {
-    const appState = await loadCacheData('app_state');
-    if (appState) {
-        state.imageList = appState.imageList || [];
-        state.fileList = appState.fileList || [];
-        state.currentImageIndex = appState.currentImageIndex ?? -1;
-        state.currentFolderIndex = appState.currentFolderIndex ?? -1;
-        state.currentFolderPageIndex = appState.currentFolderPageIndex ?? -1;
-        return true;
-    }
-    return false;
-}
-
 async function loadPdfFromPath(filePath) {
     if (state.isCameraOpen) {
         closeCamera();
@@ -1464,23 +1385,6 @@ function applyEnhanceFilter(imageData) {
     return imageData;
 }
 
-function enhanceCanvas(sourceCanvas) {
-    if (!state.enhanceEnabled) return sourceCanvas;
-    
-    const canvas = document.createElement('canvas');
-    canvas.width = sourceCanvas.width;
-    canvas.height = sourceCanvas.height;
-    const ctx = canvas.getContext('2d');
-    
-    ctx.drawImage(sourceCanvas, 0, 0);
-    
-    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    const enhancedData = applyEnhanceFilter(imageData);
-    ctx.putImageData(enhancedData, 0, 0);
-    
-    return canvas;
-}
-
 async function generateThumbnail(imageData, maxSize = 150, fixedRatio = true) {
     if (window.__TAURI__) {
         try {
@@ -1547,25 +1451,6 @@ function generateThumbnailFallback(imageData, maxSize = 150, fixedRatio = true) 
     thumbCtx.drawImage(img, offsetX, offsetY, scaledW, scaledH);
     
     return thumbCanvas.toDataURL('image/jpeg', 0.7);
-}
-
-// 保存画布
-function saveCanvas() {
-    console.log('保存画布');
-    const mergedCanvas = document.createElement('canvas');
-    mergedCanvas.width = DRAW_CONFIG.canvasW * DRAW_CONFIG.dpr;
-    mergedCanvas.height = DRAW_CONFIG.canvasH * DRAW_CONFIG.dpr;
-    const mergedCtx = mergedCanvas.getContext('2d');
-    mergedCtx.scale(DRAW_CONFIG.dpr, DRAW_CONFIG.dpr);
-    
-    mergedCtx.drawImage(dom.bgCanvas, 0, 0, DRAW_CONFIG.canvasW, DRAW_CONFIG.canvasH);
-    mergedCtx.drawImage(dom.imageCanvas, 0, 0, DRAW_CONFIG.canvasW, DRAW_CONFIG.canvasH);
-    mergedCtx.drawImage(dom.drawCanvas, 0, 0, DRAW_CONFIG.canvasW, DRAW_CONFIG.canvasH);
-    
-    const link = document.createElement('a');
-    link.download = `canvas_${Date.now()}.png`;
-    link.href = mergedCanvas.toDataURL('image/png');
-    link.click();
 }
 
 // 侧边栏事件
@@ -2624,10 +2509,4 @@ function drawImageToCenter(img) {
 
 function clearImageLayer() {
     dom.imageCtx.clearRect(0, 0, DRAW_CONFIG.canvasW, DRAW_CONFIG.canvasH);
-}
-
-function removeCurrentImage() {
-    state.currentImage = null;
-    clearImageLayer();
-    console.log('图像已移除');
 }
