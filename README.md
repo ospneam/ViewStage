@@ -1,12 +1,22 @@
-# ViewStage
+<div align="center">
+   <img src="https://github.com/ospneam/ViewStage/blob/main/src-tauri/icons/Square1024x1024Logo.png" width=15%>
+   <h1>ViewStage</h1>
+   <p>一个基于 Tauri 构建的摄像头及PDF展台应用，采用原生 HTML、CSS 和 JavaScript 开发，提供简洁高效的课堂及其他用途的全屏展台。</p>
+</div>
 
-一个基于 Tauri 构建的摄像头及PDF展台应用，采用原生 HTML、CSS 和 JavaScript 开发，提供简洁高效的课堂及其他用途的全屏展台。
+>[!IMPORTANT]
+>本项目目前还在开发中，若需要长时间允许在教学环境中，请先进行测试
+>若出现问题，欢迎到issues中提交，我看到后会火速进行修复
 
 ## 技术栈
 
 - **前端**：Vanilla HTML 5 + CSS 3 + JavaScript（无框架依赖）
 - **后端**：Rust + Tauri
 - **构建工具**：Cargo
+
+> [!IMPORTANT]
+>这个应用部分使用了Tare编写与进行性能优化、检测
+>>若您介意或排斥，请无视次项目，感谢(❁´◡`❁)
 
 ## 功能特点
 
@@ -38,5 +48,4 @@
  - ❓更多功能(欢迎到issues提交(*^_^*))
 
 ## 许可证
-
 本项目采用开源许可证，详见 [LICENSE](https://github.com/ospneam/ViewStage/blob/main/LICENSE) 文件。
