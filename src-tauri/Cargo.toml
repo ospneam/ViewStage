@@ -27,4 +27,5 @@ dirs = "5"
 image = "0.25"
 base64 = "0.22"
 rayon = "1.10"
+chrono = "0.4"
 

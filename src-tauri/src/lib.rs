@@ -1,10 +1,76 @@
-// Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
+//! ViewStage - 图像处理 Rust 后端
+//! 
+//! 功能模块：
+//! - 图像增强 (enhance_image)
+//! - 缩略图生成 (generate_thumbnail, generate_thumbnails_batch)
+//! - 图像旋转 (rotate_image)
+//! - 图片保存 (save_image, save_images_batch)
+//! - 笔画压缩 (compact_strokes)
 
 use tauri::{Manager, Emitter};
-use image::{DynamicImage, ImageBuffer, Rgba, GenericImageView};
+use image::{DynamicImage, ImageBuffer, Rgba, GenericImageView, RgbaImage};
 use base64::{Engine as _, engine::general_purpose};
 use rayon::prelude::*;
+use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 
+// ==================== 数据结构 ====================
+
+/// 图片保存结果
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ImageSaveResult {
+    pub path: String,                    // 保存路径
+    pub success: bool,                   // 是否成功
+    pub error: Option<String>,           // 错误信息
+    pub enhanced_data: Option<String>,   // 增强后的图片数据 (base64)
+}
+
+/// 图片数据 (用于批量操作)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ImageData {
+    pub data: String,           // base64 图片数据
+    pub name: Option<String>,   // 文件名前缀
+}
+
+/// 笔画点 (线段)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StrokePoint {
+    pub from_x: f32,
+    pub from_y: f32,
+    pub to_x: f32,
+    pub to_y: f32,
+}
+
+/// 笔画 (绘制或擦除)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Stroke {
+    #[serde(rename = "type")]
+    pub stroke_type: String,            // "draw" 或 "erase"
+    pub points: Vec<StrokePoint>,       // 线段点集合
+    pub color: Option<String>,          // 颜色 (#RRGGBB)
+    pub line_width: Option<u32>,        // 线宽
+    pub eraser_size: Option<u32>,       // 橡皮大小
+}
+
+/// 笔画压缩请求
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CompactStrokesRequest {
+    pub base_image: Option<String>,     // 基础图片 (base64)
+    pub strokes: Vec<Stroke>,           // 待压缩笔画
+    pub canvas_width: u32,              // 画布宽度
+    pub canvas_height: u32,             // 画布高度
+}
+
+/// 缩略图请求
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ThumbnailRequest {
+    pub image_data: String,     // 原图数据
+    pub name: Option<String>,   // 文件名
+}
+
+// ==================== 工具函数 ====================
+
+/// 解码 base64 图片
 fn decode_base64_image(image_data: &str) -> Result<DynamicImage, String> {
     let base64_data = if image_data.starts_with("data:image") {
         image_data.split(',')
@@ -23,6 +89,9 @@ fn decode_base64_image(image_data: &str) -> Result<DynamicImage, String> {
         .map_err(|e| format!("Failed to load image: {}", e))
 }
 
+// ==================== 图像增强 ====================
+
+/// 图像增强命令 (对比度、亮度、饱和度调整)
 #[tauri::command]
 fn enhance_image(image_data: String) -> Result<String, String> {
     let img = decode_base64_image(&image_data)?;
@@ -39,6 +108,10 @@ fn enhance_image(image_data: String) -> Result<String, String> {
     Ok(result)
 }
 
+/// 应用图像增强滤镜 (并行处理)
+/// - 对比度: 1.4x
+/// - 亮度: +10
+/// - 饱和度: 1.2x
 fn apply_enhance_filter(img: &DynamicImage) -> DynamicImage {
     let (width, height) = (img.width(), img.height());
     let contrast: f32 = 1.4;
@@ -80,6 +153,12 @@ fn apply_enhance_filter(img: &DynamicImage) -> DynamicImage {
     DynamicImage::ImageRgba8(enhanced_img)
 }
 
+// ==================== 缩略图生成 ====================
+
+/// 生成单张缩略图
+/// @param image_data: 原图 base64
+/// @param max_size: 最大边长
+/// @param fixed_ratio: 是否固定 16:9 比例
 #[tauri::command]
 fn generate_thumbnail(image_data: String, max_size: u32, fixed_ratio: bool) -> Result<String, String> {
     let img = decode_base64_image(&image_data)?;
@@ -145,6 +224,11 @@ fn generate_thumbnail(image_data: String, max_size: u32, fixed_ratio: bool) -> R
     Ok(result)
 }
 
+// ==================== 图像旋转 ====================
+
+/// 旋转图像 (90度/270度)
+/// @param image_data: 原图 base64
+/// @param direction: "left" (270度) 或 "right" (90度)
 #[tauri::command]
 fn rotate_image(image_data: String, direction: String) -> Result<String, String> {
     let img = decode_base64_image(&image_data)?;
@@ -165,6 +249,9 @@ fn rotate_image(image_data: String, direction: String) -> Result<String, String>
     Ok(result)
 }
 
+// ==================== 系统目录 ====================
+
+/// 获取应用缓存目录
 #[tauri::command]
 fn get_cache_dir(app: tauri::AppHandle) -> Result<String, String> {
     let cache_dir = app.path().app_cache_dir()
@@ -178,6 +265,7 @@ fn get_cache_dir(app: tauri::AppHandle) -> Result<String, String> {
     Ok(cache_dir.to_string_lossy().to_string())
 }
 
+/// 获取应用配置目录
 #[tauri::command]
 fn get_config_dir(app: tauri::AppHandle) -> Result<String, String> {
     let config_dir = app.path().app_config_dir()
@@ -191,6 +279,7 @@ fn get_config_dir(app: tauri::AppHandle) -> Result<String, String> {
     Ok(config_dir.to_string_lossy().to_string())
 }
 
+/// 获取图片保存目录 (~/Pictures/ViewStage)
 #[tauri::command]
 fn get_cds_dir() -> Result<String, String> {
     let pictures_dir = dirs::picture_dir()
@@ -204,6 +293,479 @@ fn get_cds_dir() -> Result<String, String> {
     }
     
     Ok(cds_dir.to_string_lossy().to_string())
+}
+
+// ==================== 图片保存 ====================
+
+/// 提取 base64 数据
+fn extract_base64(image_data: &str) -> Result<Vec<u8>, String> {
+    let base64_data = if image_data.starts_with("data:image") {
+        image_data.split(',')
+            .nth(1)
+            .ok_or("Invalid base64 image data")?
+    } else {
+        image_data
+    };
+    
+    general_purpose::STANDARD
+        .decode(base64_data)
+        .map_err(|e| format!("Failed to decode base64: {}", e))
+}
+
+/// 生成保存路径
+/// - 按日期创建子目录: YYYY-MM-DD
+/// - 文件名格式: {prefix}_HH-MM-SS-SSS.{extension}
+fn get_save_path(base_dir: &str, prefix: &str, extension: &str) -> Result<(PathBuf, String), String> {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    
+    let now = chrono::Local::now();
+    let date_str = now.format("%Y-%m-%d").to_string();
+    let time_str = now.format("%H-%M-%S").to_string();
+    
+    let date_dir = PathBuf::from(base_dir).join(&date_str);
+    
+    if !date_dir.exists() {
+        std::fs::create_dir_all(&date_dir)
+            .map_err(|e| format!("Failed to create date directory: {}", e))?;
+    }
+    
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|e| format!("Failed to get timestamp: {}", e))?
+        .subsec_millis();
+    
+    let file_name = format!("{}_{}-{:03}.{}", prefix, time_str, timestamp, extension);
+    let file_path = date_dir.join(&file_name);
+    
+    Ok((file_path, file_name))
+}
+
+#[tauri::command]
+fn save_image(image_data: String, prefix: Option<String>) -> Result<ImageSaveResult, String> {
+    let base_dir = get_cds_dir()?;
+    let prefix_str = prefix.unwrap_or_else(|| "photo".to_string());
+    
+    let decoded = extract_base64(&image_data)?;
+    
+    let extension = if image_data.contains("image/png") {
+        "png"
+    } else if image_data.contains("image/jpeg") || image_data.contains("image/jpg") {
+        "jpg"
+    } else {
+        "png"
+    };
+    
+    let (file_path, _file_name) = get_save_path(&base_dir, &prefix_str, extension)?;
+    
+    std::fs::write(&file_path, &decoded)
+        .map_err(|e| format!("Failed to write image file: {}", e))?;
+    
+    Ok(ImageSaveResult {
+        path: file_path.to_string_lossy().to_string(),
+        success: true,
+        error: None,
+        enhanced_data: None,
+    })
+}
+
+#[tauri::command]
+fn save_image_with_enhance(image_data: String, prefix: Option<String>) -> Result<ImageSaveResult, String> {
+    let base_dir = get_cds_dir()?;
+    let prefix_str = prefix.unwrap_or_else(|| "photo".to_string());
+    
+    let img = decode_base64_image(&image_data)?;
+    
+    let enhanced = apply_enhance_filter(&img);
+    
+    let mut buffer = Vec::new();
+    enhanced
+        .write_to(&mut std::io::Cursor::new(&mut buffer), image::ImageFormat::Png)
+        .map_err(|e| format!("Failed to encode enhanced image: {}", e))?;
+    
+    let (file_path, _file_name) = get_save_path(&base_dir, &prefix_str, "png")?;
+    
+    std::fs::write(&file_path, &buffer)
+        .map_err(|e| format!("Failed to write enhanced image file: {}", e))?;
+    
+    let enhanced_data = format!("data:image/png;base64,{}", general_purpose::STANDARD.encode(&buffer));
+    
+    Ok(ImageSaveResult {
+        path: file_path.to_string_lossy().to_string(),
+        success: true,
+        error: None,
+        enhanced_data: Some(enhanced_data),
+    })
+}
+
+#[tauri::command]
+fn save_images_batch(images: Vec<ImageData>, prefix: Option<String>) -> Result<Vec<ImageSaveResult>, String> {
+    let base_dir = get_cds_dir()?;
+    let prefix_str = prefix.unwrap_or_else(|| "photo".to_string());
+    
+    let results: Vec<ImageSaveResult> = images
+        .par_iter()
+        .map(|img_data| {
+            let decoded = match extract_base64(&img_data.data) {
+                Ok(d) => d,
+                Err(e) => {
+                    return ImageSaveResult {
+                        path: String::new(),
+                        success: false,
+                        error: Some(e),
+                        enhanced_data: None,
+                    };
+                }
+            };
+            
+            let extension = if img_data.data.contains("image/png") {
+                "png"
+            } else if img_data.data.contains("image/jpeg") || img_data.data.contains("image/jpg") {
+                "jpg"
+            } else {
+                "png"
+            };
+            
+            let name_prefix = img_data.name.clone().unwrap_or_else(|| prefix_str.clone());
+            
+            let (file_path, _file_name) = match get_save_path(&base_dir, &name_prefix, extension) {
+                Ok(p) => p,
+                Err(e) => {
+                    return ImageSaveResult {
+                        path: String::new(),
+                        success: false,
+                        error: Some(e),
+                        enhanced_data: None,
+                    };
+                }
+            };
+            
+            match std::fs::write(&file_path, &decoded) {
+                Ok(_) => ImageSaveResult {
+                    path: file_path.to_string_lossy().to_string(),
+                    success: true,
+                    error: None,
+                    enhanced_data: None,
+                },
+                Err(e) => ImageSaveResult {
+                    path: String::new(),
+                    success: false,
+                    error: Some(format!("Failed to write file: {}", e)),
+                    enhanced_data: None,
+                },
+            }
+        })
+        .collect();
+    
+    Ok(results)
+}
+
+#[tauri::command]
+fn save_images_batch_with_enhance(images: Vec<ImageData>, prefix: Option<String>) -> Result<Vec<ImageSaveResult>, String> {
+    let base_dir = get_cds_dir()?;
+    let prefix_str = prefix.unwrap_or_else(|| "photo".to_string());
+    
+    let results: Vec<ImageSaveResult> = images
+        .par_iter()
+        .map(|img_data| {
+            let img = match decode_base64_image(&img_data.data) {
+                Ok(i) => i,
+                Err(e) => {
+                    return ImageSaveResult {
+                        path: String::new(),
+                        success: false,
+                        error: Some(e),
+                        enhanced_data: None,
+                    };
+                }
+            };
+            
+            let enhanced = apply_enhance_filter(&img);
+            
+            let mut buffer = Vec::new();
+            if let Err(e) = enhanced.write_to(&mut std::io::Cursor::new(&mut buffer), image::ImageFormat::Png) {
+                return ImageSaveResult {
+                    path: String::new(),
+                    success: false,
+                    error: Some(format!("Failed to encode image: {}", e)),
+                    enhanced_data: None,
+                };
+            }
+            
+            let name_prefix = img_data.name.clone().unwrap_or_else(|| prefix_str.clone());
+            
+            let (file_path, _file_name) = match get_save_path(&base_dir, &name_prefix, "png") {
+                Ok(p) => p,
+                Err(e) => {
+                    return ImageSaveResult {
+                        path: String::new(),
+                        success: false,
+                        error: Some(e),
+                        enhanced_data: None,
+                    };
+                }
+            };
+            
+            let enhanced_data = format!("data:image/png;base64,{}", general_purpose::STANDARD.encode(&buffer));
+            
+            match std::fs::write(&file_path, &buffer) {
+                Ok(_) => ImageSaveResult {
+                    path: file_path.to_string_lossy().to_string(),
+                    success: true,
+                    error: None,
+                    enhanced_data: Some(enhanced_data),
+                },
+                Err(e) => ImageSaveResult {
+                    path: String::new(),
+                    success: false,
+                    error: Some(format!("Failed to write file: {}", e)),
+                    enhanced_data: None,
+                },
+            }
+        })
+        .collect();
+    
+    Ok(results)
+}
+
+fn parse_color(color_str: &str) -> Rgba<u8> {
+    if color_str.starts_with('#') && color_str.len() == 7 {
+        let r = u8::from_str_radix(&color_str[1..3], 16).unwrap_or(52);
+        let g = u8::from_str_radix(&color_str[3..5], 16).unwrap_or(152);
+        let b = u8::from_str_radix(&color_str[5..7], 16).unwrap_or(219);
+        Rgba([r, g, b, 255])
+    } else {
+        Rgba([52, 152, 219, 255])
+    }
+}
+
+fn draw_line_on_canvas(canvas: &mut RgbaImage, x1: i32, y1: i32, x2: i32, y2: i32, color: Rgba<u8>, width: u32) {
+    let dx = (x2 - x1).abs();
+    let dy = (y2 - y1).abs();
+    let sx = if x1 < x2 { 1 } else { -1 };
+    let sy = if y1 < y2 { 1 } else { -1 };
+    let mut err = dx - dy;
+    let mut x = x1;
+    let mut y = y1;
+    
+    let half_width = (width / 2) as i32;
+    
+    loop {
+        for wx in -half_width..=half_width {
+            for wy in -half_width..=half_width {
+                let px = x + wx;
+                let py = y + wy;
+                if px >= 0 && py >= 0 && (px as u32) < canvas.width() && (py as u32) < canvas.height() {
+                    let dist = ((wx * wx + wy * wy) as f32).sqrt();
+                    if dist <= half_width as f32 {
+                        let pixel = canvas.get_pixel_mut(px as u32, py as u32);
+                        if color[3] == 255 {
+                            *pixel = color;
+                        } else {
+                            let alpha = color[3] as f32 / 255.0;
+                            let inv_alpha = 1.0 - alpha;
+                            pixel[0] = (color[0] as f32 * alpha + pixel[0] as f32 * inv_alpha) as u8;
+                            pixel[1] = (color[1] as f32 * alpha + pixel[1] as f32 * inv_alpha) as u8;
+                            pixel[2] = (color[2] as f32 * alpha + pixel[2] as f32 * inv_alpha) as u8;
+                        }
+                    }
+                }
+            }
+        }
+        
+        if x == x2 && y == y2 {
+            break;
+        }
+        
+        let e2 = 2 * err;
+        if e2 > -dy {
+            err -= dy;
+            x += sx;
+        }
+        if e2 < dx {
+            err += dx;
+            y += sy;
+        }
+    }
+}
+
+fn erase_line_on_canvas(canvas: &mut RgbaImage, x1: i32, y1: i32, x2: i32, y2: i32, width: u32) {
+    let dx = (x2 - x1).abs();
+    let dy = (y2 - y1).abs();
+    let sx = if x1 < x2 { 1 } else { -1 };
+    let sy = if y1 < y2 { 1 } else { -1 };
+    let mut err = dx - dy;
+    let mut x = x1;
+    let mut y = y1;
+    
+    let half_width = (width / 2) as i32;
+    
+    loop {
+        for wx in -half_width..=half_width {
+            for wy in -half_width..=half_width {
+                let px = x + wx;
+                let py = y + wy;
+                if px >= 0 && py >= 0 && (px as u32) < canvas.width() && (py as u32) < canvas.height() {
+                    let dist = ((wx * wx + wy * wy) as f32).sqrt();
+                    if dist <= half_width as f32 {
+                        let pixel = canvas.get_pixel_mut(px as u32, py as u32);
+                        pixel[3] = 0;
+                    }
+                }
+            }
+        }
+        
+        if x == x2 && y == y2 {
+            break;
+        }
+        
+        let e2 = 2 * err;
+        if e2 > -dy {
+            err -= dy;
+            x += sx;
+        }
+        if e2 < dx {
+            err += dx;
+            y += sy;
+        }
+    }
+}
+
+#[tauri::command]
+fn compact_strokes(request: CompactStrokesRequest) -> Result<String, String> {
+    let mut canvas: RgbaImage = ImageBuffer::new(request.canvas_width, request.canvas_height);
+    
+    for pixel in canvas.pixels_mut() {
+        *pixel = Rgba([0, 0, 0, 0]);
+    }
+    
+    if let Some(base_image_data) = request.base_image {
+        if let Ok(base_img) = decode_base64_image(&base_image_data) {
+            let base_rgba = base_img.to_rgba8();
+            for (x, y, pixel) in base_rgba.enumerate_pixels() {
+                if x < canvas.width() && y < canvas.height() {
+                    canvas.put_pixel(x, y, *pixel);
+                }
+            }
+        }
+    }
+    
+    for stroke in &request.strokes {
+        let points = &stroke.points;
+        if points.is_empty() {
+            continue;
+        }
+        
+        if stroke.stroke_type == "draw" {
+            let color = parse_color(stroke.color.as_deref().unwrap_or("#3498db"));
+            let line_width = stroke.line_width.unwrap_or(2);
+            
+            for point in points {
+                draw_line_on_canvas(
+                    &mut canvas,
+                    point.from_x as i32,
+                    point.from_y as i32,
+                    point.to_x as i32,
+                    point.to_y as i32,
+                    color,
+                    line_width,
+                );
+            }
+        } else if stroke.stroke_type == "erase" {
+            let eraser_size = stroke.eraser_size.unwrap_or(15);
+            
+            for point in points {
+                erase_line_on_canvas(
+                    &mut canvas,
+                    point.from_x as i32,
+                    point.from_y as i32,
+                    point.to_x as i32,
+                    point.to_y as i32,
+                    eraser_size,
+                );
+            }
+        }
+    }
+    
+    let mut buffer = Vec::new();
+    DynamicImage::ImageRgba8(canvas)
+        .write_to(&mut std::io::Cursor::new(&mut buffer), image::ImageFormat::Png)
+        .map_err(|e| format!("Failed to encode compacted image: {}", e))?;
+    
+    Ok(format!("data:image/png;base64,{}", general_purpose::STANDARD.encode(&buffer)))
+}
+
+#[tauri::command]
+fn generate_thumbnails_batch(images: Vec<ThumbnailRequest>, max_size: u32, fixed_ratio: bool) -> Result<Vec<String>, String> {
+    let results: Vec<String> = images
+        .par_iter()
+        .map(|req| {
+            match generate_thumbnail_internal(&req.image_data, max_size, fixed_ratio) {
+                Ok(thumbnail) => thumbnail,
+                Err(e) => {
+                    eprintln!("Failed to generate thumbnail: {}", e);
+                    String::new()
+                }
+            }
+        })
+        .collect();
+    
+    Ok(results)
+}
+
+fn generate_thumbnail_internal(image_data: &str, max_size: u32, fixed_ratio: bool) -> Result<String, String> {
+    let img = decode_base64_image(image_data)?;
+    
+    let (width, height) = (img.width(), img.height());
+    
+    let (thumb_w, thumb_h, scaled_w, scaled_h, offset_x, offset_y) = if fixed_ratio {
+        let tw = max_size;
+        let th = (max_size as f32 * 9.0 / 16.0) as u32;
+        
+        let img_ratio = width as f32 / height as f32;
+        let canvas_ratio = 16.0 / 9.0;
+        
+        let (sw, sh) = if img_ratio > canvas_ratio {
+            (tw, (tw as f32 / img_ratio) as u32)
+        } else {
+            ((th as f32 * img_ratio) as u32, th)
+        };
+        
+        let ox = (tw - sw) / 2;
+        let oy = (th - sh) / 2;
+        
+        (tw, th, sw, sh, ox, oy)
+    } else {
+        let (tw, th) = if width > height {
+            (max_size, (height as f32 * max_size as f32 / width as f32) as u32)
+        } else {
+            ((width as f32 * max_size as f32 / height as f32) as u32, max_size)
+        };
+        
+        (tw, th, tw, th, 0, 0)
+    };
+    
+    let scaled_img = img.thumbnail(scaled_w, scaled_h);
+    
+    let mut canvas: ImageBuffer<Rgba<u8>, Vec<u8>> = ImageBuffer::new(thumb_w, thumb_h);
+    
+    for pixel in canvas.pixels_mut() {
+        *pixel = Rgba([0, 0, 0, 255]);
+    }
+    
+    for (x, y, pixel) in scaled_img.pixels() {
+        let canvas_x = x + offset_x;
+        let canvas_y = y + offset_y;
+        if canvas_x < thumb_w && canvas_y < thumb_h {
+            canvas.put_pixel(canvas_x, canvas_y, pixel);
+        }
+    }
+    
+    let mut buffer = Vec::new();
+    DynamicImage::ImageRgba8(canvas)
+        .write_to(&mut std::io::Cursor::new(&mut buffer), image::ImageFormat::Jpeg)
+        .map_err(|e| format!("Failed to encode thumbnail: {}", e))?;
+    
+    Ok(format!("data:image/jpeg;base64,{}", general_purpose::STANDARD.encode(&buffer)))
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -254,7 +816,20 @@ pub fn run() {
             
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![get_cache_dir, get_config_dir, get_cds_dir, enhance_image, generate_thumbnail, rotate_image])
+        .invoke_handler(tauri::generate_handler![
+            get_cache_dir, 
+            get_config_dir, 
+            get_cds_dir, 
+            enhance_image, 
+            generate_thumbnail, 
+            rotate_image,
+            save_image,
+            save_image_with_enhance,
+            save_images_batch,
+            save_images_batch_with_enhance,
+            compact_strokes,
+            generate_thumbnails_batch
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

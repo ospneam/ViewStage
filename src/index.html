@@ -4,10 +4,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <meta name="apple-mobile-web-app-capable" content="yes">
-    <title>ViewStage</title>
+    <title>ViewStage - 摄像头及PDF展台应用</title>
     <link rel="stylesheet" href="styles.css">
-    <script src="assets/pdf.min.js"></script>
-    <script src="main.js"></script>
+    <script src="assets/pdf.min.js"></script>  <!-- PDF 渲染库 -->
+    <script src="main.js"></script>  <!-- 主要业务逻辑 -->
 </head>
 <body>
     <div class="container">
@@ -15,7 +15,11 @@
         <div class="main-function">
             <!-- 画布容器 -->
             <div class="canvas-container" id="canvasContainer">
-                <!-- 三层Canvas：底层背景，中间图像层，顶层绘制 -->
+                <!-- 三层Canvas架构：
+                     - bgCanvas (底层): 灰色背景
+                     - imageCanvas (中间层): 摄像头/PDF图像
+                     - drawCanvas (顶层): 批注和橡皮擦
+                 -->
                 <canvas id="bgCanvas" class="canvas-base"></canvas>
                 <canvas id="imageCanvas" class="canvas-image"></canvas>
                 <canvas id="drawCanvas" class="canvas-draw"></canvas>
@@ -58,6 +62,7 @@
             
             <!-- 底部工具栏 -->
             <div class="toolbar">
+                <!-- 左侧：窗口控制 -->
                 <div class="toolbar-left">
                     <button class="toolbar-btn" id="btnMenu">
                         <img src="assets/javascript.svg" width="16" height="16" alt="菜单" style="filter: invert(1);">
@@ -69,7 +74,10 @@
                         最小化
                     </button>
                 </div>
+                
+                <!-- 中间：核心功能 -->
                 <div class="toolbar-center">
+                    <!-- 模式切换 -->
                     <button class="toolbar-btn function-btn" id="btnMove" data-mode="move">
                         <img src="assets/move.svg" width="16" height="16" alt="移动" style="filter: invert(1);">
                         移动
@@ -79,12 +87,13 @@
                         <img src="assets/pen.svg" width="16" height="16" alt="批注" style="filter: invert(1);">
                         批注
                     </button>
-                   
                     <div class="toolbar-separator"></div>
                     <button class="toolbar-btn function-btn" id="btnEraser" data-mode="eraser">
                         <img src="assets/eraser.svg" width="16" height="16" alt="橡皮" style="filter: invert(1);">
                         橡皮
                     </button>
+                    
+                    <!-- 批注工具 -->
                     <div class="toolbar-separator"></div>
                     <button class="toolbar-btn function-btn" id="btnUndo">
                         <img src="assets/reply.svg" width="16" height="16" alt="撤销" style="filter: invert(1);">
@@ -95,22 +104,33 @@
                         <img src="assets/eraser.svg" width="16" height="16" alt="清空批注" style="filter: invert(1);">
                         清空批注
                     </button>
+                    
                     <div class="toolbar-separator-bold"></div>
+                    
+                    <!-- 摄像头功能 -->
                     <button class="toolbar-btn function-btn" id="btnPhoto">
                         <img src="assets/tauri.svg" width="16" height="16" alt="拍照" style="filter: invert(1);">
                         拍照
                     </button>
+                    
                     <div class="toolbar-separator enhance-separator"></div>
+                    
+                    <!-- 图像处理 -->
                     <button class="toolbar-btn function-btn enhance-btn" id="btnEnhance">
                         <img src="assets/tauri.svg" width="16" height="16" alt="文档增强" style="filter: invert(1);">
                         文档增强
                     </button>
+                    
                     <div class="toolbar-separator enhance-separator"></div>
+                    
+                    <!-- 设置 -->
                     <button class="toolbar-btn function-btn" id="btnSettings">
                         <img src="assets/tauri.svg" width="16" height="16" alt="设置" style="filter: invert(1);">
                         设置
                     </button>
                 </div>
+                
+                <!-- 右侧：侧边栏控制 -->
                 <div class="toolbar-right">
                     <button class="toolbar-btn" id="btnExpand">
                         <img src="assets/move.svg" width="16" height="16" alt="图片" style="filter: invert(1);">
