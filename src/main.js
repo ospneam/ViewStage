@@ -1,4 +1,14 @@
-// PDF.js Worker配置
+/**
+ * ViewStage - 摄像头及PDF展台应用
+ * 
+ * 架构说明：
+ * - 三层Canvas：背景层(bgCanvas) → 图像层(imageCanvas) → 批注层(drawCanvas)
+ * - 批注系统：笔画记录 + 压缩存储 + 撤销支持
+ * - 图像处理：Rust后端并行处理（增强、缩略图、旋转）
+ */
+
+// ==================== PDF.js 配置 ====================
+
 function initPdfJs() {
     if (window.pdfjsLib) {
         pdfjsLib.GlobalWorkerOptions.workerSrc = 'assets/pdf.worker.min.js';
@@ -9,7 +19,6 @@ function initPdfJs() {
     return false;
 }
 
-// 等待 PDF.js 加载
 async function waitForPdfJs(maxWait = 5000) {
     const startTime = Date.now();
     while (!window.pdfjsLib && (Date.now() - startTime) < maxWait) {
@@ -22,23 +31,21 @@ async function waitForPdfJs(maxWait = 5000) {
     return false;
 }
 
-// 确保在 DOM 加载后初始化 PDF.js
 if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', initPdfJs);
 } else {
     initPdfJs();
 }
 
-// Tauri API引用
+// ==================== Tauri API ====================
+
 const { invoke } = window.__TAURI__?.core || {};
 const getCurrentWindow = window.__TAURI__?.window?.getCurrentWindow;
 
-// 缓存目录路径
 let cacheDir = null;
 let configDir = null;
 let cdsDir = null;
 
-// 初始化缓存目录
 async function initCacheDir() {
     if (window.__TAURI__) {
         try {
@@ -54,77 +61,96 @@ async function initCacheDir() {
     }
 }
 
-// 全局配置
+// ==================== 全局配置 ====================
+
 const DRAW_CONFIG = {
-    penColor: '#3498db',
-    penWidth: 2,
-    eraserSize: 15,
-    minScale: 0.5,
-    maxScale: 5,
-    canvasW: 1000,
-    canvasH: 600,
-    screenW: 0,
-    screenH: 0,
-    canvasScale: 2,
-    dpr: window.devicePixelRatio || 1,
-    cameraFrameInterval: 33,
-    cameraFrameIntervalLow: 100
+    penColor: '#3498db',           // 默认笔色
+    penWidth: 2,                   // 默认笔宽 (px)
+    eraserSize: 15,                // 橡皮大小 (px)
+    minScale: 0.5,                 // 最小缩放比例
+    maxScale: 5,                   // 最大缩放比例
+    canvasW: 1000,                 // 画布宽度 (逻辑像素)
+    canvasH: 600,                  // 画布高度 (逻辑像素)
+    screenW: 0,                    // 屏幕宽度
+    screenH: 0,                    // 屏幕高度
+    canvasScale: 2,                // 画布相对屏幕的缩放倍数
+    dpr: window.devicePixelRatio || 1,  // 设备像素比 (Retina适配)
+    cameraFrameInterval: 33,       // 摄像头帧间隔 (ms) - 30fps
+    cameraFrameIntervalLow: 100    // 低帧率模式 (绘制时)
 };
 
-// 全局状态
+// ==================== 全局状态 ====================
+
 let state = {
-    drawMode: 'move',
-    isDrawing: false,
-    isDragging: false,
-    isScaling: false,
-    canvasX: 0,
-    canvasY: 0,
-    scale: 1,
-    lastX: 0,
-    lastY: 0,
-    startDragX: 0,
-    startDragY: 0,
-    startScale: 1,
-    startDistance: 0,
-    startScaleX: 0,
-    startScaleY: 0,
-    startCanvasX: 0,
-    startCanvasY: 0,
-    strokeHistory: [],
-    baseImageURL: null,
-    baseImageObj: null,
-    currentStroke: null,
-    MAX_UNDO_STEPS: 10,
-    STROKE_COMPACT_THRESHOLD: 30,
+    // 模式状态
+    drawMode: 'move',              // 当前模式: 'move' | 'comment' | 'eraser'
+    isDrawing: false,              // 是否正在绘制
+    isDragging: false,             // 是否正在拖拽
+    isScaling: false,              // 是否正在缩放 (触控)
+    
+    // 画布变换
+    canvasX: 0,                    // 画布X偏移
+    canvasY: 0,                    // 画布Y偏移
+    scale: 1,                      // 当前缩放比例
+    lastX: 0,                      // 上一个绘制点X
+    lastY: 0,                      // 上一个绘制点Y
+    
+    // 拖拽状态
+    startDragX: 0,                 // 拖拽起始X
+    startDragY: 0,                 // 拖拽起始Y
+    
+    // 缩放状态 (触控双指)
+    startScale: 1,                 // 缩放起始比例
+    startDistance: 0,              // 双指起始距离
+    startScaleX: 0,                // 缩放中心X
+    startScaleY: 0,                // 缩放中心Y
+    startCanvasX: 0,               // 缩放起始画布X
+    startCanvasY: 0,               // 缩放起始画布Y
+    
+    // 批注历史 (撤销系统)
+    strokeHistory: [],             // 笔画历史数组
+    baseImageURL: null,            // 压缩后的基础图片 (base64)
+    baseImageObj: null,            // 基础图片 Image 对象
+    currentStroke: null,           // 当前正在绘制的笔画
+    MAX_UNDO_STEPS: 10,            // 最大可撤销步数
+    STROKE_COMPACT_THRESHOLD: 30,  // 触发压缩的笔画阈值
+    
+    // 移动边界
     moveBound: {
-        minX: 0,
-        maxX: 0,
-        minY: 0,
-        maxY: 0
+        minX: 0, maxX: 0,
+        minY: 0, maxY: 0
     },
-    cameraStream: null,
-    isCameraOpen: false,
-    isMirrored: false,
-    cameraAnimationId: null,
-    cameraRotation: 0,
-    enhanceEnabled: false,
-    currentImage: null,
-    useFrontCamera: false,
-    imageList: [],
-    currentImageIndex: -1,
-    fileList: [],
-    currentFolderIndex: -1,
-    currentFolderPageIndex: -1,
-    enhanceRequestQueue: [],
-    lastEnhanceTime: 0,
-    pendingDrawPoints: [],
-    drawRafId: null
+    
+    // 摄像头状态
+    cameraStream: null,            // MediaStream 对象
+    isCameraOpen: false,           // 摄像头是否开启
+    isMirrored: false,             // 是否镜像 (前置摄像头)
+    cameraAnimationId: null,       // requestAnimationFrame ID
+    cameraRotation: 0,             // 摄像头旋转角度
+    useFrontCamera: false,         // 是否使用前置摄像头
+    
+    // 图像增强
+    enhanceEnabled: false,         // 是否启用文档增强
+    
+    // 图像管理
+    currentImage: null,            // 当前显示的图像 Image 对象
+    imageList: [],                 // 图片列表
+    currentImageIndex: -1,         // 当前图片索引
+    
+    // PDF/文件管理
+    fileList: [],                  // 文件列表 (PDF等)
+    currentFolderIndex: -1,        // 当前文件夹索引
+    currentFolderPageIndex: -1,    // 当前页索引
+    
+    // 绘制优化
+    pendingDrawPoints: [],         // 待绘制点队列 (RAF批量处理)
+    drawRafId: null                // requestAnimationFrame ID
 };
 
-// DOM 元素引用
-let dom = {};
+let dom = {};  // DOM 元素引用缓存
 
-// 页面初始化
+// ==================== 初始化 ====================
+
 window.addEventListener('DOMContentLoaded', async () => {
     initDOM();
     initCanvas();
@@ -144,6 +170,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     console.log('画布初始化完成');
 });
 
+// 监听系统关联打开的PDF文件
 function listenForPdfFileOpen() {
     if (!window.__TAURI__) {
         console.log('非 Tauri 环境，跳过文件打开监听');
@@ -437,7 +464,13 @@ function initDOM() {
     dom.drawCtx = dom.drawCanvas.getContext('2d', { willReadFrequently: true });
 }
 
-// 初始化画布
+// ==================== 画布初始化 ====================
+
+/**
+ * 初始化三层画布
+ * - 物理尺寸 = 逻辑尺寸 × DPR (Retina适配)
+ * - CSS尺寸 = 逻辑尺寸
+ */
 function initCanvas() {
     const container = dom.canvasContainer;
     const screenW = container.clientWidth;
@@ -491,6 +524,7 @@ function initCanvas() {
     console.log(`画布初始化: 屏幕 ${screenW}x${screenH}, 画布 ${DRAW_CONFIG.canvasW}x${DRAW_CONFIG.canvasH}`);
 }
 
+// 计算画布移动边界 (缩放后)
 function updateMoveBound() {
     const screenW = DRAW_CONFIG.screenW;
     const screenH = DRAW_CONFIG.screenH;
@@ -826,7 +860,8 @@ function updateEraserHintPos(clientX, clientY) {
     dom.eraserHint.style.transform = `translate(-50%, -50%) scale(${state.scale})`;
 }
 
-// 画布鼠标事件
+// ==================== 画布交互事件 ====================
+
 function bindCanvasMouseEvents() {
     dom.drawCanvas.addEventListener('mousedown', handleMouseDown);
     dom.drawCanvas.addEventListener('mousemove', handleMouseMove);
@@ -835,6 +870,12 @@ function bindCanvasMouseEvents() {
     dom.drawCanvas.addEventListener('wheel', handleWheel, { passive: false });
 }
 
+/**
+ * 鼠标按下处理
+ * - move模式: 开始拖拽
+ * - comment模式: 开始绘制笔画
+ * - eraser模式: 开始擦除
+ */
 function handleMouseDown(e) {
     e.preventDefault();
     const rect = dom.drawCanvas.getBoundingClientRect();
@@ -857,6 +898,11 @@ function handleMouseDown(e) {
     }
 }
 
+/**
+ * 鼠标移动处理
+ * - 拖拽: 更新画布位置
+ * - 绘制: 收集点并批量绘制 (RAF优化)
+ */
 function handleMouseMove(e) {
     e.preventDefault();
     
@@ -874,11 +920,19 @@ function handleMouseMove(e) {
         const x = (e.clientX - rect.left) / state.scale;
         const y = (e.clientY - rect.top) / state.scale;
         
+        // 总是添加到绘制队列以确保流畅绘制
         state.pendingDrawPoints.push({ fromX: state.lastX, fromY: state.lastY, toX: x, toY: y });
+        
+        // 使用优化的点收集（只影响历史存储）
+        pointCollector.addPoint(state.lastX, state.lastY, x, y);
+        
+        // 总是添加到笔画历史
         addStrokePoint(state.lastX, state.lastY, x, y);
+        
         state.lastX = x;
         state.lastY = y;
         
+        // 立即调度绘制
         if (!state.drawRafId) {
             state.drawRafId = requestAnimationFrame(flushDrawPoints);
         }
@@ -891,6 +945,26 @@ function flushDrawPoints() {
         return;
     }
     
+    // 根据当前绘制模式设置状态
+    if (state.drawMode === 'comment') {
+        setContextState(dom.drawCtx, {
+            strokeStyle: DRAW_CONFIG.penColor,
+            lineWidth: DRAW_CONFIG.penWidth,
+            lineCap: 'round',
+            lineJoin: 'round',
+            globalCompositeOperation: 'source-over'
+        });
+    } else if (state.drawMode === 'eraser') {
+        setContextState(dom.drawCtx, {
+            strokeStyle: '#000000', // 橡皮颜色不影响结果
+            lineWidth: DRAW_CONFIG.eraserSize,
+            lineCap: 'round',
+            lineJoin: 'round',
+            globalCompositeOperation: 'destination-out'
+        });
+    }
+    
+    // 批量绘制
     dom.drawCtx.beginPath();
     for (const point of state.pendingDrawPoints) {
         dom.drawCtx.moveTo(point.fromX, point.fromY);
@@ -1022,11 +1096,19 @@ function handleTouchMove(e) {
         const x = (touch.clientX - rect.left) / state.scale;
         const y = (touch.clientY - rect.top) / state.scale;
         
+        // 总是添加到绘制队列以确保流畅绘制
         state.pendingDrawPoints.push({ fromX: state.lastX, fromY: state.lastY, toX: x, toY: y });
+        
+        // 使用优化的点收集（只影响历史存储）
+        pointCollector.addPoint(state.lastX, state.lastY, x, y);
+        
+        // 总是添加到笔画历史
         addStrokePoint(state.lastX, state.lastY, x, y);
+        
         state.lastX = x;
         state.lastY = y;
         
+        // 立即调度绘制
         if (!state.drawRafId) {
             state.drawRafId = requestAnimationFrame(flushDrawPoints);
         }
@@ -1106,12 +1188,34 @@ function startStroke(type) {
 
 function addStrokePoint(fromX, fromY, toX, toY) {
     if (state.currentStroke) {
+        // 检查是否需要添加连接点
+        if (state.currentStroke.points.length > 0) {
+            const lastPoint = state.currentStroke.points[state.currentStroke.points.length - 1];
+            const gapDistance = distance(lastPoint.toX, lastPoint.toY, fromX, fromY);
+            
+            // 如果距离过大，添加连接点
+            if (gapDistance > 1.5) { // 1.5px 阈值
+                state.currentStroke.points.push({
+                    fromX: lastPoint.toX,
+                    fromY: lastPoint.toY,
+                    toX: fromX,
+                    toY: fromY
+                });
+            }
+        }
+        
         state.currentStroke.points.push({ fromX, fromY, toX, toY });
     }
 }
 
 function endStroke() {
     if (state.currentStroke && state.currentStroke.points.length > 0) {
+        // 只在点数较多时简化，避免过度简化导致断点
+        if (state.currentStroke.points.length > 50) {
+            // 使用更小的 epsilon 值以保留更多点
+            state.currentStroke.points = simplifyPoints(state.currentStroke.points, POINT_OPTIMIZATION.epsilon * 0.8);
+        }
+        
         state.strokeHistory.push(state.currentStroke);
         
         if (state.strokeHistory.length > state.STROKE_COMPACT_THRESHOLD) {
@@ -1121,42 +1225,291 @@ function endStroke() {
         updateUndoBtnStatus();
     }
     state.currentStroke = null;
+    
+    // 清理点收集器
+    pointCollector.clear();
 }
 
 let compactIdleId = null;
 
-function drawStrokes(ctx, strokes) {
-    for (const stroke of strokes) {
-        if (stroke.type === 'draw') {
-            ctx.strokeStyle = stroke.color;
-            ctx.lineWidth = stroke.lineWidth;
-            ctx.lineCap = 'round';
-            ctx.lineJoin = 'round';
-            ctx.globalCompositeOperation = 'source-over';
-            
-            ctx.beginPath();
-            for (const point of stroke.points) {
-                ctx.moveTo(point.fromX, point.fromY);
-                ctx.lineTo(point.toX, point.toY);
-            }
-            ctx.stroke();
-        } else if (stroke.type === 'erase') {
-            ctx.lineWidth = stroke.eraserSize;
-            ctx.lineCap = 'round';
-            ctx.lineJoin = 'round';
-            ctx.globalCompositeOperation = 'destination-out';
-            
-            ctx.beginPath();
-            for (const point of stroke.points) {
-                ctx.moveTo(point.fromX, point.fromY);
-                ctx.lineTo(point.toX, point.toY);
-            }
-            ctx.stroke();
-        }
-    }
-    ctx.globalCompositeOperation = 'source-over';
+// ==================== 批注绘制系统 ====================
+
+// 上下文状态缓存
+let currentContextState = {
+    strokeStyle: null,
+    lineWidth: null,
+    lineCap: null,
+    lineJoin: null,
+    globalCompositeOperation: null
+};
+
+// ==================== 线段点优化 ====================
+
+// 点简化配置
+const POINT_OPTIMIZATION = {
+    epsilon: 0.3,  // 简化阈值 (像素) - 减小以保留更多点
+    minDistance: 1, // 最小点间距 (像素) - 减小以减少断点
+    quantization: 0.25, // 坐标量化步长 (像素) - 提高精度
+    maxPointsPerStroke: 1500, // 每笔画最大点数 - 增加以容纳更多点
+    batchInterval: 30, // 批量收集间隔 (ms) - 减小以提高响应速度
+};
+
+/**
+ * 坐标量化
+ * 将坐标值量化到指定步长，减少精度
+ */
+function quantizeCoord(coord) {
+    return Math.round(coord / POINT_OPTIMIZATION.quantization) * POINT_OPTIMIZATION.quantization;
 }
 
+/**
+ * 计算两点之间的距离
+ */
+function distance(x1, y1, x2, y2) {
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    return Math.sqrt(dx * dx + dy * dy);
+}
+
+/**
+ * Douglas-Peucker 点简化算法
+ * 减少冗余点，保留关键特征点
+ */
+function simplifyPoints(points, epsilon) {
+    if (points.length <= 2) return points;
+    
+    let maxDist = 0;
+    let maxIndex = 0;
+    
+    // 找到距离最远的点
+    for (let i = 1; i < points.length - 1; i++) {
+        const dist = perpendicularDistance(
+            points[i].fromX, points[i].fromY,
+            points[0].fromX, points[0].fromY,
+            points[points.length - 1].toX, points[points.length - 1].toY
+        );
+        if (dist > maxDist) {
+            maxDist = dist;
+            maxIndex = i;
+        }
+    }
+    
+    // 如果最远点距离大于阈值，递归简化
+    if (maxDist > epsilon) {
+        const left = simplifyPoints(points.slice(0, maxIndex + 1), epsilon);
+        const right = simplifyPoints(points.slice(maxIndex), epsilon);
+        return [...left.slice(0, -1), ...right];
+    } else {
+        // 否则只保留起点和终点
+        return [points[0], points[points.length - 1]];
+    }
+}
+
+/**
+ * 计算点到线段的垂直距离
+ */
+function perpendicularDistance(px, py, x1, y1, x2, y2) {
+    const A = px - x1;
+    const B = py - y1;
+    const C = x2 - x1;
+    const D = y2 - y1;
+    
+    const dot = A * C + B * D;
+    const lenSq = C * C + D * D;
+    let param = -1;
+    
+    if (lenSq !== 0) {
+        param = dot / lenSq;
+    }
+    
+    let xx, yy;
+    if (param < 0) {
+        xx = x1;
+        yy = y1;
+    } else if (param > 1) {
+        xx = x2;
+        yy = y2;
+    } else {
+        xx = x1 + param * C;
+        yy = y1 + param * D;
+    }
+    
+    return distance(px, py, xx, yy);
+}
+
+/**
+ * 批量收集线段点
+ */
+class PointCollector {
+    constructor() {
+        this.points = [];
+        this.lastTime = Date.now();
+        this.lastX = 0;
+        this.lastY = 0;
+    }
+    
+    addPoint(fromX, fromY, toX, toY) {
+        // 量化坐标
+        const qFromX = quantizeCoord(fromX);
+        const qFromY = quantizeCoord(fromY);
+        const qToX = quantizeCoord(toX);
+        const qToY = quantizeCoord(toY);
+        
+        // 检查距离阈值
+        if (distance(qFromX, qFromY, qToX, qToY) < POINT_OPTIMIZATION.minDistance) {
+            return false; // 距离太小，跳过
+        }
+        
+        // 检查时间间隔
+        const now = Date.now();
+        if (now - this.lastTime < POINT_OPTIMIZATION.batchInterval) {
+            return false; // 时间间隔太小，跳过
+        }
+        
+        this.lastTime = now;
+        this.lastX = qToX;
+        this.lastY = qToY;
+        
+        this.points.push({
+            fromX: qFromX,
+            fromY: qFromY,
+            toX: qToX,
+            toY: qToY
+        });
+        
+        // 限制每笔画最大点数
+        if (this.points.length > POINT_OPTIMIZATION.maxPointsPerStroke) {
+            this.points = simplifyPoints(this.points, POINT_OPTIMIZATION.epsilon);
+        }
+        
+        return true;
+    }
+    
+    getPoints() {
+        return this.points;
+    }
+    
+    clear() {
+        this.points = [];
+        this.lastTime = Date.now();
+    }
+}
+
+// 全局点收集器
+const pointCollector = new PointCollector();
+
+/**
+ * 设置上下文状态（只更新变化的属性）
+ * @param {CanvasRenderingContext2D} ctx - 目标上下文
+ * @param {Object} state - 新状态
+ */
+function setContextState(ctx, state) {
+    if (currentContextState.strokeStyle !== state.strokeStyle) {
+        ctx.strokeStyle = state.strokeStyle;
+        currentContextState.strokeStyle = state.strokeStyle;
+    }
+    
+    if (currentContextState.lineWidth !== state.lineWidth) {
+        ctx.lineWidth = state.lineWidth;
+        currentContextState.lineWidth = state.lineWidth;
+    }
+    
+    if (currentContextState.lineCap !== state.lineCap) {
+        ctx.lineCap = state.lineCap;
+        currentContextState.lineCap = state.lineCap;
+    }
+    
+    if (currentContextState.lineJoin !== state.lineJoin) {
+        ctx.lineJoin = state.lineJoin;
+        currentContextState.lineJoin = state.lineJoin;
+    }
+    
+    if (currentContextState.globalCompositeOperation !== state.globalCompositeOperation) {
+        ctx.globalCompositeOperation = state.globalCompositeOperation;
+        currentContextState.globalCompositeOperation = state.globalCompositeOperation;
+    }
+}
+
+/**
+ * 按状态分组批量绘制笔画
+ * @param {CanvasRenderingContext2D} ctx - 目标上下文
+ * @param {Array} strokes - 笔画数组
+ */
+function drawStrokes(ctx, strokes) {
+    // 按状态分组
+    const drawGroups = {};
+    const eraseGroups = {};
+    
+    // 分组笔画
+    for (const stroke of strokes) {
+        if (stroke.type === 'draw') {
+            const key = `${stroke.color}-${stroke.lineWidth}`;
+            if (!drawGroups[key]) {
+                drawGroups[key] = {
+                    color: stroke.color,
+                    lineWidth: stroke.lineWidth,
+                    points: []
+                };
+            }
+            drawGroups[key].points.push(...stroke.points);
+        } else if (stroke.type === 'erase') {
+            const key = `${stroke.eraserSize}`;
+            if (!eraseGroups[key]) {
+                eraseGroups[key] = {
+                    eraserSize: stroke.eraserSize,
+                    points: []
+                };
+            }
+            eraseGroups[key].points.push(...stroke.points);
+        }
+    }
+    
+    // 绘制普通笔画（按颜色和线宽分组）
+    Object.values(drawGroups).forEach(group => {
+        setContextState(ctx, {
+            strokeStyle: group.color,
+            lineWidth: group.lineWidth,
+            lineCap: 'round',
+            lineJoin: 'round',
+            globalCompositeOperation: 'source-over'
+        });
+        
+        ctx.beginPath();
+        for (const point of group.points) {
+            ctx.moveTo(point.fromX, point.fromY);
+            ctx.lineTo(point.toX, point.toY);
+        }
+        ctx.stroke();
+    });
+    
+    // 绘制橡皮擦笔画（按大小分组）
+    Object.values(eraseGroups).forEach(group => {
+        setContextState(ctx, {
+            strokeStyle: '#000000', // 橡皮颜色不影响结果
+            lineWidth: group.eraserSize,
+            lineCap: 'round',
+            lineJoin: 'round',
+            globalCompositeOperation: 'destination-out'
+        });
+        
+        ctx.beginPath();
+        for (const point of group.points) {
+            ctx.moveTo(point.fromX, point.fromY);
+            ctx.lineTo(point.toX, point.toY);
+        }
+        ctx.stroke();
+    });
+    
+    // 恢复默认合成模式
+    setContextState(ctx, {
+        globalCompositeOperation: 'source-over'
+    });
+}
+
+/**
+ * 调度笔画压缩 (空闲时执行)
+ * 当笔画数超过阈值时，将旧笔画压缩为图片
+ */
 function scheduleCompact() {
     if (state.strokeHistory.length <= state.MAX_UNDO_STEPS) return;
     if (compactIdleId !== null) return;
@@ -1172,7 +1525,39 @@ function scheduleCompact() {
     }, { timeout: 2000 });
 }
 
-function doCompactStrokes(strokesToCompact) {
+/**
+ * 执行笔画压缩
+ * 优先使用Rust并行处理，失败时降级到前端Canvas
+ */
+async function doCompactStrokes(strokesToCompact) {
+    if (window.__TAURI__) {
+        try {
+            const { invoke } = window.__TAURI__.core;
+            
+            const request = {
+                baseImage: state.baseImageURL,
+                strokes: strokesToCompact,
+                canvasWidth: DRAW_CONFIG.canvasW,
+                canvasHeight: DRAW_CONFIG.canvasH
+            };
+            
+            const result = await invoke('compact_strokes', { request });
+            
+            state.baseImageURL = result;
+            state.baseImageObj = null;
+            const img = new Image();
+            img.onload = () => {
+                state.baseImageObj = img;
+            };
+            img.src = result;
+            
+            console.log('Rust 笔画已压缩，保留最近', state.strokeHistory.length, '笔可撤销');
+            return;
+        } catch (error) {
+            console.error('Rust 笔画压缩失败，使用前端降级方案:', error);
+        }
+    }
+    
     const tempCanvas = document.createElement('canvas');
     tempCanvas.width = DRAW_CONFIG.canvasW * DRAW_CONFIG.dpr;
     tempCanvas.height = DRAW_CONFIG.canvasH * DRAW_CONFIG.dpr;
@@ -1230,7 +1615,9 @@ function updateUndoBtnStatus() {
 // 清空画布
 function clearDrawCanvas() {
     dom.drawCtx.clearRect(0, 0, DRAW_CONFIG.canvasW, DRAW_CONFIG.canvasH);
-    dom.drawCtx.globalCompositeOperation = 'source-over';
+    setContextState(dom.drawCtx, {
+        globalCompositeOperation: 'source-over'
+    });
 }
 
 function clearAllDrawings() {
@@ -2262,7 +2649,13 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 });
 
-// 摄像头功能
+// ==================== 摄像头功能 ====================
+
+/**
+ * 打开/关闭摄像头
+ * - 支持前置/后置摄像头切换
+ * - 自动渲染到 imageCanvas
+ */
 async function openCamera() {
     if (state.isCameraOpen) {
         closeCamera();
@@ -2464,6 +2857,12 @@ function closeCamera() {
     console.log('摄像头已关闭');
 }
 
+/**
+ * 拍照捕获
+ * - 捕获当前摄像头画面
+ * - 支持镜像和旋转
+ * - 调用Rust保存图片（可选增强）
+ */
 async function captureCamera() {
     const video = document.getElementById('cameraVideo');
     if (!video) return;
@@ -2486,63 +2885,26 @@ async function captureCamera() {
     
     let dataUrl = tempCanvas.toDataURL('image/png');
     
-    if (state.enhanceEnabled && window.__TAURI__) {
-        const currentTime = Date.now();
-        const timeSinceLastEnhance = currentTime - state.lastEnhanceTime;
-        const shouldShowLoading = timeSinceLastEnhance < 2000 || state.enhanceRequestQueue.length > 0;
-        
-        const requestId = Date.now() + Math.random();
-        state.enhanceRequestQueue.push(requestId);
-        state.lastEnhanceTime = currentTime;
-        
-        if (shouldShowLoading) {
-            showLoadingOverlay('正在处理图像...');
-        }
-        
+    if (window.__TAURI__) {
         try {
             const { invoke } = window.__TAURI__.core;
-            dataUrl = await invoke('enhance_image', { imageData: dataUrl });
-            console.log('Rust 图像增强完成');
-        } catch (error) {
-            console.error('Rust 图像增强失败:', error);
-        } finally {
-            const index = state.enhanceRequestQueue.indexOf(requestId);
-            if (index > -1) {
-                state.enhanceRequestQueue.splice(index, 1);
+            
+            if (state.enhanceEnabled) {
+                const result = await invoke('save_image_with_enhance', { 
+                    imageData: dataUrl,
+                    prefix: 'photo'
+                });
+                console.log('图片已保存到:', result.path);
+                if (result.enhanced_data) {
+                    dataUrl = result.enhanced_data;
+                }
+            } else {
+                const result = await invoke('save_image', { 
+                    imageData: dataUrl,
+                    prefix: 'photo'
+                });
+                console.log('图片已保存到:', result.path);
             }
-            
-            if (state.enhanceRequestQueue.length === 0) {
-                hideLoadingOverlay();
-            }
-        }
-    }
-    
-    if (window.__TAURI__ && cdsDir) {
-        try {
-            const { fs } = window.__TAURI__;
-            const now = new Date();
-            const dateStr = now.toISOString().slice(0, 10);
-            const timeStr = now.toTimeString().slice(0, 8).replace(/:/g, '-');
-            
-            const dateDir = `${cdsDir}/${dateStr}`;
-            
-            try {
-                await fs.mkdir(dateDir, { recursive: true });
-            } catch (e) {
-            }
-            
-            const fileName = `photo_${timeStr}.png`;
-            const filePath = `${dateDir}/${fileName}`;
-            
-            const base64Data = dataUrl.split(',')[1];
-            const binaryString = atob(base64Data);
-            const bytes = new Uint8Array(binaryString.length);
-            for (let i = 0; i < binaryString.length; i++) {
-                bytes[i] = binaryString.charCodeAt(i);
-            }
-            
-            await fs.writeFile(filePath, bytes);
-            console.log('图片已保存到:', filePath);
         } catch (error) {
             console.error('保存图片失败:', error);
         }
@@ -2567,7 +2929,13 @@ function expandSidebarIfCollapsed() {
     }
 }
 
-// 图像层功能
+// ==================== 图像导入功能 ====================
+
+/**
+ * 导入图片文件
+ * - 支持多选
+ * - 批量导入时使用Rust并行生成缩略图
+ */
 async function importImage() {
     const input = document.createElement('input');
     input.type = 'file';
@@ -2586,40 +2954,108 @@ async function importImage() {
         }
         
         if (files.length > 1) {
-            showLoadingOverlay(`正在导入图片 1/${files.length}...`);
+            showLoadingOverlay(`正在读取图片...`);
         }
+        
+        const imageDataList = [];
         
         for (let i = 0; i < files.length; i++) {
             const file = files[i];
-            const isLast = (i === files.length - 1);
-            const reader = new FileReader();
             
             if (files.length > 1) {
-                updateLoadingProgress(`正在导入图片 ${i + 1}/${files.length}...`);
+                updateLoadingProgress(`正在读取图片 ${i + 1}/${files.length}...`);
             }
             
-            await new Promise((resolve) => {
-                reader.onload = (event) => {
-                    const img = new Image();
-                    img.onload = async () => {
-                        await addImageToList(img, file.name || `图片${state.imageList.length + 1}`, isLast);
-                        resolve();
-                    };
-                    img.onerror = () => {
-                        console.error(`加载图片失败: ${file.name}`);
-                        resolve();
-                    };
-                    img.src = event.target.result;
+            const dataUrl = await new Promise((resolve) => {
+                const reader = new FileReader();
+                reader.onload = (event) => resolve(event.target.result);
+                reader.onerror = () => {
+                    console.error(`读取图片失败: ${file.name}`);
+                    resolve(null);
                 };
                 reader.readAsDataURL(file);
             });
+            
+            if (dataUrl) {
+                imageDataList.push({
+                    data: dataUrl,
+                    name: file.name || `图片${state.imageList.length + imageDataList.length + 1}`
+                });
+            }
+        }
+        
+        let thumbnails = [];
+        
+        if (window.__TAURI__ && imageDataList.length > 1) {
+            try {
+                updateLoadingProgress(`正在并行生成缩略图...`);
+                const { invoke } = window.__TAURI__.core;
+                thumbnails = await invoke('generate_thumbnails_batch', {
+                    images: imageDataList,
+                    maxSize: 150,
+                    fixedRatio: false
+                });
+                console.log('Rust 批量缩略图生成完成');
+            } catch (error) {
+                console.error('Rust 批量缩略图生成失败，使用前端降级方案:', error);
+            }
+        }
+        
+        for (let i = 0; i < imageDataList.length; i++) {
+            const imgData = imageDataList[i];
+            const isLast = (i === imageDataList.length - 1);
+            
+            const img = new Image();
+            await new Promise((resolve) => {
+                img.onload = () => resolve();
+                img.onerror = () => {
+                    console.error(`加载图片失败: ${imgData.name}`);
+                    resolve();
+                };
+                img.src = imgData.data;
+            });
+            
+            let thumbnail;
+            if (thumbnails[i] && thumbnails[i].length > 0) {
+                thumbnail = thumbnails[i];
+            } else {
+                thumbnail = await generateThumbnail(img.src, 150, false);
+            }
+            
+            const newImgData = {
+                full: img.src,
+                thumbnail: thumbnail,
+                name: imgData.name,
+                width: img.width,
+                height: img.height,
+                strokeHistory: null,
+                baseImageURL: null
+            };
+            
+            state.imageList.push(newImgData);
+            state.currentImageIndex = state.imageList.length - 1;
+            state.currentImage = img;
+            state.currentFolderIndex = -1;
+            state.currentFolderPageIndex = -1;
+            
+            if (isLast) {
+                clearDrawCanvas();
+                state.strokeHistory = [];
+                state.baseImageURL = null;
+                state.baseImageObj = null;
+                updateUndoBtnStatus();
+                drawImageToCenter(img);
+                updateSidebarContent();
+                updatePhotoButtonState();
+                updateEnhanceButtonState();
+            }
         }
         
         if (files.length > 1) {
             hideLoadingOverlay();
         }
         
-        console.log(`已导入 ${files.length} 张图片`);
+        console.log(`已导入 ${imageDataList.length} 张图片`);
     };
     
     input.click();
