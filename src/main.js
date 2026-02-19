@@ -2795,7 +2795,7 @@ function updateFileSidebarContent() {
         state.fileList.forEach((folder, index) => {
             contentHTML += `
                 <div class="sidebar-folder-item" data-index="${index}">
-                    <img src="assets/icon/File.svg" width="16" height="16" alt="文件夹" style="filter: invert(1);">
+                    <img src="assets/icon/pdf.svg" width="16" height="16" alt="文件夹" style="filter: invert(1);">
                     <span class="folder-name">${folder.name}</span>
                     <span class="folder-count">${folder.pages.length}页</span>
                 </div>
