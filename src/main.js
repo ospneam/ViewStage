@@ -92,7 +92,7 @@ let state = {
     startCanvasY: 0,
     historyStack: [],
     currentStep: -1,
-    MAX_UNDO_STEPS: 15,
+    MAX_UNDO_STEPS: 16,
     moveBound: {
         minX: 0,
         maxX: 0,
@@ -209,7 +209,7 @@ async function loadPdfFromPath(filePath) {
         if (!pdfReady) {
             hideLoadingOverlay();
             console.error('PDF.js 库加载超时');
-            alert('PDF库加载超时，请检查网络连接后重试');
+            alert('PDF库加载超时，请重启应用后重试');
             return;
         }
         
@@ -404,7 +404,7 @@ function initDOM() {
     
     dom.bgCtx = dom.bgCanvas.getContext('2d');
     dom.imageCtx = dom.imageCanvas.getContext('2d');
-    dom.drawCtx = dom.drawCanvas.getContext('2d');
+    dom.drawCtx = dom.drawCanvas.getContext('2d', { willReadFrequently: true });
 }
 
 // 初始化画布
@@ -1112,6 +1112,8 @@ function takePhoto() {
     if (state.isCameraOpen) {
         captureCamera();
     } else if (state.currentImageIndex >= 0 && state.imageList.length > 0) {
+        saveCurrentDrawData();
+        saveCurrentFolderPageDrawData();
         state.currentImageIndex = -1;
         state.currentImage = null;
         clearImageLayer();
@@ -1122,6 +1124,8 @@ function takePhoto() {
         updateEnhanceButtonState();
         console.log('返回摄像头');
     } else if (state.currentFolderIndex >= 0 && state.currentFolderPageIndex >= 0) {
+        saveCurrentDrawData();
+        saveCurrentFolderPageDrawData();
         state.currentFolderIndex = -1;
         state.currentFolderPageIndex = -1;
         state.currentImage = null;
@@ -1530,10 +1534,15 @@ function selectImage(index) {
     if (index < 0 || index >= state.imageList.length) return;
     
     if (index === state.currentImageIndex && state.currentImage) {
+        saveCurrentDrawData();
+        saveCurrentFolderPageDrawData();
         state.currentImageIndex = -1;
         state.currentImage = null;
         clearImageLayer();
         clearDrawCanvas();
+        if (state.isCameraOpen) {
+            closeCamera();
+        }
         openCamera();
         updateSidebarSelection();
         updatePhotoButtonState();
@@ -1601,7 +1610,21 @@ function saveCurrentDrawData() {
             canvasX: state.canvasX,
             canvasY: state.canvasY
         };
+        
+        const trimmedHistory = trimHistoryStack(state.historyStack, state.currentStep, 5);
+        state.imageList[state.currentImageIndex].historyStack = trimmedHistory.stack;
+        state.imageList[state.currentImageIndex].currentStep = trimmedHistory.step;
     }
+}
+
+function trimHistoryStack(stack, step, maxSize) {
+    if (stack.length <= maxSize) {
+        return { stack: [...stack], step };
+    }
+    const startIdx = stack.length - maxSize;
+    const newStack = stack.slice(startIdx);
+    const newStep = step - startIdx;
+    return { stack: newStack, step: Math.max(0, newStep) };
 }
 
 function restoreDrawData(index) {
@@ -1612,6 +1635,16 @@ function restoreDrawData(index) {
         } else {
             clearDrawCanvas();
         }
+        
+        if (imgData.historyStack) {
+            state.historyStack = [...imgData.historyStack];
+            state.currentStep = imgData.currentStep ?? state.historyStack.length - 1;
+        } else {
+            state.historyStack = [];
+            state.currentStep = -1;
+            saveSnapshot();
+        }
+        updateUndoBtnStatus();
     }
 }
 
@@ -1913,6 +1946,10 @@ function saveCurrentFolderPageDrawData() {
                     canvasX: state.canvasX,
                     canvasY: state.canvasY
                 };
+                
+                const trimmedHistory = trimHistoryStack(state.historyStack, state.currentStep, 5);
+                folder.pages[state.currentFolderPageIndex].historyStack = trimmedHistory.stack;
+                folder.pages[state.currentFolderPageIndex].currentStep = trimmedHistory.step;
             }
         }
     }
@@ -1928,6 +1965,16 @@ function restoreFolderPageDrawData(folderIndex, pageIndex) {
             } else {
                 clearDrawCanvas();
             }
+            
+            if (page.historyStack) {
+                state.historyStack = [...page.historyStack];
+                state.currentStep = page.currentStep ?? state.historyStack.length - 1;
+            } else {
+                state.historyStack = [];
+                state.currentStep = -1;
+                saveSnapshot();
+            }
+            updateUndoBtnStatus();
         }
     }
 }
@@ -1980,7 +2027,7 @@ function importPDF() {
             const pdfReady = await waitForPdfJs();
             if (!pdfReady) {
                 hideLoadingOverlay();
-                alert('PDF库加载超时，请检查网络连接后重试');
+                alert('PDF库加载超时，请重启应用后重试');
                 return;
             }
             
@@ -2290,6 +2337,10 @@ function closeCamera() {
     
     if (state.currentImage && state.currentImageIndex >= 0) {
         drawImageToCenter(state.currentImage);
+        restoreDrawData(state.currentImageIndex);
+    } else if (state.currentImage && state.currentFolderIndex >= 0 && state.currentFolderPageIndex >= 0) {
+        drawImageToCenter(state.currentImage);
+        restoreFolderPageDrawData(state.currentFolderIndex, state.currentFolderPageIndex);
     } else {
         clearImageLayer();
     }
@@ -2454,12 +2505,18 @@ async function addImageToList(img, name) {
     state.imageList.push(imgData);
     state.currentImageIndex = state.imageList.length - 1;
     state.currentImage = img;
+    state.currentFolderIndex = -1;
+    state.currentFolderPageIndex = -1;
     
-    if (!state.isCameraOpen) {
+    if (state.isCameraOpen) {
+        closeCamera();
+    } else {
         drawImageToCenter(img);
     }
     
     updateSidebarContent();
+    updatePhotoButtonState();
+    updateEnhanceButtonState();
 }
 
 async function addImageToListNoHighlight(img, name) {
@@ -2475,6 +2532,8 @@ async function addImageToListNoHighlight(img, name) {
     };
     
     state.imageList.push(imgData);
+    state.currentImageIndex = state.imageList.length - 1;
+    state.currentImage = img;
     
     updateSidebarContent();
 }
