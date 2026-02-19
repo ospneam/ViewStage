@@ -3,6 +3,7 @@
 use tauri::{Manager, Emitter};
 use image::{DynamicImage, ImageBuffer, Rgba, GenericImageView};
 use base64::{Engine as _, engine::general_purpose};
+use rayon::prelude::*;
 
 #[tauri::command]
 fn enhance_image(image_data: String) -> Result<String, String> {
@@ -36,33 +37,40 @@ fn enhance_image(image_data: String) -> Result<String, String> {
 
 fn apply_enhance_filter(img: &DynamicImage) -> DynamicImage {
     let (width, height) = (img.width(), img.height());
-    let mut enhanced_img: ImageBuffer<Rgba<u8>, Vec<u8>> = ImageBuffer::new(width, height);
-    
     let contrast: f32 = 1.4;
     let brightness: f32 = 10.0;
     let saturation: f32 = 1.2;
     
-    for (x, y, pixel) in enhanced_img.enumerate_pixels_mut() {
-        let original_pixel = img.get_pixel(x, y);
-        let r = original_pixel[0] as f32;
-        let g = original_pixel[1] as f32;
-        let b = original_pixel[2] as f32;
-        let a = original_pixel[3];
-        
-        let mut new_r = ((r - 128.0) * contrast) + 128.0 + brightness;
-        let mut new_g = ((g - 128.0) * contrast) + 128.0 + brightness;
-        let mut new_b = ((b - 128.0) * contrast) + 128.0 + brightness;
-        
-        let gray = 0.299 * new_r + 0.587 * new_g + 0.114 * new_b;
-        new_r = gray + (new_r - gray) * saturation;
-        new_g = gray + (new_g - gray) * saturation;
-        new_b = gray + (new_b - gray) * saturation;
-        
-        new_r = new_r.clamp(0.0, 255.0);
-        new_g = new_g.clamp(0.0, 255.0);
-        new_b = new_b.clamp(0.0, 255.0);
-        
-        *pixel = Rgba([new_r as u8, new_g as u8, new_b as u8, a]);
+    let rgba_img = img.to_rgba8();
+    let pixels: Vec<(u32, u32, Rgba<u8>)> = rgba_img
+        .enumerate_pixels()
+        .par_bridge()
+        .map(|(x, y, pixel)| {
+            let r = pixel[0] as f32;
+            let g = pixel[1] as f32;
+            let b = pixel[2] as f32;
+            let a = pixel[3];
+            
+            let mut new_r = ((r - 128.0) * contrast) + 128.0 + brightness;
+            let mut new_g = ((g - 128.0) * contrast) + 128.0 + brightness;
+            let mut new_b = ((b - 128.0) * contrast) + 128.0 + brightness;
+            
+            let gray = 0.299 * new_r + 0.587 * new_g + 0.114 * new_b;
+            new_r = gray + (new_r - gray) * saturation;
+            new_g = gray + (new_g - gray) * saturation;
+            new_b = gray + (new_b - gray) * saturation;
+            
+            new_r = new_r.clamp(0.0, 255.0);
+            new_g = new_g.clamp(0.0, 255.0);
+            new_b = new_b.clamp(0.0, 255.0);
+            
+            (x, y, Rgba([new_r as u8, new_g as u8, new_b as u8, a]))
+        })
+        .collect();
+    
+    let mut enhanced_img: ImageBuffer<Rgba<u8>, Vec<u8>> = ImageBuffer::new(width, height);
+    for (x, y, pixel) in pixels {
+        enhanced_img.put_pixel(x, y, pixel);
     }
     
     DynamicImage::ImageRgba8(enhanced_img)

@@ -67,7 +67,7 @@ const DRAW_CONFIG = {
     screenH: 0,
     canvasScale: 2,
     dpr: window.devicePixelRatio || 1,
-    cameraFrameInterval: 16,
+    cameraFrameInterval: 33,
     cameraFrameIntervalLow: 100
 };
 
@@ -2471,7 +2471,7 @@ async function captureCamera() {
     img.onload = () => {
         addImageToListNoHighlight(img, `拍摄${state.imageList.length + 1}`);
         expandSidebarIfCollapsed();
-        console.log('已捕获摄像头画面到图像层');
+        console.log('已捕获摄像头画面并保存到图片列表');
     };
 }
 
@@ -2597,13 +2597,6 @@ async function addImageToListNoHighlight(img, name) {
     };
     
     state.imageList.push(imgData);
-    state.currentImageIndex = state.imageList.length - 1;
-    state.currentImage = img;
-    
-    clearDrawCanvas();
-    state.historyStack = [];
-    state.currentStep = -1;
-    saveSnapshot();
     
     updateSidebarContent();
 }
