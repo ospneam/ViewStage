@@ -2466,31 +2466,61 @@ function toggleMirror() {
 }
 
 // 图像层功能
-function importImage() {
+async function importImage() {
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = 'image/*';
+    input.multiple = true;
     
-    input.onchange = (e) => {
-        const file = e.target.files[0];
-        if (!file) return;
+    input.onchange = async (e) => {
+        const files = Array.from(e.target.files);
+        if (files.length === 0) return;
         
-        const reader = new FileReader();
-        reader.onload = (event) => {
-            const img = new Image();
-            img.onload = () => {
-                addImageToList(img, file.name || `图片${state.imageList.length + 1}`);
-                console.log('图像已导入');
-            };
-            img.src = event.target.result;
-        };
-        reader.readAsDataURL(file);
+        if (state.isCameraOpen) {
+            closeCamera();
+        }
+        
+        if (files.length > 1) {
+            showLoadingOverlay(`正在导入图片 1/${files.length}...`);
+        }
+        
+        for (let i = 0; i < files.length; i++) {
+            const file = files[i];
+            const isLast = (i === files.length - 1);
+            const reader = new FileReader();
+            
+            if (files.length > 1) {
+                updateLoadingProgress(`正在导入图片 ${i + 1}/${files.length}...`);
+            }
+            
+            await new Promise((resolve) => {
+                reader.onload = (event) => {
+                    const img = new Image();
+                    img.onload = async () => {
+                        await addImageToList(img, file.name || `图片${state.imageList.length + 1}`, isLast);
+                        resolve();
+                    };
+                    img.onerror = () => {
+                        console.error(`加载图片失败: ${file.name}`);
+                        resolve();
+                    };
+                    img.src = event.target.result;
+                };
+                reader.readAsDataURL(file);
+            });
+        }
+        
+        if (files.length > 1) {
+            hideLoadingOverlay();
+        }
+        
+        console.log(`已导入 ${files.length} 张图片`);
     };
     
     input.click();
 }
 
-async function addImageToList(img, name) {
+async function addImageToList(img, name, isLast = true) {
     const thumbnail = await generateThumbnail(img.src, 150);
     
     const imgData = {
@@ -2508,15 +2538,17 @@ async function addImageToList(img, name) {
     state.currentFolderIndex = -1;
     state.currentFolderPageIndex = -1;
     
-    if (state.isCameraOpen) {
-        closeCamera();
-    } else {
-        drawImageToCenter(img);
+    if (isLast) {
+        if (state.isCameraOpen) {
+            closeCamera();
+        } else {
+            drawImageToCenter(img);
+        }
+        
+        updateSidebarContent();
+        updatePhotoButtonState();
+        updateEnhanceButtonState();
     }
-    
-    updateSidebarContent();
-    updatePhotoButtonState();
-    updateEnhanceButtonState();
 }
 
 async function addImageToListNoHighlight(img, name) {
