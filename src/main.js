@@ -1543,37 +1543,6 @@ function updateEnhanceButtonState() {
     }
 }
 
-function applyEnhanceFilter(imageData) {
-    if (!state.enhanceEnabled) return imageData;
-    
-    const data = imageData.data;
-    
-    for (let i = 0; i < data.length; i += 4) {
-        const r = data[i];
-        const g = data[i + 1];
-        const b = data[i + 2];
-        
-        const contrast = 1.4;
-        const brightness = 10;
-        
-        let newR = ((r - 128) * contrast) + 128 + brightness;
-        let newG = ((g - 128) * contrast) + 128 + brightness;
-        let newB = ((b - 128) * contrast) + 128 + brightness;
-        
-        const saturation = 1.2;
-        const gray = 0.299 * newR + 0.587 * newG + 0.114 * newB;
-        newR = gray + (newR - gray) * saturation;
-        newG = gray + (newG - gray) * saturation;
-        newB = gray + (newB - gray) * saturation;
-        
-        data[i] = Math.max(0, Math.min(255, newR));
-        data[i + 1] = Math.max(0, Math.min(255, newG));
-        data[i + 2] = Math.max(0, Math.min(255, newB));
-    }
-    
-    return imageData;
-}
-
 async function generateThumbnail(imageData, maxSize = 150, fixedRatio = true) {
     if (window.__TAURI__) {
         try {
@@ -2559,11 +2528,7 @@ async function captureCamera() {
             dataUrl = await invoke('enhance_image', { imageData: dataUrl });
             console.log('Rust 图像增强完成');
         } catch (error) {
-            console.error('Rust 图像增强失败，使用前端降级方案:', error);
-            const imageData = tempCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
-            const enhancedData = applyEnhanceFilter(imageData);
-            tempCtx.putImageData(enhancedData, 0, 0);
-            dataUrl = tempCanvas.toDataURL('image/png');
+            console.error('Rust 图像增强失败:', error);
         } finally {
             const index = state.enhanceRequestQueue.indexOf(requestId);
             if (index > -1) {
@@ -2574,11 +2539,6 @@ async function captureCamera() {
                 hideLoadingOverlay();
             }
         }
-    } else if (state.enhanceEnabled) {
-        const imageData = tempCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
-        const enhancedData = applyEnhanceFilter(imageData);
-        tempCtx.putImageData(enhancedData, 0, 0);
-        dataUrl = tempCanvas.toDataURL('image/png');
     }
     
     if (window.__TAURI__ && cdsDir) {
