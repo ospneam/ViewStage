@@ -79,6 +79,138 @@ const DRAW_CONFIG = {
     cameraFrameIntervalLow: 100    // 低帧率模式 (绘制时)
 };
 
+// ==================== 智能绘制调度器 ====================
+
+class SmartDrawScheduler {
+    constructor() {
+        this.performanceHistory = []; // 性能历史记录
+        this.maxHistorySize = 8;      // 最大历史记录数（减少以更快响应性能变化）
+        this.targetFps = 60;          // 目标帧率
+        this.minDistance = 0.7;       // 最小点间距（增加以减少点数量）
+        this.maxPointsPerFlush = 40;  // 每次flush的最大点数（减少以降低单次负载）
+        this.adaptationInterval = 800; // 自适应调整间隔 (ms)（减少以更快调整）
+        this.lastAdaptationTime = 0;  // 上次自适应调整时间
+        this.drawQuality = 'medium';  // 绘制质量设置
+    }
+    
+    /**
+     * 记录绘制性能
+     */
+    recordPerformance(drawTime) {
+        this.performanceHistory.push(drawTime);
+        if (this.performanceHistory.length > this.maxHistorySize) {
+            this.performanceHistory.shift();
+        }
+        
+        // 定期自适应调整
+        const now = Date.now();
+        if (now - this.lastAdaptationTime >= this.adaptationInterval) {
+            this.adaptParameters();
+            this.lastAdaptationTime = now;
+        }
+    }
+    
+    /**
+     * 自适应调整参数
+     */
+    adaptParameters() {
+        if (this.performanceHistory.length === 0) return;
+        
+        // 计算平均绘制时间
+        const avgDrawTime = this.performanceHistory.reduce((sum, time) => sum + time, 0) / this.performanceHistory.length;
+        const currentFps = 1000 / avgDrawTime;
+        
+        // 根据帧率调整参数
+        if (currentFps < this.targetFps * 0.6) {
+            // 性能很差，显著降低绘制质量
+            this.minDistance = Math.min(this.minDistance + 0.2, 2.0);
+            this.maxPointsPerFlush = Math.max(this.maxPointsPerFlush - 20, 10);
+            this.drawQuality = 'low';
+        } else if (currentFps < this.targetFps * 0.75) {
+            // 性能较差，明显降低绘制质量
+            this.minDistance = Math.min(this.minDistance + 0.15, 1.5);
+            this.maxPointsPerFlush = Math.max(this.maxPointsPerFlush - 15, 15);
+            this.drawQuality = 'low';
+        } else if (currentFps < this.targetFps * 0.9) {
+            // 性能一般，适度降低绘制质量
+            this.minDistance = Math.min(this.minDistance + 0.1, 1.0);
+            this.maxPointsPerFlush = Math.max(this.maxPointsPerFlush - 10, 25);
+            this.drawQuality = 'medium';
+        } else if (currentFps > this.targetFps * 0.95) {
+            // 性能较好，提高绘制质量
+            this.minDistance = Math.max(this.minDistance - 0.1, 0.5);
+            this.maxPointsPerFlush = Math.min(this.maxPointsPerFlush + 10, 60);
+            this.drawQuality = 'medium';
+        }
+        
+        // 更新批处理管理器的参数
+        if (batchDrawManager) {
+            batchDrawManager.minDistance = this.minDistance;
+        }
+        
+        // 根据绘制质量调整画布设置
+        this.adjustDrawQuality();
+    }
+    
+    /**
+     * 根据绘制质量调整画布设置
+     */
+    adjustDrawQuality() {
+        if (!dom.drawCtx) return;
+        
+        const dc = dom.drawCtx;
+        
+        switch (this.drawQuality) {
+            case 'low':
+                dc.imageSmoothingQuality = 'low';
+                break;
+            case 'medium':
+                dc.imageSmoothingQuality = 'medium';
+                break;
+            case 'high':
+                dc.imageSmoothingQuality = 'medium'; // 保持medium以避免GPU负载过高
+                break;
+        }
+    }
+    
+    /**
+     * 获取当前性能状态
+     */
+    getPerformanceState() {
+        if (this.performanceHistory.length === 0) {
+            return { fps: 60, status: 'normal' };
+        }
+        
+        const avgDrawTime = this.performanceHistory.reduce((sum, time) => sum + time, 0) / this.performanceHistory.length;
+        const fps = 1000 / avgDrawTime;
+        
+        if (fps < this.targetFps * 0.6) {
+            return { fps, status: 'poor' };
+        } else if (fps < this.targetFps * 0.9) {
+            return { fps, status: 'fair' };
+        } else {
+            return { fps, status: 'good' };
+        }
+    }
+    
+    /**
+     * 获取当前的最大点数限制
+     */
+    getMaxPointsPerFlush() {
+        return this.maxPointsPerFlush;
+    }
+    
+    /**
+     * 获取当前的最小点间距
+     */
+    getMinDistance() {
+        return this.minDistance;
+    }
+}
+
+// 全局智能绘制调度器
+const smartDrawScheduler = new SmartDrawScheduler();
+
 // ==================== 全局状态 ====================
 
 let state = {
@@ -377,9 +509,10 @@ function resizeCanvas(newScreenW, newScreenH) {
     const oldCanvasW = DRAW_CONFIG.canvasW;
     const oldCanvasH = DRAW_CONFIG.canvasH;
     
-    const bgImageData = dom.bgCtx.getImageData(0, 0, oldCanvasW * DRAW_CONFIG.dpr, oldCanvasH * DRAW_CONFIG.dpr);
-    const imageImageData = dom.imageCtx.getImageData(0, 0, oldCanvasW * DRAW_CONFIG.dpr, oldCanvasH * DRAW_CONFIG.dpr);
-    const drawImageData = dom.drawCtx.getImageData(0, 0, oldCanvasW * DRAW_CONFIG.dpr, oldCanvasH * DRAW_CONFIG.dpr);
+    // 保存当前状态
+    const oldScale = state.scale;
+    const oldCanvasX = state.canvasX;
+    const oldCanvasY = state.canvasY;
     
     DRAW_CONFIG.screenW = newScreenW;
     DRAW_CONFIG.screenH = newScreenH;
@@ -388,6 +521,7 @@ function resizeCanvas(newScreenW, newScreenH) {
     
     updateMoveBound();
     
+    // 调整画布大小
     dom.bgCanvas.width = DRAW_CONFIG.canvasW * DRAW_CONFIG.dpr;
     dom.bgCanvas.height = DRAW_CONFIG.canvasH * DRAW_CONFIG.dpr;
     dom.imageCanvas.width = DRAW_CONFIG.canvasW * DRAW_CONFIG.dpr;
@@ -402,6 +536,7 @@ function resizeCanvas(newScreenW, newScreenH) {
     dom.drawCanvas.style.width = DRAW_CONFIG.canvasW + 'px';
     dom.drawCanvas.style.height = DRAW_CONFIG.canvasH + 'px';
     
+    // 重置上下文
     dom.bgCtx.setTransform(1, 0, 0, 1, 0, 0);
     dom.imageCtx.setTransform(1, 0, 0, 1, 0, 0);
     dom.drawCtx.setTransform(1, 0, 0, 1, 0, 0);
@@ -409,20 +544,36 @@ function resizeCanvas(newScreenW, newScreenH) {
     dom.imageCtx.scale(DRAW_CONFIG.dpr, DRAW_CONFIG.dpr);
     dom.drawCtx.scale(DRAW_CONFIG.dpr, DRAW_CONFIG.dpr);
     
+    // 设置绘制质量
     dom.bgCtx.imageSmoothingEnabled = true;
-    dom.bgCtx.imageSmoothingQuality = 'high';
+    dom.bgCtx.imageSmoothingQuality = 'medium';
     dom.imageCtx.imageSmoothingEnabled = true;
     dom.imageCtx.imageSmoothingQuality = 'medium';
     dom.drawCtx.imageSmoothingEnabled = true;
-    dom.drawCtx.imageSmoothingQuality = 'high';
+    dom.drawCtx.imageSmoothingQuality = 'medium';
     dom.drawCtx.lineCap = 'round';
     dom.drawCtx.lineJoin = 'round';
     dom.drawCtx.miterLimit = 10;
     
+    // 重置背景
     resetBgCanvas();
-    dom.bgCtx.putImageData(bgImageData, 0, 0);
-    dom.imageCtx.putImageData(imageImageData, 0, 0);
-    dom.drawCtx.putImageData(drawImageData, 0, 0);
+    
+    // 重新绘制内容（避免使用昂贵的getImageData/putImageData）
+    if (state.currentImage) {
+        drawImageToCenter(state.currentImage);
+    } else if (state.isCameraOpen) {
+        // 摄像头画面会通过renderFrame重新绘制
+    }
+    
+    // 重新绘制批注
+    if (state.strokeHistory.length > 0 || state.baseImageObj) {
+        redrawAllStrokes();
+    }
+    
+    // 恢复画布位置和缩放
+    state.scale = oldScale;
+    state.canvasX = oldCanvasX;
+    state.canvasY = oldCanvasY;
     
     clampCanvasPosition();
     updateCanvasTransform();
@@ -508,8 +659,9 @@ function initCanvas() {
     dom.imageCtx.imageSmoothingQuality = 'medium';
     
     const dc = dom.drawCtx;
+    // 降低图像平滑质量，减少GPU负载
     dc.imageSmoothingEnabled = true;
-    dc.imageSmoothingQuality = 'high';
+    dc.imageSmoothingQuality = 'medium'; // 从'high'降低到'medium'
     dc.lineCap = 'round';
     dc.lineJoin = 'round';
     dc.miterLimit = 10;
@@ -920,21 +1072,30 @@ function handleMouseMove(e) {
         const x = (e.clientX - rect.left) / state.scale;
         const y = (e.clientY - rect.top) / state.scale;
         
-        // 总是添加到绘制队列以确保流畅绘制
-        state.pendingDrawPoints.push({ fromX: state.lastX, fromY: state.lastY, toX: x, toY: y });
+        // 计算距离，只添加足够远的点
+        const distance = Math.sqrt(Math.pow(x - state.lastX, 2) + Math.pow(y - state.lastY, 2));
         
-        // 使用优化的点收集（只影响历史存储）
-        pointCollector.addPoint(state.lastX, state.lastY, x, y);
+        // 使用智能调度器的最小点间距参数
+        const minDistance = smartDrawScheduler.getMinDistance();
         
-        // 总是添加到笔画历史
-        addStrokePoint(state.lastX, state.lastY, x, y);
-        
-        state.lastX = x;
-        state.lastY = y;
-        
-        // 立即调度绘制
-        if (!state.drawRafId) {
-            state.drawRafId = requestAnimationFrame(flushDrawPoints);
+        // 只在距离足够大时添加点，减少点数量
+        if (distance > minDistance) {
+            // 添加到绘制队列
+            state.pendingDrawPoints.push({ fromX: state.lastX, fromY: state.lastY, toX: x, toY: y });
+            
+            // 使用优化的点收集（只影响历史存储）
+            pointCollector.addPoint(state.lastX, state.lastY, x, y);
+            
+            // 总是添加到笔画历史
+            addStrokePoint(state.lastX, state.lastY, x, y);
+            
+            state.lastX = x;
+            state.lastY = y;
+            
+            // 调度绘制，但限制频率
+            if (!state.drawRafId) {
+                state.drawRafId = requestAnimationFrame(flushDrawPoints);
+            }
         }
     }
 }
@@ -945,35 +1106,44 @@ function flushDrawPoints() {
         return;
     }
     
-    // 根据当前绘制模式设置状态
-    if (state.drawMode === 'comment') {
-        setContextState(dom.drawCtx, {
-            strokeStyle: DRAW_CONFIG.penColor,
-            lineWidth: DRAW_CONFIG.penWidth,
-            lineCap: 'round',
-            lineJoin: 'round',
-            globalCompositeOperation: 'source-over'
-        });
-    } else if (state.drawMode === 'eraser') {
-        setContextState(dom.drawCtx, {
-            strokeStyle: '#000000', // 橡皮颜色不影响结果
-            lineWidth: DRAW_CONFIG.eraserSize,
-            lineCap: 'round',
-            lineJoin: 'round',
-            globalCompositeOperation: 'destination-out'
-        });
+    const startTime = performance.now();
+    
+    // 使用智能调度器的参数
+    const maxPointsPerFlush = smartDrawScheduler.getMaxPointsPerFlush();
+    const pointsToProcess = state.pendingDrawPoints.slice(0, maxPointsPerFlush);
+    const remainingPoints = state.pendingDrawPoints.slice(maxPointsPerFlush);
+    
+    // 开始绘制
+    batchDrawManager.startDrawing();
+    
+    // 使用批处理管理器
+    for (const point of pointsToProcess) {
+        const type = state.drawMode === 'eraser' ? 'erase' : 'draw';
+        const color = state.drawMode === 'comment' ? DRAW_CONFIG.penColor : '#000000';
+        const lineWidth = state.drawMode === 'comment' ? DRAW_CONFIG.penWidth : DRAW_CONFIG.eraserSize;
+        
+        batchDrawManager.addCommand(type, point.fromX, point.fromY, point.toX, point.toY, color, lineWidth);
     }
     
-    // 批量绘制
-    dom.drawCtx.beginPath();
-    for (const point of state.pendingDrawPoints) {
-        dom.drawCtx.moveTo(point.fromX, point.fromY);
-        dom.drawCtx.lineTo(point.toX, point.toY);
-    }
-    dom.drawCtx.stroke();
+    // 执行批处理
+    batchDrawManager.flushAll();
     
-    state.pendingDrawPoints = [];
-    state.drawRafId = null;
+    // 结束绘制
+    batchDrawManager.endDrawing();
+    
+    // 计算绘制时间并记录性能
+    const drawTime = performance.now() - startTime;
+    smartDrawScheduler.recordPerformance(drawTime);
+    
+    // 更新待处理点
+    state.pendingDrawPoints = remainingPoints;
+    
+    // 如果还有剩余点，继续调度绘制
+    if (state.pendingDrawPoints.length > 0) {
+        state.drawRafId = requestAnimationFrame(flushDrawPoints);
+    } else {
+        state.drawRafId = null;
+    }
 }
 
 function handleMouseUp(e) {
@@ -1184,6 +1354,9 @@ function startStroke(type) {
         lineWidth: DRAW_CONFIG.penWidth,
         eraserSize: DRAW_CONFIG.eraserSize
     };
+    
+    // 开始批处理绘制
+    batchDrawManager.startDrawing();
 }
 
 function addStrokePoint(fromX, fromY, toX, toY) {
@@ -1226,8 +1399,14 @@ function endStroke() {
     }
     state.currentStroke = null;
     
+    // 结束批处理绘制
+    batchDrawManager.endDrawing();
+    
     // 清理点收集器
     pointCollector.clear();
+    
+    // 清理批处理管理器
+    batchDrawManager.clear();
 }
 
 let compactIdleId = null;
@@ -1398,6 +1577,140 @@ class PointCollector {
 // 全局点收集器
 const pointCollector = new PointCollector();
 
+// ==================== 批处理绘制系统 ====================
+
+/**
+ * 批处理绘制管理器
+ * 按状态分组批量处理绘制命令
+ */
+class BatchDrawManager {
+    constructor() {
+        this.batches = new Map(); // 按状态分组的批处理
+        this.maxBatchSize = 300;   // 每批最大命令数（进一步增加以减少flush次数）
+        this.batchInterval = 16;   // 批处理间隔 (ms)
+        this.lastBatchTime = 0;     // 上次批处理时间
+        this.isDrawing = false;     // 是否正在绘制中
+        this.pendingFlush = false;  // 是否有待处理的flush
+        this.minDistance = 0.5;     // 最小点间距，用于过滤冗余点（增加以减少点数量）
+    }
+    
+    /**
+     * 添加绘制命令
+     */
+    addCommand(type, fromX, fromY, toX, toY, color, lineWidth) {
+        // 计算距离，过滤太近的点
+        const distance = Math.sqrt(Math.pow(toX - fromX, 2) + Math.pow(toY - fromY, 2));
+        if (distance < this.minDistance) {
+            return; // 跳过太近的点
+        }
+        
+        // 生成状态键
+        const stateKey = `${type}-${color}-${lineWidth}`;
+        
+        // 获取或创建批处理
+        if (!this.batches.has(stateKey)) {
+            this.batches.set(stateKey, {
+                type,
+                color,
+                lineWidth,
+                commands: []
+            });
+        }
+        
+        const batch = this.batches.get(stateKey);
+        batch.commands.push({ fromX, fromY, toX, toY });
+        
+        // 检查批处理大小
+        if (batch.commands.length >= this.maxBatchSize) {
+            this.flushBatch(stateKey);
+        }
+    }
+    
+    /**
+     * 开始绘制
+     */
+    startDrawing() {
+        this.isDrawing = true;
+        this.pendingFlush = false;
+    }
+    
+    /**
+     * 结束绘制
+     */
+    endDrawing() {
+        this.isDrawing = false;
+        this.flushAll();
+    }
+    
+    /**
+     * 执行单个批处理
+     */
+    flushBatch(stateKey) {
+        const batch = this.batches.get(stateKey);
+        if (!batch || batch.commands.length === 0) return;
+        
+        const ctx = dom.drawCtx;
+        
+        // 限制单次批处理的命令数量，避免GPU负载过高
+        const maxCommandsPerBatch = 100;
+        const commandsToProcess = batch.commands.slice(0, maxCommandsPerBatch);
+        const remainingCommands = batch.commands.slice(maxCommandsPerBatch);
+        
+        // 设置上下文状态
+        setContextState(ctx, {
+            strokeStyle: batch.color,
+            lineWidth: batch.lineWidth,
+            lineCap: 'round',
+            lineJoin: 'round',
+            globalCompositeOperation: batch.type === 'erase' ? 'destination-out' : 'source-over'
+        });
+        
+        // 批量绘制
+        ctx.beginPath();
+        for (const cmd of commandsToProcess) {
+            ctx.moveTo(cmd.fromX, cmd.fromY);
+            ctx.lineTo(cmd.toX, cmd.toY);
+        }
+        ctx.stroke();
+        
+        // 更新批处理命令
+        batch.commands = remainingCommands;
+    }
+    
+    /**
+     * 执行所有批处理
+     */
+    flushAll() {
+        for (const stateKey of this.batches.keys()) {
+            this.flushBatch(stateKey);
+        }
+        
+        // 清理空批处理
+        for (const [stateKey, batch] of this.batches.entries()) {
+            if (batch.commands.length === 0) {
+                this.batches.delete(stateKey);
+            }
+        }
+    }
+    
+    /**
+     * 清空所有批处理
+     */
+    clear() {
+        this.batches.clear();
+    }
+    
+    /**
+     * 获取批处理数量
+     */
+    getBatchCount() {
+        return this.batches.size;
+    }
+}
+
+// 全局批处理管理器
+const batchDrawManager = new BatchDrawManager();
+
 /**
  * 设置上下文状态（只更新变化的属性）
  * @param {CanvasRenderingContext2D} ctx - 目标上下文
@@ -1436,69 +1749,44 @@ function setContextState(ctx, state) {
  * @param {Array} strokes - 笔画数组
  */
 function drawStrokes(ctx, strokes) {
-    // 按状态分组
-    const drawGroups = {};
-    const eraseGroups = {};
+    // 清空现有批处理
+    batchDrawManager.clear();
     
-    // 分组笔画
-    for (const stroke of strokes) {
-        if (stroke.type === 'draw') {
-            const key = `${stroke.color}-${stroke.lineWidth}`;
-            if (!drawGroups[key]) {
-                drawGroups[key] = {
-                    color: stroke.color,
-                    lineWidth: stroke.lineWidth,
-                    points: []
-                };
+    // 限制单次绘制的笔画数量，避免GPU负载过高
+    const maxStrokesPerBatch = 50;
+    const totalStrokes = strokes.length;
+    
+    for (let i = 0; i < totalStrokes; i += maxStrokesPerBatch) {
+        const batchStrokes = strokes.slice(i, i + maxStrokesPerBatch);
+        
+        // 按状态分组添加到批处理
+        for (const stroke of batchStrokes) {
+            if (stroke.type === 'draw') {
+                for (const point of stroke.points) {
+                    batchDrawManager.addCommand(
+                        'draw',
+                        point.fromX, point.fromY,
+                        point.toX, point.toY,
+                        stroke.color,
+                        stroke.lineWidth
+                    );
+                }
+            } else if (stroke.type === 'erase') {
+                for (const point of stroke.points) {
+                    batchDrawManager.addCommand(
+                        'erase',
+                        point.fromX, point.fromY,
+                        point.toX, point.toY,
+                        '#000000',
+                        stroke.eraserSize
+                    );
+                }
             }
-            drawGroups[key].points.push(...stroke.points);
-        } else if (stroke.type === 'erase') {
-            const key = `${stroke.eraserSize}`;
-            if (!eraseGroups[key]) {
-                eraseGroups[key] = {
-                    eraserSize: stroke.eraserSize,
-                    points: []
-                };
-            }
-            eraseGroups[key].points.push(...stroke.points);
         }
+        
+        // 执行批处理
+        batchDrawManager.flushAll();
     }
-    
-    // 绘制普通笔画（按颜色和线宽分组）
-    Object.values(drawGroups).forEach(group => {
-        setContextState(ctx, {
-            strokeStyle: group.color,
-            lineWidth: group.lineWidth,
-            lineCap: 'round',
-            lineJoin: 'round',
-            globalCompositeOperation: 'source-over'
-        });
-        
-        ctx.beginPath();
-        for (const point of group.points) {
-            ctx.moveTo(point.fromX, point.fromY);
-            ctx.lineTo(point.toX, point.toY);
-        }
-        ctx.stroke();
-    });
-    
-    // 绘制橡皮擦笔画（按大小分组）
-    Object.values(eraseGroups).forEach(group => {
-        setContextState(ctx, {
-            strokeStyle: '#000000', // 橡皮颜色不影响结果
-            lineWidth: group.eraserSize,
-            lineCap: 'round',
-            lineJoin: 'round',
-            globalCompositeOperation: 'destination-out'
-        });
-        
-        ctx.beginPath();
-        for (const point of group.points) {
-            ctx.moveTo(point.fromX, point.fromY);
-            ctx.lineTo(point.toX, point.toY);
-        }
-        ctx.stroke();
-    });
     
     // 恢复默认合成模式
     setContextState(ctx, {
@@ -2778,9 +3066,17 @@ function startCameraPreview() {
     function renderFrame(currentTime) {
         if (!state.isCameraOpen) return;
         
-        const currentInterval = state.drawMode === 'comment' || state.drawMode === 'eraser' 
-            ? DRAW_CONFIG.cameraFrameIntervalLow 
-            : DRAW_CONFIG.cameraFrameInterval;
+        // 在绘制时完全暂停摄像头处理，减少GPU占用
+        if (state.drawMode === 'comment' || state.drawMode === 'eraser') {
+            // 只在需要时更新（例如旋转或镜像变化）
+            if (!cachedDrawParams || cachedDrawParams.rotation !== state.cameraRotation) {
+                cachedDrawParams = updateDrawParams();
+            }
+            state.cameraAnimationId = requestAnimationFrame(renderFrame);
+            return;
+        }
+        
+        const currentInterval = DRAW_CONFIG.cameraFrameInterval;
         
         if (currentTime - lastFrameTime >= currentInterval) {
             lastFrameTime = currentTime;
