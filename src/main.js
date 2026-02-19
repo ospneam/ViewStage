@@ -91,7 +91,8 @@ let state = {
     startCanvasX: 0,
     startCanvasY: 0,
     strokeHistory: [],
-    baseImageData: null,
+    baseImageURL: null,
+    baseImageObj: null,
     currentStroke: null,
     MAX_UNDO_STEPS: 10,
     STROKE_COMPACT_THRESHOLD: 30,
@@ -230,7 +231,7 @@ async function processPdfPagesParallel(pdf, totalPages, batchSize = 4) {
             thumbnail: thumbnail,
             pageNum: pageNum,
             strokeHistory: null,
-            baseImageData: null
+            baseImageURL: null
         };
     }
     
@@ -1122,25 +1123,35 @@ function endStroke() {
     state.currentStroke = null;
 }
 
-function compactStrokes() {
-    if (state.strokeHistory.length === 0 && !state.baseImageData) return;
+let compactIdleId = null;
+
+function scheduleCompact() {
+    if (state.strokeHistory.length <= state.MAX_UNDO_STEPS) return;
+    if (compactIdleId !== null) return;
     
+    const strokesToCompact = state.strokeHistory.slice(0, state.strokeHistory.length - state.MAX_UNDO_STEPS);
+    state.strokeHistory = state.strokeHistory.slice(state.strokeHistory.length - state.MAX_UNDO_STEPS);
+    
+    if (strokesToCompact.length === 0) return;
+    
+    compactIdleId = requestIdleCallback((deadline) => {
+        compactIdleId = null;
+        doCompactStrokes(strokesToCompact);
+    }, { timeout: 2000 });
+}
+
+function doCompactStrokes(strokesToCompact) {
     const tempCanvas = document.createElement('canvas');
     tempCanvas.width = DRAW_CONFIG.canvasW * DRAW_CONFIG.dpr;
     tempCanvas.height = DRAW_CONFIG.canvasH * DRAW_CONFIG.dpr;
     const tempCtx = tempCanvas.getContext('2d');
     tempCtx.scale(DRAW_CONFIG.dpr, DRAW_CONFIG.dpr);
     
-    if (state.baseImageData) {
-        const tempImgData = new ImageData(
-            new Uint8ClampedArray(state.baseImageData.data),
-            state.baseImageData.width,
-            state.baseImageData.height
-        );
-        tempCtx.putImageData(tempImgData, 0, 0);
+    if (state.baseImageObj) {
+        tempCtx.drawImage(state.baseImageObj, 0, 0, DRAW_CONFIG.canvasW, DRAW_CONFIG.canvasH);
     }
     
-    for (const stroke of state.strokeHistory) {
+    for (const stroke of strokesToCompact) {
         if (stroke.type === 'draw') {
             tempCtx.strokeStyle = stroke.color;
             tempCtx.lineWidth = stroke.lineWidth;
@@ -1169,9 +1180,19 @@ function compactStrokes() {
         }
     }
     
-    state.baseImageData = tempCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
-    state.strokeHistory = [];
-    console.log('笔画已压缩并清空历史');
+    state.baseImageURL = tempCanvas.toDataURL('image/png');
+    state.baseImageObj = null;
+    const img = new Image();
+    img.onload = () => {
+        state.baseImageObj = img;
+    };
+    img.src = state.baseImageURL;
+    
+    console.log('笔画已异步压缩，保留最近', state.strokeHistory.length, '笔可撤销');
+}
+
+function compactStrokes() {
+    scheduleCompact();
 }
 
 function saveSnapshot() {
@@ -1190,8 +1211,8 @@ function undo() {
 function redrawAllStrokes() {
     clearDrawCanvas();
     
-    if (state.baseImageData) {
-        dom.drawCtx.putImageData(state.baseImageData, 0, 0);
+    if (state.baseImageObj) {
+        dom.drawCtx.drawImage(state.baseImageObj, 0, 0, DRAW_CONFIG.canvasW, DRAW_CONFIG.canvasH);
     }
     
     for (const stroke of state.strokeHistory) {
@@ -1239,12 +1260,13 @@ function clearDrawCanvas() {
 function clearAllDrawings() {
     clearDrawCanvas();
     state.strokeHistory = [];
-    state.baseImageData = null;
+    state.baseImageURL = null;
+    state.baseImageObj = null;
     updateUndoBtnStatus();
     
     if (state.currentImageIndex >= 0 && state.currentImageIndex < state.imageList.length) {
         state.imageList[state.currentImageIndex].strokeHistory = null;
-        state.imageList[state.currentImageIndex].baseImageData = null;
+        state.imageList[state.currentImageIndex].baseImageURL = null;
     }
     
     if (state.currentFolderIndex >= 0 && state.currentFolderPageIndex >= 0) {
@@ -1252,7 +1274,7 @@ function clearAllDrawings() {
             const folder = state.fileList[state.currentFolderIndex];
             if (state.currentFolderPageIndex < folder.pages.length) {
                 folder.pages[state.currentFolderPageIndex].strokeHistory = null;
-                folder.pages[state.currentFolderPageIndex].baseImageData = null;
+                folder.pages[state.currentFolderPageIndex].baseImageURL = null;
             }
         }
     }
@@ -1763,11 +1785,7 @@ function selectImage(index) {
 function saveCurrentDrawData() {
     if (state.currentImageIndex >= 0 && state.currentImageIndex < state.imageList.length) {
         state.imageList[state.currentImageIndex].strokeHistory = [...state.strokeHistory];
-        state.imageList[state.currentImageIndex].baseImageData = state.baseImageData ? {
-            data: Array.from(state.baseImageData.data),
-            width: state.baseImageData.width,
-            height: state.baseImageData.height
-        } : null;
+        state.imageList[state.currentImageIndex].baseImageURL = state.baseImageURL;
         state.imageList[state.currentImageIndex].viewState = {
             scale: state.scale,
             canvasX: state.canvasX,
@@ -1785,22 +1803,25 @@ function restoreDrawData(index) {
             state.strokeHistory = [];
         }
         
-        if (imgData.baseImageData) {
-            state.baseImageData = new ImageData(
-                new Uint8ClampedArray(imgData.baseImageData.data),
-                imgData.baseImageData.width,
-                imgData.baseImageData.height
-            );
-        } else {
-            state.baseImageData = null;
-        }
+        state.baseImageURL = imgData.baseImageURL || null;
+        state.baseImageObj = null;
         
-        if (state.strokeHistory.length > 0 || state.baseImageData) {
-            redrawAllStrokes();
+        if (state.baseImageURL) {
+            const img = new Image();
+            img.onload = () => {
+                state.baseImageObj = img;
+                redrawAllStrokes();
+                updateUndoBtnStatus();
+            };
+            img.src = state.baseImageURL;
         } else {
-            clearDrawCanvas();
+            if (state.strokeHistory.length > 0) {
+                redrawAllStrokes();
+            } else {
+                clearDrawCanvas();
+            }
+            updateUndoBtnStatus();
         }
-        updateUndoBtnStatus();
     }
 }
 
@@ -2092,11 +2113,7 @@ function saveCurrentFolderPageDrawData() {
             const folder = state.fileList[state.currentFolderIndex];
             if (state.currentFolderPageIndex < folder.pages.length) {
                 folder.pages[state.currentFolderPageIndex].strokeHistory = [...state.strokeHistory];
-                folder.pages[state.currentFolderPageIndex].baseImageData = state.baseImageData ? {
-                    data: Array.from(state.baseImageData.data),
-                    width: state.baseImageData.width,
-                    height: state.baseImageData.height
-                } : null;
+                folder.pages[state.currentFolderPageIndex].baseImageURL = state.baseImageURL;
                 folder.pages[state.currentFolderPageIndex].viewState = {
                     scale: state.scale,
                     canvasX: state.canvasX,
@@ -2118,22 +2135,25 @@ function restoreFolderPageDrawData(folderIndex, pageIndex) {
                 state.strokeHistory = [];
             }
             
-            if (page.baseImageData) {
-                state.baseImageData = new ImageData(
-                    new Uint8ClampedArray(page.baseImageData.data),
-                    page.baseImageData.width,
-                    page.baseImageData.height
-                );
-            } else {
-                state.baseImageData = null;
-            }
+            state.baseImageURL = page.baseImageURL || null;
+            state.baseImageObj = null;
             
-            if (state.strokeHistory.length > 0 || state.baseImageData) {
-                redrawAllStrokes();
+            if (state.baseImageURL) {
+                const img = new Image();
+                img.onload = () => {
+                    state.baseImageObj = img;
+                    redrawAllStrokes();
+                    updateUndoBtnStatus();
+                };
+                img.src = state.baseImageURL;
             } else {
-                clearDrawCanvas();
+                if (state.strokeHistory.length > 0) {
+                    redrawAllStrokes();
+                } else {
+                    clearDrawCanvas();
+                }
+                updateUndoBtnStatus();
             }
-            updateUndoBtnStatus();
         }
     }
 }
@@ -2684,7 +2704,7 @@ async function addImageToList(img, name, isLast = true) {
         width: img.width,
         height: img.height,
         strokeHistory: null,
-        baseImageData: null
+        baseImageURL: null
     };
     
     state.imageList.push(imgData);
@@ -2696,7 +2716,8 @@ async function addImageToList(img, name, isLast = true) {
     if (isLast) {
         clearDrawCanvas();
         state.strokeHistory = [];
-        state.baseImageData = null;
+        state.baseImageURL = null;
+        state.baseImageObj = null;
         updateUndoBtnStatus();
         
         if (state.isCameraOpen) {
@@ -2721,7 +2742,7 @@ async function addImageToListNoHighlight(img, name) {
         width: img.width,
         height: img.height,
         strokeHistory: null,
-        baseImageData: null
+        baseImageURL: null
     };
     
     state.imageList.push(imgData);
