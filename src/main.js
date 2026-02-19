@@ -1059,7 +1059,11 @@ function updateCanvasTransform() {
 
 // 撤销功能
 function saveSnapshot() {
-    const snapshot = dom.drawCanvas.toDataURL('image/png');
+    const snapshot = dom.drawCtx.getImageData(
+        0, 0,
+        DRAW_CONFIG.canvasW * DRAW_CONFIG.dpr,
+        DRAW_CONFIG.canvasH * DRAW_CONFIG.dpr
+    );
     if (state.currentStep < state.historyStack.length - 1) {
         state.historyStack = state.historyStack.slice(0, state.currentStep + 1);
     }
@@ -1074,14 +1078,10 @@ function saveSnapshot() {
 
 function restoreSnapshot(step) {
     if (step < 0 || step >= state.historyStack.length) return;
-    const img = new Image();
-    img.src = state.historyStack[step];
-    img.onload = () => {
-        clearDrawCanvas();
-        dom.drawCtx.drawImage(img, 0, 0, DRAW_CONFIG.canvasW, DRAW_CONFIG.canvasH);
-        state.currentStep = step;
-        updateUndoBtnStatus();
-    };
+    const snapshot = state.historyStack[step];
+    dom.drawCtx.putImageData(snapshot, 0, 0);
+    state.currentStep = step;
+    updateUndoBtnStatus();
 }
 
 function undo() {
@@ -2475,6 +2475,9 @@ async function importImage() {
         const files = Array.from(e.target.files);
         if (files.length === 0) return;
         
+        saveCurrentDrawData();
+        saveCurrentFolderPageDrawData();
+        
         if (state.isCameraOpen) {
             closeCamera();
         }
@@ -2538,6 +2541,11 @@ async function addImageToList(img, name, isLast = true) {
     state.currentFolderPageIndex = -1;
     
     if (isLast) {
+        clearDrawCanvas();
+        state.historyStack = [];
+        state.currentStep = -1;
+        saveSnapshot();
+        
         if (state.isCameraOpen) {
             closeCamera();
         } else {
@@ -2565,6 +2573,11 @@ async function addImageToListNoHighlight(img, name) {
     state.imageList.push(imgData);
     state.currentImageIndex = state.imageList.length - 1;
     state.currentImage = img;
+    
+    clearDrawCanvas();
+    state.historyStack = [];
+    state.currentStep = -1;
+    saveSnapshot();
     
     updateSidebarContent();
 }
