@@ -10,7 +10,7 @@
 
 ## 技术栈
 
-- **前端**：Vanilla HTML 5 + CSS 3 + JavaScript（无框架依赖）
+- **前端**：Vanilla HTML 5 + CSS 3 + JavaScript（无框架依赖）+ Rust wasm
 - **后端**：Rust + Tauri
 - **构建工具**：Cargo
 
