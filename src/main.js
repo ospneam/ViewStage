@@ -1460,6 +1460,8 @@ function addStrokePoint(fromX, fromY, toX, toY) {
 
 async function endStroke() {
     if (state.currentStroke && state.currentStroke.points.length > 0) {
+        const originalPointsLength = state.currentStroke.points.length;
+        
         // 只在点数较多时简化，避免过度简化导致断点
         if (state.currentStroke.points.length > 50) {
             try {
@@ -1469,11 +1471,17 @@ async function endStroke() {
                     min_distance: POINT_OPTIMIZATION.minDistance,
                     quantization: POINT_OPTIMIZATION.quantization
                 };
-                state.currentStroke.points = await wasmPointProcessor.processStrokePoints(
+                const processedPoints = await wasmPointProcessor.processStrokePoints(
                     state.currentStroke.points,
                     config
                 );
-                console.log('使用WASM进行点处理，点数从', state.currentStroke.points.length, '减少到', state.currentStroke.points.length);
+                // 确保返回的是有效的数组
+                if (Array.isArray(processedPoints) && processedPoints.length > 0) {
+                    state.currentStroke.points = processedPoints;
+                    console.log('使用WASM进行点处理，点数从', originalPointsLength, '减少到', processedPoints.length);
+                } else {
+                    console.warn('WASM返回无效数据，保留原始点');
+                }
             } catch (error) {
                 console.warn('WASM点处理失败，使用前端降级方案:', error);
                 // 使用更小的 epsilon 值以保留更多点
@@ -1481,6 +1489,17 @@ async function endStroke() {
             }
         }
         
+        // 确保points是有效的数组
+        if (!Array.isArray(state.currentStroke.points) || state.currentStroke.points.length === 0) {
+            console.warn('笔画点数据无效，跳过添加');
+            state.currentStroke = null;
+            await batchDrawManager.endDrawing();
+            pointCollector.clear();
+            batchDrawManager.clear();
+            return;
+        }
+        
+        console.log('endStroke: 添加笔画到历史, type=', state.currentStroke.type, 'points=', state.currentStroke.points.length, '历史总数=', state.strokeHistory.length);
         state.strokeHistory.push(state.currentStroke);
         
         if (state.strokeHistory.length > state.STROKE_COMPACT_THRESHOLD) {
@@ -1488,6 +1507,8 @@ async function endStroke() {
         }
         
         updateUndoBtnStatus();
+    } else {
+        console.log('endStroke: 没有笔画需要添加');
     }
     state.currentStroke = null;
     
@@ -1938,8 +1959,6 @@ function setContextState(ctx, state) {
  * @param {Array} strokes - 笔画数组
  */
 async function drawStrokes(ctx, strokes) {
-    batchDrawManager.clear();
-    
     if (strokes.length === 0) return;
     
     const maxStrokesPerBatch = 50;
@@ -1966,76 +1985,41 @@ async function drawStrokes(ctx, strokes) {
         }
     }
     
-    const visibleTotal = visibleStrokes.length;
-    
-    for (let i = 0; i < visibleTotal; i += maxStrokesPerBatch) {
-        const batchStrokes = visibleStrokes.slice(i, i + maxStrokesPerBatch);
-        
-        let drawCommands = [];
-        
-        for (const stroke of batchStrokes) {
-            if (stroke.type === 'draw') {
-                for (const point of stroke.points) {
-                    drawCommands.push({
-                        type: 'draw',
-                        fromX: point.fromX,
-                        fromY: point.fromY,
-                        toX: point.toX,
-                        toY: point.toY,
-                        color: stroke.color,
-                        lineWidth: stroke.lineWidth
-                    });
-                }
-            } else if (stroke.type === 'erase') {
-                for (const point of stroke.points) {
-                    drawCommands.push({
-                        type: 'erase',
-                        fromX: point.fromX,
-                        fromY: point.fromY,
-                        toX: point.toX,
-                        toY: point.toY,
-                        color: '#000000',
-                        lineWidth: stroke.eraserSize
-                    });
-                }
-            }
-        }
-        
-        try {
-            const optimizedCommands = await wasmPointProcessor.optimizeDrawCommands(
-                drawCommands,
-                DRAW_CONFIG.canvasW,
-                DRAW_CONFIG.canvasH
-            );
+    // 按时间顺序逐个绘制笔画，确保橡皮擦除在正确的时机执行
+    console.log('drawStrokes: 绘制', visibleStrokes.length, '个笔画');
+    for (const stroke of visibleStrokes) {
+        console.log('drawStrokes: 绘制笔画 type=', stroke.type, 'points=', stroke.points.length);
+        if (stroke.type === 'draw') {
+            setContextState(ctx, {
+                strokeStyle: stroke.color,
+                lineWidth: stroke.lineWidth,
+                lineCap: 'round',
+                lineJoin: 'round',
+                globalCompositeOperation: 'source-over'
+            });
             
-            for (const cmd of optimizedCommands) {
-                batchDrawManager.addCommand(
-                    cmd.type,
-                    cmd.fromX,
-                    cmd.fromY,
-                    cmd.toX,
-                    cmd.toY,
-                    cmd.color,
-                    cmd.lineWidth
-                );
+            ctx.beginPath();
+            for (const point of stroke.points) {
+                ctx.moveTo(point.fromX, point.fromY);
+                ctx.lineTo(point.toX, point.toY);
             }
-        } catch (error) {
-            console.warn('WASM绘制优化失败，使用原始顺序:', error);
+            ctx.stroke();
+        } else if (stroke.type === 'erase') {
+            setContextState(ctx, {
+                strokeStyle: '#000000',
+                lineWidth: stroke.eraserSize,
+                lineCap: 'round',
+                lineJoin: 'round',
+                globalCompositeOperation: 'destination-out'
+            });
             
-            for (const cmd of drawCommands) {
-                batchDrawManager.addCommand(
-                    cmd.type,
-                    cmd.fromX,
-                    cmd.fromY,
-                    cmd.toX,
-                    cmd.toY,
-                    cmd.color,
-                    cmd.lineWidth
-                );
+            ctx.beginPath();
+            for (const point of stroke.points) {
+                ctx.moveTo(point.fromX, point.fromY);
+                ctx.lineTo(point.toX, point.toY);
             }
+            ctx.stroke();
         }
-        
-        batchDrawManager.flushAll();
     }
     
     setContextState(ctx, {
@@ -2130,6 +2114,8 @@ async function saveSnapshot() {
 async function undo() {
     if (state.strokeHistory.length === 0) return;
     
+    const removedStroke = state.strokeHistory[state.strokeHistory.length - 1];
+    console.log('undo: 移除笔画, type=', removedStroke.type, '剩余历史=', state.strokeHistory.length - 1);
     state.strokeHistory.pop();
     await redrawAllStrokes();
     updateUndoBtnStatus();
