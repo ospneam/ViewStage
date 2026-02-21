@@ -98,22 +98,8 @@ class WasmPointProcessor {
             config
         };
         const requestJson = JSON.stringify(request);
-        try {
-            const resultJson = this.wasmModule.process_stroke_points(requestJson);
-            const result = JSON.parse(resultJson);
-            // 确保返回的是有效的数组
-            if (result && Array.isArray(result.points)) {
-                return result.points;
-            } else if (Array.isArray(result)) {
-                return result;
-            } else {
-                console.warn('WASM processStrokePoints 返回格式无效:', result);
-                return points; // 返回原始点
-            }
-        } catch (error) {
-            console.error('WASM processStrokePoints 失败:', error);
-            return points; // 返回原始点
-        }
+        const resultJson = this.wasmModule.process_stroke_points(requestJson);
+        return JSON.parse(resultJson);
     }
 
     async batchProcessStrokes(strokes, config) {

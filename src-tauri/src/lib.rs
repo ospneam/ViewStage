@@ -768,6 +768,79 @@ fn generate_thumbnail_internal(image_data: &str, max_size: u32, fixed_ratio: boo
     Ok(format!("data:image/jpeg;base64,{}", general_purpose::STANDARD.encode(&buffer)))
 }
 
+use std::sync::atomic::{AtomicBool, Ordering};
+
+static MIRROR_STATE: AtomicBool = AtomicBool::new(false);
+static ENHANCE_STATE: AtomicBool = AtomicBool::new(false);
+
+#[tauri::command]
+async fn open_settings_window(app: tauri::AppHandle) -> Result<(), String> {
+    use tauri::WebviewWindowBuilder;
+    
+    let existing = app.get_webview_window("settings");
+    if existing.is_some() {
+        if let Some(window) = existing {
+            let _ = window.set_focus();
+        }
+        return Ok(());
+    }
+    
+    let window = WebviewWindowBuilder::new(
+        &app,
+        "settings",
+        tauri::WebviewUrl::App("settings.html".into())
+    )
+    .title("设置")
+    .inner_size(600.0, 600.0)
+    .min_inner_size(500.0, 500.0)
+    .resizable(true)
+    .decorations(false)
+    .always_on_top(true)
+    .center()
+    .build()
+    .map_err(|e| format!("Failed to create settings window: {}", e))?;
+    
+    let _ = window.set_focus();
+    
+    Ok(())
+}
+
+#[tauri::command]
+async fn rotate_main_image(app: tauri::AppHandle, direction: String) -> Result<(), String> {
+    let _ = app.emit("rotate-image", direction.clone());
+    Ok(())
+}
+
+#[tauri::command]
+async fn set_mirror_state(enabled: bool, app: tauri::AppHandle) -> Result<(), String> {
+    MIRROR_STATE.store(enabled, Ordering::SeqCst);
+    let _ = app.emit("mirror-changed", enabled);
+    Ok(())
+}
+
+#[tauri::command]
+async fn get_mirror_state() -> Result<bool, String> {
+    Ok(MIRROR_STATE.load(Ordering::SeqCst))
+}
+
+#[tauri::command]
+async fn set_enhance_state(enabled: bool, app: tauri::AppHandle) -> Result<(), String> {
+    ENHANCE_STATE.store(enabled, Ordering::SeqCst);
+    let _ = app.emit("enhance-changed", enabled);
+    Ok(())
+}
+
+#[tauri::command]
+async fn get_enhance_state() -> Result<bool, String> {
+    Ok(ENHANCE_STATE.load(Ordering::SeqCst))
+}
+
+#[tauri::command]
+async fn switch_camera(app: tauri::AppHandle) -> Result<(), String> {
+    let _ = app.emit("switch-camera", ());
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -775,6 +848,8 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .setup(|app| {
             let window = app.get_webview_window("main").unwrap();
+            
+            let _ = window.set_decorations(false);
             
             let config_dir = app.path().app_config_dir().unwrap();
             let config_path = config_dir.join("config.json");
@@ -828,7 +903,14 @@ pub fn run() {
             save_images_batch,
             save_images_batch_with_enhance,
             compact_strokes,
-            generate_thumbnails_batch
+            generate_thumbnails_batch,
+            open_settings_window,
+            rotate_main_image,
+            set_mirror_state,
+            get_mirror_state,
+            set_enhance_state,
+            get_enhance_state,
+            switch_camera
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

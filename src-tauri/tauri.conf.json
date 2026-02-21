@@ -12,7 +12,7 @@
       {
         "width": 1280,
         "height": 720,
-        "decorations": true,
+        "decorations": false,
         "fullscreen": true,
         "resizable": false,
         "label": "main",

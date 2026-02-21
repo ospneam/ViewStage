@@ -1,0 +1,110 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+    background-color: #2d2d2d;
+    color: #ffffff;
+    min-height: 100vh;
+    overflow: hidden;
+    user-select: none;
+}
+
+
+
+.topbar{
+    width:100vw;
+    height:7vh;
+    display:flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 8px;
+}
+
+.btn-close {
+    width: 32px;
+    height: 32px;
+    border: none;
+    background-color: transparent;
+    color: #888;
+    font-size: 20px;
+    cursor: pointer;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+}
+
+.btn-close:hover {
+    background-color: #e74c3c;
+    color: #ffffff;
+}
+
+.setting-title {
+    font-size: 14px;
+    font-weight: 500;
+    color: #ffffff;
+}
+
+
+
+.topbar-placeholder {
+    width: 32px;
+}
+
+.main-container{
+    width:100vw;
+    height:95vh;
+    display:flex;
+}
+
+
+.sidebar {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 8px;
+    padding: 12px;
+    background: rgba(255, 255, 255, 0.08);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+    flex: none;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    width: 25vw;
+    height: 91vh;
+    max-height: 91vh;
+    overflow-y: auto;
+    position: absolute;
+    left: 1vh;
+    top: 8vh;
+    z-index: 100;
+    opacity: 0;
+    animation: sidebarExpand 0.3s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+@keyframes sidebarExpand {
+    from {
+        opacity: 0;
+        transform: scale(0.95);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+.content{
+    height: 91vh;
+    width: 75vw;
+    position: absolute;
+    left: 26vw;
+    top: 8vh;
+}
