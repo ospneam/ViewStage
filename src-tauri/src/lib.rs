@@ -845,6 +845,39 @@ fn get_app_version() -> String {
     env!("CARGO_PKG_VERSION").to_string()
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct GitHubRelease {
+    tag_name: String,
+    name: Option<String>,
+    html_url: String,
+}
+
+#[tauri::command]
+async fn check_update() -> Result<GitHubRelease, String> {
+    let client = reqwest::Client::builder()
+        .user_agent("ViewStage")
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| e.to_string())?;
+    
+    let response = client
+        .get("https://api.github.com/repos/ospneam/ViewStage/releases/latest")
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    
+    if !response.status().is_success() {
+        return Err(format!("请求失败: {}", response.status()));
+    }
+    
+    let release: GitHubRelease = response
+        .json()
+        .await
+        .map_err(|e| e.to_string())?;
+    
+    Ok(release)
+}
+
 #[tauri::command]
 async fn get_settings(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
     let config_dir = app.path().app_config_dir().map_err(|e| e.to_string())?;
@@ -1089,6 +1122,7 @@ pub fn run() {
             get_enhance_state,
             switch_camera,
             get_app_version,
+            check_update,
             get_settings,
             save_settings,
             reset_settings,

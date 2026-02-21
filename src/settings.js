@@ -819,6 +819,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         const updateStatus = document.getElementById('updateStatus');
         const updateInfo = document.getElementById('updateInfo');
         const updateIcon = document.querySelector('.update-icon');
+        const latestVersionEl = document.getElementById('latestVersion');
         
         if (updateIcon) {
             updateIcon.style.animation = 'spin 2s linear infinite';
@@ -832,18 +833,62 @@ document.addEventListener('DOMContentLoaded', async () => {
             updateInfo.style.display = 'none';
         }
         
-        await new Promise(resolve => setTimeout(resolve, 1500));
-        
-        if (updateIcon) {
-            updateIcon.style.animation = 'none';
-        }
-        
-        if (updateStatus) {
-            updateStatus.textContent = '当前已是最新版本';
-        }
-        
-        if (updateInfo) {
-            updateInfo.style.display = 'block';
+        try {
+            if (window.__TAURI__) {
+                const { invoke } = window.__TAURI__.core;
+                
+                const release = await invoke('check_update');
+                const currentVersion = await invoke('get_app_version');
+                
+                const latestVersion = release.tag_name.replace(/^v/, '');
+                
+                if (latestVersionEl) {
+                    latestVersionEl.textContent = latestVersion;
+                }
+                
+                if (updateIcon) {
+                    updateIcon.style.animation = 'none';
+                }
+                
+                if (currentVersion === latestVersion) {
+                    if (updateStatus) {
+                        updateStatus.textContent = '当前已是最新版本';
+                    }
+                } else {
+                    if (updateStatus) {
+                        updateStatus.innerHTML = `发现新版本 <a href="#" id="downloadLink" style="color: #3498db; cursor: pointer;">${latestVersion}</a>`;
+                        
+                        const downloadLink = document.getElementById('downloadLink');
+                        if (downloadLink && release.html_url) {
+                            downloadLink.addEventListener('click', (e) => {
+                                e.preventDefault();
+                                window.__TAURI__.opener.openUrl(release.html_url);
+                            });
+                        }
+                    }
+                }
+                
+                if (updateInfo) {
+                    updateInfo.style.display = 'block';
+                }
+            } else {
+                if (updateIcon) {
+                    updateIcon.style.animation = 'none';
+                }
+                if (updateStatus) {
+                    updateStatus.textContent = '请在应用中检查更新';
+                }
+            }
+        } catch (error) {
+            console.error('检查更新失败:', error);
+            
+            if (updateIcon) {
+                updateIcon.style.animation = 'none';
+            }
+            
+            if (updateStatus) {
+                updateStatus.textContent = '检查更新失败，请稍后重试';
+            }
         }
     }
 
