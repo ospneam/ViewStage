@@ -19,6 +19,11 @@ document.addEventListener('DOMContentLoaded', async () => {
                 console.error('获取版本号失败:', error);
             }
         }
+        
+        const copyrightYear = document.getElementById('copyrightYear');
+        if (copyrightYear) {
+            copyrightYear.textContent = new Date().getFullYear();
+        }
     }
     
     async function loadSettings() {
