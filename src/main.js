@@ -361,6 +361,11 @@ function getCachedCanvasRect() {
 window.addEventListener('DOMContentLoaded', async () => {
     try {
         if (window.__TAURI__) {
+            const isOobeActive = await invoke('is_oobe_active');
+            if (isOobeActive) {
+                console.log('OOBE 激活中，跳过主窗口初始化');
+                return;
+            }
             listenForPdfFileOpen();
         }
         
@@ -386,7 +391,6 @@ window.addEventListener('DOMContentLoaded', async () => {
     }
 });
 
-// 加载摄像头设置
 async function loadCameraSetting() {
     if (window.__TAURI__) {
         try {
@@ -3912,7 +3916,6 @@ async function setCameraState(open, options = {}) {
     const { forceClose = false } = options;
     
     if (open) {
-        // 开启摄像头
         if (state.isCameraOpen) {
             return;
         }
@@ -3920,11 +3923,10 @@ async function setCameraState(open, options = {}) {
         try {
             let constraints;
             
-            // 优先使用指定的摄像头设备ID
             if (state.defaultCameraId) {
                 constraints = {
                     video: {
-                        deviceId: { exact: state.defaultCameraId },
+                        deviceId: { ideal: state.defaultCameraId },
                         width: { ideal: state.cameraWidth || 1280 },
                         height: { ideal: state.cameraHeight || 720 }
                     },
@@ -3941,10 +3943,25 @@ async function setCameraState(open, options = {}) {
                 };
             }
             
-            state.cameraStream = await navigator.mediaDevices.getUserMedia(constraints);
+            try {
+                state.cameraStream = await navigator.mediaDevices.getUserMedia(constraints);
+            } catch (constraintError) {
+                if (constraintError.name === 'OverconstrainedError') {
+                    console.warn('摄像头不支持请求的分辨率，使用默认设置');
+                    const fallbackConstraints = {
+                        video: {
+                            facingMode: state.useFrontCamera ? 'user' : 'environment'
+                        },
+                        audio: false
+                    };
+                    state.cameraStream = await navigator.mediaDevices.getUserMedia(fallbackConstraints);
+                } else {
+                    throw constraintError;
+                }
+            }
+            
             state.isCameraOpen = true;
             
-            // 判断是否需要镜像（前置摄像头）
             const videoTrack = state.cameraStream.getVideoTracks()[0];
             const settings = videoTrack.getSettings();
             const label = videoTrack.label.toLowerCase();
@@ -3955,7 +3972,7 @@ async function setCameraState(open, options = {}) {
             clearSidebarSelection();
             updateEnhanceButtonState();
             
-            console.log('摄像头已打开:', videoTrack.label || '未知设备');
+            console.log('摄像头已打开:', videoTrack.label || '未知设备', '分辨率:', settings.width, 'x', settings.height);
         } catch (error) {
             console.error('无法访问摄像头:', error);
             alert('无法访问摄像头，请确保已授权摄像头权限');
