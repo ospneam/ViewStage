@@ -1,7 +1,22 @@
+/**
+ * ViewStage 设置窗口脚本
+ * 
+ * 功能模块：
+ * - 应用设置：语言、主题、启动选项
+ * - Canvas调节：画布尺寸、帧率
+ * - 信号源调节：摄像头选择、分辨率、镜像
+ * - 关于：版本信息、检查更新
+ */
+
 document.addEventListener('DOMContentLoaded', async () => {
+    // ==================== DOM 元素引用 ====================
     const btnClose = document.getElementById('btnClose');
     const auroraBg = document.getElementById('auroraBg');
     
+    // ==================== 版本信息加载 ====================
+    /**
+     * 加载应用版本号和版权年份
+     */
     async function loadAppVersion() {
         if (window.__TAURI__) {
             try {
@@ -26,6 +41,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     }
     
+    // ==================== 设置加载 ====================
+    /**
+     * 从后端加载设置并更新UI
+     */
     async function loadSettings() {
         if (window.__TAURI__) {
             try {

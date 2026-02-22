@@ -1,42 +1,52 @@
 <!DOCTYPE html>
-    <html lang="zh-CN">
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>设置 - ViewStage</title>
-        <link rel="stylesheet" href="settings.css">
-    </head>
-    <body>
-        <div class="aurora-bg" id="auroraBg"></div>
-        <div class="topbar" data-tauri-drag-region>
-            <button class="btn-close" id="btnClose">×</button>
-            <div class="setting-title" data-tauri-drag-region>设置</div>
-            <div class="topbar-placeholder"></div>
+<!--
+    ViewStage 设置窗口
+    包含：应用设置、Canvas调节、信号源调节、关于
+-->
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>设置 - ViewStage</title>
+    <link rel="stylesheet" href="settings.css">
+</head>
+<body>
+    <!-- 极光背景动画 -->
+    <div class="aurora-bg" id="auroraBg"></div>
+    
+    <!-- 顶部标题栏 (可拖拽) -->
+    <div class="topbar" data-tauri-drag-region>
+        <button class="btn-close" id="btnClose">×</button>
+        <div class="setting-title" data-tauri-drag-region>设置</div>
+        <div class="topbar-placeholder"></div>
+    </div>
+
+    <div class="main-container">
+        <!-- 左侧导航栏 -->
+        <div class="sidebar">
+            <button class="sidebar-btn" id="btnApp">
+                <span class="btn-icon">⚙</span>
+                <span class="btn-text">应用设置</span>
+            </button>
+            <button class="sidebar-btn" id="btnCanvas">
+                <span class="btn-icon">◐</span>
+                <span class="btn-text">Canvas调节</span>
+            </button>
+            <button class="sidebar-btn" id="btnSource">
+                <span class="btn-icon">◉</span>
+                <span class="btn-text">信号源调节</span>
+            </button>
+            <button class="sidebar-btn" id="btnAbout">
+                <span class="btn-icon">ℹ</span>
+                <span class="btn-text">关于</span>
+            </button>
         </div>
 
-        <div class="main-container">
-            <div class="sidebar">
-                <button class="sidebar-btn" id="btnApp">
-                    <span class="btn-icon">⚙</span>
-                    <span class="btn-text">应用设置</span>
-                </button>
-                <button class="sidebar-btn" id="btnCanvas">
-                    <span class="btn-icon">◐</span>
-                    <span class="btn-text">Canvas调节</span>
-                </button>
-                <button class="sidebar-btn" id="btnSource">
-                    <span class="btn-icon">◉</span>
-                    <span class="btn-text">信号源调节</span>
-                </button>
-                <button class="sidebar-btn" id="btnAbout">
-                    <span class="btn-icon">ℹ</span>
-                    <span class="btn-text">关于</span>
-                </button>
-            </div>
-
-            <div class="content">
-                <div class="page" id="pageApp">
-                    <h2 class="page-title">应用设置</h2>
+        <!-- 右侧内容区域 -->
+        <div class="content">
+            <!-- 应用设置页面 -->
+            <div class="page" id="pageApp">
+                <h2 class="page-title">应用设置</h2>
                     <div class="setting-item">
                         <span class="setting-label">语言</span>
                         <div class="custom-select" id="languageSelect">

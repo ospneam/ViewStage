@@ -1,11 +1,18 @@
 //! ViewStage - 图像处理 Rust 后端
 //! 
 //! 功能模块：
-//! - 图像增强 (enhance_image)
-//! - 缩略图生成 (generate_thumbnail, generate_thumbnails_batch)
-//! - 图像旋转 (rotate_image)
-//! - 图片保存 (save_image, save_images_batch)
-//! - 笔画压缩 (compact_strokes)
+//! - 图像增强 (enhance_image): 对比度、亮度、饱和度调整
+//! - 缩略图生成 (generate_thumbnail, generate_thumbnails_batch): 并行批量生成
+//! - 图像旋转 (rotate_image): 90/180/270度旋转
+//! - 图片保存 (save_image, save_images_batch): 保存到指定目录
+//! - 笔画压缩 (compact_strokes): 将笔画渲染到图片
+//! - 设置管理 (get_settings, save_settings): 应用配置持久化
+//! - 摄像头管理 (get_camera_list, set_camera_state): 设备枚举与状态
+//!
+//! 性能优化：
+//! - 使用 rayon 并行处理像素
+//! - 使用 base64 编码传输数据
+//! - 使用 image 库进行图像处理
 
 use tauri::{Manager, Emitter};
 use image::{DynamicImage, ImageBuffer, Rgba, GenericImageView, RgbaImage};
@@ -15,6 +22,7 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 // ==================== 数据结构 ====================
+// 用于前后端通信的结构体定义
 
 /// 图片保存结果
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -69,6 +77,7 @@ pub struct ThumbnailRequest {
 }
 
 // ==================== 工具函数 ====================
+// base64 解码、图像格式转换等辅助函数
 
 /// 解码 base64 图片
 fn decode_base64_image(image_data: &str) -> Result<DynamicImage, String> {
@@ -90,6 +99,7 @@ fn decode_base64_image(image_data: &str) -> Result<DynamicImage, String> {
 }
 
 // ==================== 图像增强 ====================
+// 对比度、亮度、饱和度调整，使用 rayon 并行处理
 
 /// 图像增强命令 (对比度、亮度、饱和度调整)
 #[tauri::command]
@@ -154,6 +164,7 @@ fn apply_enhance_filter(img: &DynamicImage) -> DynamicImage {
 }
 
 // ==================== 缩略图生成 ====================
+// 单张/批量生成缩略图，支持固定比例裁剪
 
 /// 生成单张缩略图
 /// @param image_data: 原图 base64
@@ -225,6 +236,7 @@ fn generate_thumbnail(image_data: String, max_size: u32, fixed_ratio: bool) -> R
 }
 
 // ==================== 图像旋转 ====================
+// 90/180/270度旋转，用于摄像头和图片旋转
 
 /// 旋转图像 (90度/270度)
 /// @param image_data: 原图 base64
@@ -250,6 +262,7 @@ fn rotate_image(image_data: String, direction: String) -> Result<String, String>
 }
 
 // ==================== 系统目录 ====================
+// 获取应用缓存目录、配置目录、ViewStage目录
 
 /// 获取应用缓存目录
 #[tauri::command]
@@ -296,6 +309,7 @@ fn get_cds_dir() -> Result<String, String> {
 }
 
 // ==================== 图片保存 ====================
+// 保存图片到本地文件系统，支持批量保存和增强保存
 
 /// 提取 base64 数据
 fn extract_base64(image_data: &str) -> Result<Vec<u8>, String> {
@@ -527,6 +541,10 @@ fn save_images_batch_with_enhance(images: Vec<ImageData>, prefix: Option<String>
     Ok(results)
 }
 
+// ==================== 笔画压缩 ====================
+// 将笔画渲染到图片，用于撤销功能
+
+/// 解析颜色字符串为 RGBA
 fn parse_color(color_str: &str) -> Rgba<u8> {
     if color_str.starts_with('#') && color_str.len() == 7 {
         let r = u8::from_str_radix(&color_str[1..3], 16).unwrap_or(52);
@@ -694,6 +712,9 @@ fn compact_strokes(request: CompactStrokesRequest) -> Result<String, String> {
     Ok(format!("data:image/png;base64,{}", general_purpose::STANDARD.encode(&buffer)))
 }
 
+// ==================== 批量缩略图 ====================
+// 并行生成多张缩略图，使用 rayon 加速
+
 #[tauri::command]
 fn generate_thumbnails_batch(images: Vec<ThumbnailRequest>, max_size: u32, fixed_ratio: bool) -> Result<Vec<String>, String> {
     let results: Vec<String> = images
@@ -768,10 +789,16 @@ fn generate_thumbnail_internal(image_data: &str, max_size: u32, fixed_ratio: boo
     Ok(format!("data:image/jpeg;base64,{}", general_purpose::STANDARD.encode(&buffer)))
 }
 
+// ==================== 全局状态 ====================
+// 镜像、增强等全局状态，使用原子类型保证线程安全
+
 use std::sync::atomic::{AtomicBool, Ordering};
 
 static MIRROR_STATE: AtomicBool = AtomicBool::new(false);
 static ENHANCE_STATE: AtomicBool = AtomicBool::new(false);
+
+// ==================== 设置窗口 ====================
+// 打开设置窗口、状态同步
 
 #[tauri::command]
 async fn open_settings_window(app: tauri::AppHandle) -> Result<(), String> {

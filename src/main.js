@@ -5,13 +5,20 @@
  * - 三层Canvas：背景层(bgCanvas) → 图像层(imageCanvas) → 批注层(drawCanvas)
  * - 批注系统：笔画记录 + 压缩存储 + 撤销支持
  * - 图像处理：Rust后端并行处理（增强、缩略图、旋转）
- * - 点处理：WASM高性能计算（距离计算、点简化、坐标量化）
+ * - 点处理：WASM高性能计算（距离计算、点简化、坐标量化、碰撞检测）
+ * 
+ * 性能优化策略：
+ * - 智能调度：根据帧率动态调整绘制参数
+ * - 批量处理：使用RAF批量绘制减少重绘次数
+ * - 内存优化：使用Blob URL替代Data URL存储图片
+ * - WASM加速：复杂计算移至WebAssembly
  */
 
 // 导入WASM点处理器
 import wasmPointProcessor from './wasm-processor.js';
 
 // ==================== PDF.js 配置 ====================
+// PDF.js 库初始化和等待加载
 
 function initPdfJs() {
     if (window.pdfjsLib) {
@@ -42,6 +49,7 @@ if (document.readyState === 'loading') {
 }
 
 // ==================== Tauri API ====================
+// Tauri 后端 API 接口封装
 
 const { invoke } = window.__TAURI__?.core || {};
 const getCurrentWindow = window.__TAURI__?.window?.getCurrentWindow;
@@ -66,6 +74,7 @@ async function initCacheDir() {
 }
 
 // ==================== 全局配置 ====================
+// 绘制参数、画布尺寸、缩放限制等全局配置
 
 const DRAW_CONFIG = {
     penColor: '#3498db',           // 默认笔色
@@ -88,6 +97,7 @@ function getSafeScale() {
 }
 
 // ==================== 智能绘制调度器 ====================
+// 根据实时帧率动态调整绘制参数，优化性能
 
 class SmartDrawScheduler {
     constructor() {
@@ -220,6 +230,7 @@ class SmartDrawScheduler {
 const smartDrawScheduler = new SmartDrawScheduler();
 
 // ==================== 全局状态 ====================
+// 应用状态管理：模式、画布变换、批注历史、摄像头、图像管理等
 
 let state = {
     // 模式状态
@@ -332,6 +343,7 @@ function getCachedCanvasRect() {
 }
 
 // ==================== 初始化 ====================
+// 应用启动入口：DOM初始化、画布初始化、事件绑定、配置加载
 
 window.addEventListener('DOMContentLoaded', async () => {
     try {
@@ -849,6 +861,7 @@ function initDOM() {
 }
 
 // ==================== 画布初始化 ====================
+// 三层Canvas初始化：背景层、图像层、批注层
 
 /**
  * 初始化三层画布
@@ -1306,6 +1319,7 @@ function updateEraserHintPos(clientX, clientY) {
 }
 
 // ==================== 画布交互事件 ====================
+// 鼠标、触控事件处理：绘制、拖拽、缩放
 
 function bindCanvasMouseEvents() {
     dom.drawCanvas.addEventListener('mousedown', handleMouseDown);
@@ -1396,15 +1410,10 @@ async function flushDrawPoints() {
     
     const startTime = performance.now();
     
-    // 使用智能调度器的参数
     const maxPointsPerFlush = smartDrawScheduler.getMaxPointsPerFlush();
     const pointsToProcess = state.pendingDrawPoints.slice(0, maxPointsPerFlush);
     const remainingPoints = state.pendingDrawPoints.slice(maxPointsPerFlush);
     
-    // 开始绘制
-    batchDrawManager.startDrawing();
-    
-    // 使用批处理管理器
     for (const point of pointsToProcess) {
         const type = state.drawMode === 'eraser' ? 'erase' : 'draw';
         const color = state.drawMode === 'comment' ? DRAW_CONFIG.penColor : '#000000';
@@ -1413,20 +1422,13 @@ async function flushDrawPoints() {
         batchDrawManager.addCommand(type, point.fromX, point.fromY, point.toX, point.toY, color, lineWidth);
     }
     
-    // 执行批处理
-    batchDrawManager.flushAll();
-    
-    // 结束绘制
     await batchDrawManager.endDrawing();
     
-    // 计算绘制时间并记录性能
     const drawTime = performance.now() - startTime;
     smartDrawScheduler.recordPerformance(drawTime);
     
-    // 更新待处理点
     state.pendingDrawPoints = remainingPoints;
     
-    // 如果还有剩余点，继续调度绘制
     if (state.pendingDrawPoints.length > 0) {
         state.drawRafId = requestAnimationFrame(flushDrawPoints);
     } else {
@@ -1679,50 +1681,147 @@ function addStrokePoint(fromX, fromY, toX, toY) {
 
 async function endStroke() {
     if (state.currentStroke && state.currentStroke.points.length > 0) {
-        // 只在点数较多时简化，避免过度简化导致断点
-        if (state.currentStroke.points.length > 50) {
-            try {
-                // 使用WASM进行点处理
-                const config = {
-                    epsilon: POINT_OPTIMIZATION.epsilon * 0.8,
-                    min_distance: POINT_OPTIMIZATION.minDistance,
-                    quantization: POINT_OPTIMIZATION.quantization
-                };
-                state.currentStroke.points = await wasmPointProcessor.processStrokePoints(
-                    state.currentStroke.points,
-                    config
-                );
-                console.log('使用WASM进行点处理，点数从', state.currentStroke.points.length, '减少到', state.currentStroke.points.length);
-            } catch (error) {
-                console.warn('WASM点处理失败，使用前端降级方案:', error);
-                // 使用更小的 epsilon 值以保留更多点
-                state.currentStroke.points = simplifyPoints(state.currentStroke.points, POINT_OPTIMIZATION.epsilon * 0.8);
+        if (state.currentStroke.type === 'erase') {
+            await processEraserStroke(state.currentStroke);
+        } else {
+            if (state.currentStroke.points.length > 50) {
+                try {
+                    const config = {
+                        epsilon: POINT_OPTIMIZATION.epsilon * 0.8,
+                        min_distance: POINT_OPTIMIZATION.minDistance,
+                        quantization: POINT_OPTIMIZATION.quantization
+                    };
+                    const processedPoints = await wasmPointProcessor.processStrokePoints(
+                        state.currentStroke.points,
+                        config
+                    );
+                    
+                    if (Array.isArray(processedPoints) && processedPoints.length > 0) {
+                        state.currentStroke.points = processedPoints;
+                    }
+                    
+                    if (state.currentStroke.points.length > 3) {
+                        const smoothedPoints = await wasmPointProcessor.smoothPath(
+                            state.currentStroke.points,
+                            0.5,
+                            'bezier'
+                        );
+                        
+                        if (Array.isArray(smoothedPoints) && smoothedPoints.length > 0) {
+                            state.currentStroke.points = smoothedPoints;
+                        }
+                    }
+                } catch (error) {
+                    console.warn('WASM点处理失败，使用前端降级方案:', error);
+                    state.currentStroke.points = simplifyPoints(state.currentStroke.points, POINT_OPTIMIZATION.epsilon * 0.8);
+                }
             }
+            
+            state.strokeHistory.push(state.currentStroke);
+            
+            if (state.strokeHistory.length > state.STROKE_COMPACT_THRESHOLD) {
+                compactStrokes();
+            }
+            
+            updateUndoBtnStatus();
         }
-        
-        state.strokeHistory.push(state.currentStroke);
-        
-        if (state.strokeHistory.length > state.STROKE_COMPACT_THRESHOLD) {
-            compactStrokes();
-        }
-        
-        updateUndoBtnStatus();
     }
     state.currentStroke = null;
     
-    // 结束批处理绘制
     await batchDrawManager.endDrawing();
     
-    // 清理点收集器
     pointCollector.clear();
     
-    // 清理批处理管理器
     batchDrawManager.clear();
+}
+
+async function processEraserStroke(eraserStroke) {
+    state.strokeHistory.push(eraserStroke);
+    updateUndoBtnStatus();
+}
+
+async function redrawAllStrokes() {
+    dom.drawCtx.clearRect(0, 0, DRAW_CONFIG.canvasW, DRAW_CONFIG.canvasH);
+    
+    if (state.baseImageObj) {
+        dom.drawCtx.drawImage(state.baseImageObj, 0, 0, DRAW_CONFIG.canvasW, DRAW_CONFIG.canvasH);
+    }
+    
+    for (const stroke of state.strokeHistory) {
+        if (stroke.type === 'erase') {
+            await drawEraserStroke(stroke);
+        } else if (stroke.type === 'draw' || stroke.type === 'comment') {
+            await drawStroke(stroke);
+        }
+    }
+}
+
+async function drawEraserStroke(stroke) {
+    if (!stroke.points || stroke.points.length < 1) return;
+    
+    dom.drawCtx.save();
+    dom.drawCtx.globalCompositeOperation = 'destination-out';
+    dom.drawCtx.strokeStyle = 'rgba(0, 0, 0, 1)';
+    dom.drawCtx.lineWidth = stroke.eraserSize || DRAW_CONFIG.eraserSize;
+    dom.drawCtx.lineCap = 'round';
+    dom.drawCtx.lineJoin = 'round';
+    
+    dom.drawCtx.beginPath();
+    
+    const firstPoint = stroke.points[0];
+    if (firstPoint.x !== undefined) {
+        dom.drawCtx.moveTo(firstPoint.x, firstPoint.y);
+        for (let i = 1; i < stroke.points.length; i++) {
+            dom.drawCtx.lineTo(stroke.points[i].x, stroke.points[i].y);
+        }
+    } else {
+        dom.drawCtx.moveTo(firstPoint.fromX, firstPoint.fromY);
+        dom.drawCtx.lineTo(firstPoint.toX, firstPoint.toY);
+        for (let i = 1; i < stroke.points.length; i++) {
+            dom.drawCtx.moveTo(stroke.points[i].fromX, stroke.points[i].fromY);
+            dom.drawCtx.lineTo(stroke.points[i].toX, stroke.points[i].toY);
+        }
+    }
+    
+    dom.drawCtx.stroke();
+    dom.drawCtx.restore();
+}
+
+async function drawStroke(stroke) {
+    if (!stroke.points || stroke.points.length < 1) return;
+    
+    dom.drawCtx.save();
+    dom.drawCtx.strokeStyle = stroke.color || DRAW_CONFIG.penColor;
+    dom.drawCtx.lineWidth = stroke.lineWidth || DRAW_CONFIG.penWidth;
+    dom.drawCtx.lineCap = 'round';
+    dom.drawCtx.lineJoin = 'round';
+    dom.drawCtx.globalCompositeOperation = 'source-over';
+    
+    dom.drawCtx.beginPath();
+    
+    const firstPoint = stroke.points[0];
+    if (firstPoint.x !== undefined) {
+        dom.drawCtx.moveTo(firstPoint.x, firstPoint.y);
+        for (let i = 1; i < stroke.points.length; i++) {
+            dom.drawCtx.lineTo(stroke.points[i].x, stroke.points[i].y);
+        }
+    } else {
+        dom.drawCtx.moveTo(firstPoint.fromX, firstPoint.fromY);
+        dom.drawCtx.lineTo(firstPoint.toX, firstPoint.toY);
+        for (let i = 1; i < stroke.points.length; i++) {
+            dom.drawCtx.moveTo(stroke.points[i].fromX, stroke.points[i].fromY);
+            dom.drawCtx.lineTo(stroke.points[i].toX, stroke.points[i].toY);
+        }
+    }
+    
+    dom.drawCtx.stroke();
+    dom.drawCtx.restore();
 }
 
 let compactIdleId = null;
 
 // ==================== 批注绘制系统 ====================
+// Canvas上下文状态管理、笔画绘制、批注压缩
 
 // 上下文状态缓存
 let currentContextState = {
@@ -1734,6 +1833,7 @@ let currentContextState = {
 };
 
 // ==================== 线段点优化 ====================
+// 点简化配置：用于优化笔画数据，减少冗余点
 
 // 点简化配置
 const POINT_OPTIMIZATION = {
@@ -1744,16 +1844,18 @@ const POINT_OPTIMIZATION = {
     batchInterval: 30, // 批量收集间隔 (ms) - 减小以提高响应速度
 };
 
+// ==================== WASM 降级方案 ====================
+// 以下函数仅在 WASM 加载失败时使用
+
 /**
- * 坐标量化
- * 将坐标值量化到指定步长，减少精度
+ * 坐标量化 (降级方案)
  */
 function quantizeCoord(coord) {
     return Math.round(coord / POINT_OPTIMIZATION.quantization) * POINT_OPTIMIZATION.quantization;
 }
 
 /**
- * 计算两点之间的距离
+ * 计算两点之间的距离 (降级方案)
  */
 function distance(x1, y1, x2, y2) {
     const dx = x2 - x1;
@@ -1762,8 +1864,7 @@ function distance(x1, y1, x2, y2) {
 }
 
 /**
- * Douglas-Peucker 点简化算法
- * 减少冗余点，保留关键特征点
+ * Douglas-Peucker 点简化算法 (降级方案)
  */
 function simplifyPoints(points, epsilon) {
     if (points.length <= 2) return points;
@@ -1771,7 +1872,6 @@ function simplifyPoints(points, epsilon) {
     let maxDist = 0;
     let maxIndex = 0;
     
-    // 找到距离最远的点
     for (let i = 1; i < points.length - 1; i++) {
         const dist = perpendicularDistance(
             points[i].fromX, points[i].fromY,
@@ -1784,19 +1884,17 @@ function simplifyPoints(points, epsilon) {
         }
     }
     
-    // 如果最远点距离大于阈值，递归简化
     if (maxDist > epsilon) {
         const left = simplifyPoints(points.slice(0, maxIndex + 1), epsilon);
         const right = simplifyPoints(points.slice(maxIndex), epsilon);
         return [...left.slice(0, -1), ...right];
     } else {
-        // 否则只保留起点和终点
         return [points[0], points[points.length - 1]];
     }
 }
 
 /**
- * 计算点到线段的垂直距离
+ * 计算点到线段的垂直距离 (降级方案)
  */
 function perpendicularDistance(px, py, x1, y1, x2, y2) {
     const A = px - x1;
@@ -1931,6 +2029,7 @@ class PointCollector {
 const pointCollector = new PointCollector();
 
 // ==================== 批处理绘制系统 ====================
+// 批量绘制命令管理：减少Canvas状态切换，提高绘制效率
 
 /**
  * 批处理绘制管理器
@@ -2067,20 +2166,37 @@ class BatchDrawManager {
         const commandsToProcess = batch.commands.slice(0, maxCommandsPerBatch);
         const remainingCommands = batch.commands.slice(maxCommandsPerBatch);
         
-        setContextState(ctx, {
-            strokeStyle: batch.color,
-            lineWidth: batch.lineWidth,
-            lineCap: 'round',
-            lineJoin: 'round',
-            globalCompositeOperation: batch.type === 'erase' ? 'destination-out' : 'source-over'
-        });
-        
-        const path = new Path2D();
-        for (const cmd of commandsToProcess) {
-            path.moveTo(cmd.fromX, cmd.fromY);
-            path.lineTo(cmd.toX, cmd.toY);
+        if (batch.type === 'erase') {
+            ctx.save();
+            ctx.globalCompositeOperation = 'destination-out';
+            ctx.strokeStyle = 'rgba(0, 0, 0, 1)';
+            ctx.lineWidth = batch.lineWidth;
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+            
+            ctx.beginPath();
+            for (const cmd of commandsToProcess) {
+                ctx.moveTo(cmd.fromX, cmd.fromY);
+                ctx.lineTo(cmd.toX, cmd.toY);
+            }
+            ctx.stroke();
+            ctx.restore();
+        } else {
+            setContextState(ctx, {
+                strokeStyle: batch.color,
+                lineWidth: batch.lineWidth,
+                lineCap: 'round',
+                lineJoin: 'round',
+                globalCompositeOperation: 'source-over'
+            });
+            
+            const path = new Path2D();
+            for (const cmd of commandsToProcess) {
+                path.moveTo(cmd.fromX, cmd.fromY);
+                path.lineTo(cmd.toX, cmd.toY);
+            }
+            ctx.stroke(path);
         }
-        ctx.stroke(path);
         
         batch.commands = remainingCommands;
     }
@@ -2152,16 +2268,14 @@ function setContextState(ctx, state) {
 }
 
 /**
- * 按状态分组批量绘制笔画
+ * 按时间顺序逐个绘制笔画
+ * 必须按原始顺序绘制，确保橡皮擦的destination-out在正确时机执行
  * @param {CanvasRenderingContext2D} ctx - 目标上下文
  * @param {Array} strokes - 笔画数组
  */
 async function drawStrokes(ctx, strokes) {
-    batchDrawManager.clear();
-    
     if (strokes.length === 0) return;
     
-    const maxStrokesPerBatch = 50;
     const totalStrokes = strokes.length;
     
     const viewport = {
@@ -2185,76 +2299,54 @@ async function drawStrokes(ctx, strokes) {
         }
     }
     
-    const visibleTotal = visibleStrokes.length;
-    
-    for (let i = 0; i < visibleTotal; i += maxStrokesPerBatch) {
-        const batchStrokes = visibleStrokes.slice(i, i + maxStrokesPerBatch);
-        
-        let drawCommands = [];
-        
-        for (const stroke of batchStrokes) {
-            if (stroke.type === 'draw') {
-                for (const point of stroke.points) {
-                    drawCommands.push({
-                        type: 'draw',
-                        fromX: point.fromX,
-                        fromY: point.fromY,
-                        toX: point.toX,
-                        toY: point.toY,
-                        color: stroke.color,
-                        lineWidth: stroke.lineWidth
-                    });
+    for (const stroke of visibleStrokes) {
+        if (stroke.type === 'draw' || stroke.type === 'comment') {
+            setContextState(ctx, {
+                strokeStyle: stroke.color,
+                lineWidth: stroke.lineWidth,
+                lineCap: 'round',
+                lineJoin: 'round',
+                globalCompositeOperation: 'source-over'
+            });
+            
+            ctx.beginPath();
+            const firstPoint = stroke.points[0];
+            if (firstPoint.x !== undefined) {
+                ctx.moveTo(firstPoint.x, firstPoint.y);
+                for (let i = 1; i < stroke.points.length; i++) {
+                    ctx.lineTo(stroke.points[i].x, stroke.points[i].y);
                 }
-            } else if (stroke.type === 'erase') {
+            } else {
                 for (const point of stroke.points) {
-                    drawCommands.push({
-                        type: 'erase',
-                        fromX: point.fromX,
-                        fromY: point.fromY,
-                        toX: point.toX,
-                        toY: point.toY,
-                        color: '#000000',
-                        lineWidth: stroke.eraserSize
-                    });
+                    ctx.moveTo(point.fromX, point.fromY);
+                    ctx.lineTo(point.toX, point.toY);
                 }
             }
-        }
-        
-        try {
-            const optimizedCommands = await wasmPointProcessor.optimizeDrawCommands(
-                drawCommands,
-                DRAW_CONFIG.canvasW,
-                DRAW_CONFIG.canvasH
-            );
+            ctx.stroke();
+        } else if (stroke.type === 'erase') {
+            setContextState(ctx, {
+                strokeStyle: '#000000',
+                lineWidth: stroke.eraserSize,
+                lineCap: 'round',
+                lineJoin: 'round',
+                globalCompositeOperation: 'destination-out'
+            });
             
-            for (const cmd of optimizedCommands) {
-                batchDrawManager.addCommand(
-                    cmd.type,
-                    cmd.fromX,
-                    cmd.fromY,
-                    cmd.toX,
-                    cmd.toY,
-                    cmd.color,
-                    cmd.lineWidth
-                );
+            ctx.beginPath();
+            const firstPoint = stroke.points[0];
+            if (firstPoint.x !== undefined) {
+                ctx.moveTo(firstPoint.x, firstPoint.y);
+                for (let i = 1; i < stroke.points.length; i++) {
+                    ctx.lineTo(stroke.points[i].x, stroke.points[i].y);
+                }
+            } else {
+                for (const point of stroke.points) {
+                    ctx.moveTo(point.fromX, point.fromY);
+                    ctx.lineTo(point.toX, point.toY);
+                }
             }
-        } catch (error) {
-            console.warn('WASM绘制优化失败，使用原始顺序:', error);
-            
-            for (const cmd of drawCommands) {
-                batchDrawManager.addCommand(
-                    cmd.type,
-                    cmd.fromX,
-                    cmd.fromY,
-                    cmd.toX,
-                    cmd.toY,
-                    cmd.color,
-                    cmd.lineWidth
-                );
-            }
+            ctx.stroke();
         }
-        
-        batchDrawManager.flushAll();
     }
     
     setContextState(ctx, {
@@ -2362,20 +2454,30 @@ async function saveSnapshot() {
 async function undo() {
     if (state.strokeHistory.length === 0) return;
     
-    state.strokeHistory.pop();
-    await redrawAllStrokes();
-    updateUndoBtnStatus();
-    console.log('撤销操作');
-}
-
-async function redrawAllStrokes() {
-    clearDrawCanvas();
+    const lastStroke = state.strokeHistory[state.strokeHistory.length - 1];
     
-    if (state.baseImageObj) {
-        dom.drawCtx.drawImage(state.baseImageObj, 0, 0, DRAW_CONFIG.canvasW, DRAW_CONFIG.canvasH);
+    if (lastStroke.type === 'clear') {
+        state.strokeHistory = lastStroke.savedStrokeHistory || [];
+        state.baseImageURL = lastStroke.savedBaseImageURL;
+        state.baseImageObj = null;
+        
+        if (state.baseImageURL) {
+            const img = new Image();
+            img.onload = async () => {
+                state.baseImageObj = img;
+                await redrawAllStrokes();
+            };
+            img.src = state.baseImageURL;
+        } else {
+            await redrawAllStrokes();
+        }
+    } else {
+        state.strokeHistory.pop();
+        await redrawAllStrokes();
     }
     
-    await drawStrokes(dom.drawCtx, state.strokeHistory);
+    updateUndoBtnStatus();
+    console.log('撤销操作');
 }
 
 function updateUndoBtnStatus() {
@@ -2395,14 +2497,23 @@ function clearDrawCanvas() {
 }
 
 function clearAllDrawings() {
+    if (state.strokeHistory.length === 0 && !state.baseImageObj) return;
+    
+    const clearStroke = {
+        type: 'clear',
+        savedStrokeHistory: structuredClone(state.strokeHistory),
+        savedBaseImageURL: state.baseImageURL
+    };
+    
+    state.strokeHistory = [clearStroke];
+    
     clearDrawCanvas();
-    state.strokeHistory = [];
     state.baseImageURL = null;
     state.baseImageObj = null;
     updateUndoBtnStatus();
     
     if (state.currentImageIndex >= 0 && state.currentImageIndex < state.imageList.length) {
-        state.imageList[state.currentImageIndex].strokeHistory = null;
+        state.imageList[state.currentImageIndex].strokeHistory = structuredClone(state.strokeHistory);
         state.imageList[state.currentImageIndex].baseImageURL = null;
     }
     
@@ -2410,7 +2521,7 @@ function clearAllDrawings() {
         if (state.currentFolderIndex < state.fileList.length) {
             const folder = state.fileList[state.currentFolderIndex];
             if (state.currentFolderPageIndex < folder.pages.length) {
-                folder.pages[state.currentFolderPageIndex].strokeHistory = null;
+                folder.pages[state.currentFolderPageIndex].strokeHistory = structuredClone(state.strokeHistory);
                 folder.pages[state.currentFolderPageIndex].baseImageURL = null;
             }
         }
@@ -3474,6 +3585,7 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 // ==================== 摄像头功能 ====================
+// 摄像头开启/关闭、帧渲染、拍照、旋转、镜像等
 
 /**
  * 统一的摄像头状态管理函数
@@ -3840,6 +3952,7 @@ function expandSidebarIfCollapsed() {
 }
 
 // ==================== 图像导入功能 ====================
+// 图片导入、拍照保存、PDF处理等
 
 /**
  * 导入图片文件
