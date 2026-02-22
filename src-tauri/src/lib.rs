@@ -722,6 +722,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 static MIRROR_STATE: AtomicBool = AtomicBool::new(false);
 static ENHANCE_STATE: AtomicBool = AtomicBool::new(false);
+static OOBE_ACTIVE: AtomicBool = AtomicBool::new(false);
 
 // ==================== 设置窗口 ====================
 // 打开设置窗口、状态同步
@@ -1025,6 +1026,60 @@ async fn get_available_resolutions(app: tauri::AppHandle) -> Result<Vec<(u32, u3
     Ok(resolutions)
 }
 
+#[tauri::command]
+async fn close_splashscreen(app: tauri::AppHandle) -> Result<(), String> {
+    if let Some(splashscreen) = app.get_webview_window("splashscreen") {
+        let _ = splashscreen.close();
+    }
+    if let Some(main_window) = app.get_webview_window("main") {
+        let _ = main_window.show();
+    }
+    Ok(())
+}
+
+#[tauri::command]
+async fn complete_oobe(app: tauri::AppHandle) -> Result<(), String> {
+    OOBE_ACTIVE.store(false, Ordering::SeqCst);
+    
+    let main_window = app.get_webview_window("main").ok_or("Main window not found")?;
+    
+    let config_dir = app.path().app_config_dir().map_err(|e| e.to_string())?;
+    let config_path = config_dir.join("config.json");
+    
+    if config_path.exists() {
+        if let Ok(config_content) = std::fs::read_to_string(&config_path) {
+            if let Ok(config) = serde_json::from_str::<serde_json::Value>(&config_content) {
+                if let (Some(width), Some(height)) = (
+                    config.get("width").and_then(|v| v.as_u64()),
+                    config.get("height").and_then(|v| v.as_u64())
+                ) {
+                    let _ = main_window.set_size(tauri::Size::Physical(tauri::PhysicalSize {
+                        width: width as u32,
+                        height: height as u32,
+                    }));
+                }
+            }
+        }
+    }
+    
+    let _ = main_window.show();
+    let _ = main_window.set_fullscreen(true);
+    let _ = main_window.set_focus();
+    
+    if let Some(oobe_window) = app.get_webview_window("oobe") {
+        let _ = oobe_window.close();
+    }
+    
+    main_window.eval("location.reload()").map_err(|e| e.to_string())?;
+    
+    Ok(())
+}
+
+#[tauri::command]
+fn is_oobe_active() -> bool {
+    OOBE_ACTIVE.load(Ordering::SeqCst)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -1051,8 +1106,36 @@ pub fn run() {
             let config_dir = app.path().app_config_dir().unwrap();
             let config_path = config_dir.join("config.json");
             
-            if config_path.exists() {
-                if let Ok(config_content) = std::fs::read_to_string(config_path) {
+            let is_first_run = !config_path.exists();
+            
+            if is_first_run {
+                println!("首次运行，打开 OOBE 界面");
+                
+                OOBE_ACTIVE.store(true, Ordering::SeqCst);
+                
+                use tauri::WebviewWindowBuilder;
+                
+                let oobe_window = WebviewWindowBuilder::new(
+                    app,
+                    "oobe",
+                    tauri::WebviewUrl::App("oobe.html".into())
+                )
+                .title("欢迎使用 ViewStage")
+                .inner_size(500.0, 520.0)
+                .resizable(false)
+                .decorations(false)
+                .center()
+                .always_on_top(true)
+                .build()
+                .expect("Failed to create OOBE window");
+                
+                let _ = oobe_window.set_focus();
+                
+                if let Some(splashscreen) = app.get_webview_window("splashscreen") {
+                    let _ = splashscreen.close();
+                }
+            } else {
+                if let Ok(config_content) = std::fs::read_to_string(&config_path) {
                     if let Ok(config) = serde_json::from_str::<serde_json::Value>(&config_content) {
                         if let (Some(width), Some(height)) = (
                             config.get("width").and_then(|v| v.as_u64()),
@@ -1067,25 +1150,37 @@ pub fn run() {
                         let _ = window.set_fullscreen(true);
                     }
                 }
-            }
-            
-            let args: Vec<String> = std::env::args().collect();
-            println!("启动参数: {:?}", args);
-            
-            if args.len() > 1 {
-                let file_path = args[1].clone();
-                println!("检测到文件参数: {}", file_path);
+                
+                let args: Vec<String> = std::env::args().collect();
+                println!("启动参数: {:?}", args);
+                
+                if args.len() > 1 {
+                    let file_path = args[1].clone();
+                    println!("检测到文件参数: {}", file_path);
+                    
+                    let app_handle = app.handle().clone();
+                    std::thread::spawn(move || {
+                        std::thread::sleep(std::time::Duration::from_millis(2000));
+                        println!("发送文件打开事件: {}", file_path);
+                        let _ = app_handle.emit("file-opened", file_path.clone());
+                        println!("已发送文件打开事件: {}", file_path);
+                    });
+                }
+                
+                println!("应用已启动，等待文件打开事件...");
                 
                 let app_handle = app.handle().clone();
                 std::thread::spawn(move || {
-                    std::thread::sleep(std::time::Duration::from_millis(2000));
-                    println!("发送文件打开事件: {}", file_path);
-                    let _ = app_handle.emit("file-opened", file_path.clone());
-                    println!("已发送文件打开事件: {}", file_path);
+                    std::thread::sleep(std::time::Duration::from_millis(1000));
+                    if let Some(splashscreen) = app_handle.get_webview_window("splashscreen") {
+                        let _ = splashscreen.close();
+                    }
+                    if let Some(main_window) = app_handle.get_webview_window("main") {
+                        let _ = main_window.show();
+                        let _ = main_window.set_focus();
+                    }
                 });
             }
-            
-            println!("应用已启动，等待文件打开事件...");
             
             Ok(())
         })
@@ -1114,7 +1209,10 @@ pub fn run() {
             reset_settings,
             restart_app,
             get_available_resolutions,
-            check_pdf_default_app
+            check_pdf_default_app,
+            close_splashscreen,
+            complete_oobe,
+            is_oobe_active
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
