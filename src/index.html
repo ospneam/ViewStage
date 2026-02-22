@@ -30,7 +30,12 @@
             <!-- 笔触控制面板 -->
             <div class="pen-control-panel" id="penControlPanel">
                 <div class="pen-size-vertical">
-                    <input type="range" class="pen-slider-vertical" id="penSizeSlider" min="1" max="20" value="2">
+                    <div class="slider-wrapper" id="penSizeSliderWrapper">
+                        <svg class="triangle-track" viewBox="0 0 40 50" preserveAspectRatio="none">
+                            <path d="M 12 0 L 28 0 L 20 50 Z" fill="rgba(255, 255, 255, 0.15)" stroke="rgba(255, 255, 255, 0.2)" stroke-width="1" stroke-linejoin="round" stroke-linecap="round"/>
+                        </svg>
+                        <div class="custom-thumb" id="penSizeThumb"></div>
+                    </div>
                     <span class="pen-size-label" id="penSizeValue">2px</span>
                 </div>
                 <div class="pen-color-buttons" id="penColorButtons">
@@ -51,7 +56,12 @@
                     <button class="pen-color-btn" data-index="14" title="颜色15"></button>
                 </div>
                 <div class="pen-size-vertical">
-                    <input type="range" class="pen-slider-vertical" id="eraserSizeSlider" min="5" max="50" value="15">
+                    <div class="slider-wrapper" id="eraserSizeSliderWrapper">
+                        <svg class="triangle-track" viewBox="0 0 40 50" preserveAspectRatio="none">
+                            <path d="M 12 0 L 28 0 L 20 50 Z" fill="rgba(255, 255, 255, 0.15)" stroke="rgba(255, 255, 255, 0.2)" stroke-width="1" stroke-linejoin="round" stroke-linecap="round"/>
+                        </svg>
+                        <div class="custom-thumb" id="eraserSizeThumb"></div>
+                    </div>
                     <span class="pen-size-label" id="eraserSizeValue">15px</span>
                 </div>
             </div>
