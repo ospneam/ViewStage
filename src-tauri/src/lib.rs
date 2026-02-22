@@ -864,6 +864,25 @@ async fn get_settings(app: tauri::AppHandle) -> Result<serde_json::Value, String
         "sharpen": 0,
         "canvasScale": 2,
         "dprLimit": 2,
+        "smoothStrength": 0.5,
+        "blurEffect": true,
+        "penColors": [
+            {"r": 52, "g": 152, "b": 219},
+            {"r": 46, "g": 204, "b": 113},
+            {"r": 231, "g": 76, "b": 60},
+            {"r": 243, "g": 156, "b": 18},
+            {"r": 155, "g": 89, "b": 182},
+            {"r": 26, "g": 188, "b": 156},
+            {"r": 52, "g": 73, "b": 94},
+            {"r": 233, "g": 30, "b": 99},
+            {"r": 0, "g": 188, "b": 212},
+            {"r": 139, "g": 195, "b": 74},
+            {"r": 255, "g": 87, "b": 34},
+            {"r": 103, "g": 58, "b": 183},
+            {"r": 121, "g": 85, "b": 72},
+            {"r": 0, "g": 0, "b": 0},
+            {"r": 255, "g": 255, "b": 255}
+        ],
         "fileAssociations": false
     });
     

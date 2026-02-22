@@ -393,10 +393,29 @@ document.addEventListener('DOMContentLoaded', async () => {
                 ];
                 const savedColors = settings.penColors || defaultColors;
                 
+                // 颜色格式转换函数
+                function colorToHex(color) {
+                    if (typeof color === 'string') {
+                        return color;
+                    }
+                    if (typeof color === 'object' && color.r !== undefined) {
+                        return rgbToHex(color.r, color.g, color.b);
+                    }
+                    return '#000000';
+                }
+                
+                function rgbToHex(r, g, b) {
+                    return '#' + [r, g, b].map(x => {
+                        const hex = x.toString(16);
+                        return hex.length === 1 ? '0' + hex : hex;
+                    }).join('');
+                }
+                
                 for (let i = 1; i <= 15; i++) {
                     const picker = document.getElementById(`colorPicker${i}`);
                     if (picker) {
-                        picker.value = savedColors[i - 1] || defaultColors[i - 1];
+                        const color = savedColors[i - 1] || defaultColors[i - 1];
+                        picker.value = colorToHex(color);
                     }
                 }
                 
@@ -410,6 +429,13 @@ document.addEventListener('DOMContentLoaded', async () => {
                         console.error('获取镜像状态失败:', error);
                         mirrorToggle.checked = false;
                     }
+                }
+                
+                // 界面模糊效果设置
+                const blurEffectToggle = document.getElementById('blurEffectToggle');
+                if (blurEffectToggle) {
+                    const savedBlurEffect = settings.blurEffect !== undefined ? settings.blurEffect : true;
+                    blurEffectToggle.checked = savedBlurEffect;
                 }
                 
                 // 图像处理强度设置
@@ -817,11 +843,31 @@ document.addEventListener('DOMContentLoaded', async () => {
                 const colors = [];
                 for (let j = 1; j <= 15; j++) {
                     const p = document.getElementById(`colorPicker${j}`);
-                    colors.push(p ? p.value : '#000000');
+                    const hexColor = p ? p.value : '#000000';
+                    const rgb = hexToRgb(hexColor);
+                    colors.push(rgb || { r: 0, g: 0, b: 0 });
                 }
                 await saveSettings({ penColors: colors });
             });
         }
+    }
+    
+    // 十六进制颜色转RGB
+    function hexToRgb(hex) {
+        const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+        return result ? {
+            r: parseInt(result[1], 16),
+            g: parseInt(result[2], 16),
+            b: parseInt(result[3], 16)
+        } : null;
+    }
+    
+    // RGB转十六进制颜色
+    function rgbToHex(r, g, b) {
+        return '#' + [r, g, b].map(x => {
+            const hex = x.toString(16);
+            return hex.length === 1 ? '0' + hex : hex;
+        }).join('');
     }
     
     // 镜像开关
@@ -834,6 +880,14 @@ document.addEventListener('DOMContentLoaded', async () => {
             } catch (error) {
                 console.error('设置镜像状态失败:', error);
             }
+        });
+    }
+    
+    // 界面模糊效果开关
+    const blurEffectToggle = document.getElementById('blurEffectToggle');
+    if (blurEffectToggle) {
+        blurEffectToggle.addEventListener('change', async () => {
+            await saveSettings({ blurEffect: blurEffectToggle.checked });
         });
     }
     

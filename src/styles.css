@@ -719,6 +719,54 @@ body {
     margin: 25px 0;
 }
 
+/* 三角形滑块样式 */
+.slider-wrapper {
+    position: relative;
+    width: 40px;
+    height: 50px;
+    cursor: ns-resize;
+}
+
+.triangle-track {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 1;
+}
+
+.triangle-track svg {
+    width: 100%;
+    height: 100%;
+    display: block;
+}
+
+.triangle-track path {
+    transition: all 0.2s ease;
+}
+
+.custom-thumb {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: #3498db;
+    border: 2px solid white;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+    transition: all 0.2s ease;
+    z-index: 2;
+    user-select: none;
+    -webkit-user-drag: none;
+}
+
+.custom-thumb:hover {
+    background: #2980b9;
+    transform: translateX(-50%) scale(1.1);
+}
+
 .pen-size-vertical {
     display: flex;
     flex-direction: column;

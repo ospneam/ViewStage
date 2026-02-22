@@ -96,6 +96,7 @@ const DRAW_CONFIG = {
     enhanceSaturation: 1.2,        // 增强饱和度
     enhanceSharpen: 0,             // 增强锐化 (0-100)
     smoothStrength: 0.5,           // 绘画平滑度 (0-1, 0=无平滑, 1=最大平滑)
+    blurEffect: true,              // 界面模糊效果
     penColors: [                   // 画笔颜色列表
         '#3498db', '#2ecc71', '#e74c3c', '#f39c12', '#9b59b6',
         '#1abc9c', '#34495e', '#e91e63', '#00bcd4', '#8bc34a',
@@ -456,9 +457,20 @@ async function loadCameraSetting() {
                 console.log('已加载绘画平滑度:', settings.smoothStrength);
             }
             
+            if (settings.blurEffect !== undefined) {
+                DRAW_CONFIG.blurEffect = settings.blurEffect;
+                console.log('已加载界面模糊效果:', settings.blurEffect);
+                updateBlurEffect(settings.blurEffect);
+            }
+            
             if (settings.penColors && Array.isArray(settings.penColors)) {
-                DRAW_CONFIG.penColors = settings.penColors;
-                console.log('已加载画笔颜色:', settings.penColors);
+                DRAW_CONFIG.penColors = settings.penColors.map(color => {
+                    if (typeof color === 'object' && color.r !== undefined) {
+                        return rgbToHex(color.r, color.g, color.b);
+                    }
+                    return color;
+                });
+                console.log('已加载画笔颜色:', DRAW_CONFIG.penColors);
                 updateColorButtons();
             }
         } catch (error) {
@@ -623,10 +635,21 @@ function listenForPdfFileOpen() {
             console.log('绘画平滑度已更改:', DRAW_CONFIG.smoothStrength);
         }
         
+        if (settings.blurEffect !== undefined) {
+            DRAW_CONFIG.blurEffect = settings.blurEffect;
+            updateBlurEffect(settings.blurEffect);
+            console.log('界面模糊效果已更改:', settings.blurEffect);
+        }
+        
         if (settings.penColors && Array.isArray(settings.penColors)) {
-            DRAW_CONFIG.penColors = settings.penColors;
+            DRAW_CONFIG.penColors = settings.penColors.map(color => {
+                if (typeof color === 'object' && color.r !== undefined) {
+                    return rgbToHex(color.r, color.g, color.b);
+                }
+                return color;
+            });
             updateColorButtons();
-            console.log('画笔颜色已更改:', settings.penColors);
+            console.log('画笔颜色已更改:', DRAW_CONFIG.penColors);
         }
         
         if (needRestartCamera && state.isCameraOpen) {
@@ -975,10 +998,12 @@ function initDOM() {
     dom.penControlPanel = document.getElementById('penControlPanel');
     dom.settingsPanel = document.getElementById('settingsPanel');
     
-    dom.penSizeSlider = document.getElementById('penSizeSlider');
+    dom.penSizeSliderWrapper = document.getElementById('penSizeSliderWrapper');
+    dom.penSizeThumb = document.getElementById('penSizeThumb');
     dom.penSizeValue = document.getElementById('penSizeValue');
     dom.penColorPicker = document.getElementById('penColorPicker');
-    dom.eraserSizeSlider = document.getElementById('eraserSizeSlider');
+    dom.eraserSizeSliderWrapper = document.getElementById('eraserSizeSliderWrapper');
+    dom.eraserSizeThumb = document.getElementById('eraserSizeThumb');
     dom.eraserSizeValue = document.getElementById('eraserSizeValue');
     
     dom.btnMove = document.getElementById('btnMove');
@@ -1345,17 +1370,15 @@ async function closeWindow() {
 
 // 笔触控制事件
 function bindPenControlEvents() {
-    dom.penSizeSlider.addEventListener('input', (e) => {
-        DRAW_CONFIG.penWidth = Number(e.target.value);
-        dom.penSizeValue.textContent = DRAW_CONFIG.penWidth + 'px';
+    initTriangleSlider(dom.penSizeSliderWrapper, dom.penSizeThumb, dom.penSizeValue, 1, 20, DRAW_CONFIG.penWidth, (value) => {
+        DRAW_CONFIG.penWidth = value;
         if (state.drawMode === 'comment') {
             setPenStyle();
         }
     });
     
-    dom.eraserSizeSlider.addEventListener('input', (e) => {
-        DRAW_CONFIG.eraserSize = Number(e.target.value);
-        dom.eraserSizeValue.textContent = DRAW_CONFIG.eraserSize + 'px';
+    initTriangleSlider(dom.eraserSizeSliderWrapper, dom.eraserSizeThumb, dom.eraserSizeValue, 5, 50, DRAW_CONFIG.eraserSize, (value) => {
+        DRAW_CONFIG.eraserSize = value;
         updateEraserHintSize();
         if (state.drawMode === 'eraser') {
             setEraserStyle();
@@ -1384,6 +1407,89 @@ function bindPenControlEvents() {
     
     // 初始化颜色按钮
     updateColorButtons();
+}
+
+// 初始化三角形滑块
+function initTriangleSlider(wrapper, thumb, valueLabel, minValue, maxValue, initialValue, onChange) {
+    const wrapperHeight = 50;
+    const thumbHeight = 18;
+    const validHeight = wrapperHeight - thumbHeight;
+    
+    let currentValue = initialValue;
+    let isDragging = false;
+    
+    function updateThumbPosition() {
+        const ratio = (currentValue - minValue) / (maxValue - minValue);
+        const top = (1 - ratio) * validHeight;
+        thumb.style.top = `${top}px`;
+        valueLabel.textContent = `${currentValue}px`;
+    }
+    
+    function onDrag(e) {
+        if (!isDragging) return;
+        const mouseY = e.clientY - wrapper.getBoundingClientRect().top;
+        const clampedY = Math.max(0, Math.min(mouseY, validHeight));
+        const ratio = 1 - (clampedY / validHeight);
+        currentValue = Math.round(minValue + ratio * (maxValue - minValue));
+        updateThumbPosition();
+        if (onChange) onChange(currentValue);
+    }
+    
+    function stopDrag() {
+        isDragging = false;
+        document.removeEventListener('mousemove', onDrag);
+        document.removeEventListener('mouseup', stopDrag);
+    }
+    
+    thumb.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        isDragging = true;
+        document.addEventListener('mousemove', onDrag);
+        document.addEventListener('mouseup', stopDrag);
+    });
+    
+    wrapper.addEventListener('click', (e) => {
+        if (isDragging) return;
+        const clickY = e.clientY - wrapper.getBoundingClientRect().top;
+        const ratio = 1 - Math.max(0, Math.min(clickY / validHeight, 1));
+        currentValue = Math.round(minValue + ratio * (maxValue - minValue));
+        updateThumbPosition();
+        if (onChange) onChange(currentValue);
+    });
+    
+    updateThumbPosition();
+}
+
+// 更新界面模糊效果
+function updateBlurEffect(enabled) {
+    const blurElements = document.querySelectorAll('.toolbar-left, .toolbar-center, .toolbar-right, .pen-control-panel, .settings-panel, .sidebar, .menu-popup');
+    blurElements.forEach(element => {
+        if (enabled) {
+            element.style.backdropFilter = 'blur(10px)';
+            element.style.webkitBackdropFilter = 'blur(10px)';
+        } else {
+            element.style.backdropFilter = 'none';
+            element.style.webkitBackdropFilter = 'none';
+        }
+    });
+}
+
+// RGB转十六进制颜色
+function rgbToHex(r, g, b) {
+    return '#' + [r, g, b].map(x => {
+        const hex = x.toString(16);
+        return hex.length === 1 ? '0' + hex : hex;
+    }).join('');
+}
+
+// 十六进制颜色转RGB
+function hexToRgb(hex) {
+    const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+    return result ? {
+        r: parseInt(result[1], 16),
+        g: parseInt(result[2], 16),
+        b: parseInt(result[3], 16)
+    } : null;
 }
 
 function updateColorButtons() {
@@ -3778,15 +3884,15 @@ document.addEventListener('DOMContentLoaded', function() {
         button.addEventListener('touchstart', function(e) {
             this.style.transform = 'scale(0.95)';
             this.style.transition = 'transform 0.1s ease';
-        });
+        }, { passive: true });
         
         button.addEventListener('touchend', function(e) {
             this.style.transform = '';
-        });
+        }, { passive: true });
         
         button.addEventListener('touchcancel', function(e) {
             this.style.transform = '';
-        });
+        }, { passive: true });
     });
     
     // 设置窗口最小化监听器
