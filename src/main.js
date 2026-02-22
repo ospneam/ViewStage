@@ -276,6 +276,7 @@ let state = {
     // 摄像头状态
     cameraStream: null,            // MediaStream 对象
     isCameraOpen: false,           // 摄像头是否开启
+    isCameraReady: false,          // 摄像头视频是否就绪（有有效尺寸）
     isMirrored: false,             // 是否镜像 (前置摄像头)
     cameraAnimationId: null,       // requestAnimationFrame ID
     cameraRotation: 0,             // 摄像头旋转角度
@@ -347,6 +348,10 @@ function getCachedCanvasRect() {
 
 window.addEventListener('DOMContentLoaded', async () => {
     try {
+        if (window.__TAURI__) {
+            listenForPdfFileOpen();
+        }
+        
         if (!initDOM()) {
             throw new Error('DOM 初始化失败');
         }
@@ -358,14 +363,9 @@ window.addEventListener('DOMContentLoaded', async () => {
         
         await initCacheDir();
         
-        // 读取配置中的默认摄像头设置
         await loadCameraSetting();
         
         await openCamera();
-        
-        if (window.__TAURI__) {
-            listenForPdfFileOpen();
-        }
         
         console.log('画布初始化完成');
     } catch (error) {
@@ -3659,6 +3659,7 @@ async function setCameraState(open, options = {}) {
         }
         
         state.isCameraOpen = false;
+        state.isCameraReady = false;
         
         const video = document.getElementById('cameraVideo');
         if (video) {
@@ -3735,6 +3736,27 @@ function createCameraVideo() {
 function startCameraPreview() {
     const video = document.getElementById('cameraVideo');
     if (!video) return;
+    
+    const videoW = video.videoWidth;
+    const videoH = video.videoHeight;
+    
+    if (!videoW || !videoH) {
+        console.warn('视频尺寸无效，等待就绪...');
+        setTimeout(() => {
+            if (state.isCameraOpen && !state.isCameraReady) {
+                const v = document.getElementById('cameraVideo');
+                if (v && v.videoWidth && v.videoHeight) {
+                    state.isCameraReady = true;
+                    console.log('摄像头视频就绪:', v.videoWidth, 'x', v.videoHeight);
+                    startCameraPreview();
+                }
+            }
+        }, 500);
+        return;
+    }
+    
+    state.isCameraReady = true;
+    console.log('摄像头视频就绪:', videoW, 'x', videoH);
     
     let lastFrameTime = 0;
     let cachedDrawParams = null;
@@ -3848,14 +3870,34 @@ function createCameraControls() {
 
 async function captureCamera() {
     const video = document.getElementById('cameraVideo');
-    if (!video) return;
+    if (!video) {
+        console.error('找不到视频元素');
+        return;
+    }
+    
+    if (!state.isCameraReady) {
+        console.error('摄像头尚未就绪');
+        alert('摄像头尚未就绪，请稍后再试');
+        return;
+    }
+    
+    const videoW = video.videoWidth;
+    const videoH = video.videoHeight;
+    
+    if (!videoW || !videoH) {
+        console.error('视频尺寸无效:', videoW, videoH);
+        alert('摄像头尚未就绪，请稍后再试');
+        return;
+    }
+    
+    console.log('捕获摄像头画面:', videoW, 'x', videoH);
     
     saveCurrentDrawData();
     saveCurrentFolderPageDrawData();
     
     const tempCanvas = document.createElement('canvas');
-    tempCanvas.width = video.videoWidth;
-    tempCanvas.height = video.videoHeight;
+    tempCanvas.width = videoW;
+    tempCanvas.height = videoH;
     const tempCtx = tempCanvas.getContext('2d');
     
     if (state.isMirrored) {
@@ -3879,38 +3921,23 @@ async function captureCamera() {
     if (window.__TAURI__) {
         try {
             const { invoke } = window.__TAURI__.core;
+            const dataUrl = await blobToDataUrl(blob);
             
             if (state.enhanceEnabled) {
-                try {
-                    const dataUrl = await blobToDataUrl(blob);
-                    const enhancedDataUrl = await wasmPointProcessor.applyImageFilter(dataUrl);
-                    blob = await dataUrlToBlob(enhancedDataUrl);
-                    console.log('使用WASM进行图像增强');
-                    
-                    const result = await invoke('save_image_with_enhance', { 
-                        imageData: enhancedDataUrl,
-                        prefix: 'photo'
-                    });
-                    console.log('图片已保存到:', result.path);
-                } catch (wasmError) {
-                    console.warn('WASM图像增强失败，使用Tauri后端:', wasmError);
-                    const dataUrl = await blobToDataUrl(blob);
-                    const result = await invoke('save_image_with_enhance', { 
-                        imageData: dataUrl,
-                        prefix: 'photo'
-                    });
-                    console.log('图片已保存到:', result.path);
-                    if (result.enhanced_data) {
-                        blob = await dataUrlToBlob(result.enhanced_data);
-                    }
+                const result = await invoke('save_image_with_enhance', { 
+                    imageData: dataUrl,
+                    prefix: 'photo'
+                });
+                console.log('图片已保存(增强):', result.path);
+                if (result.enhanced_data) {
+                    blob = await dataUrlToBlob(result.enhanced_data);
                 }
             } else {
-                const dataUrl = await blobToDataUrl(blob);
                 const result = await invoke('save_image', { 
                     imageData: dataUrl,
                     prefix: 'photo'
                 });
-                console.log('图片已保存到:', result.path);
+                console.log('图片已保存:', result.path);
             }
         } catch (error) {
             console.error('保存图片失败:', error);

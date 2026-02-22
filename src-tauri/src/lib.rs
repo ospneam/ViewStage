@@ -1078,6 +1078,18 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            println!("单实例回调: args={:?}", args);
+            if args.len() > 1 {
+                let file_path = args[1].clone();
+                println!("从第二个实例接收文件: {}", file_path);
+                let _ = app.emit("file-opened", file_path);
+            }
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.set_focus();
+                let _ = window.unminimize();
+            }
+        }))
         .setup(|app| {
             let window = app.get_webview_window("main").unwrap();
             
@@ -1113,7 +1125,8 @@ pub fn run() {
                 
                 let app_handle = app.handle().clone();
                 std::thread::spawn(move || {
-                    std::thread::sleep(std::time::Duration::from_millis(500));
+                    std::thread::sleep(std::time::Duration::from_millis(2000));
+                    println!("发送文件打开事件: {}", file_path);
                     let _ = app_handle.emit("file-opened", file_path.clone());
                     println!("已发送文件打开事件: {}", file_path);
                 });
