@@ -494,6 +494,47 @@ function listenForPdfFileOpen() {
     }).catch(err => {
         console.error('switch-camera 事件监听失败:', err);
     });
+    
+    listen('settings-changed', (event) => {
+        const settings = event.payload;
+        console.log('收到设置更改通知:', settings);
+        
+        let needRestartCamera = false;
+        
+        if (settings.defaultCamera !== undefined) {
+            state.defaultCameraId = settings.defaultCamera;
+            console.log('默认摄像头已更改:', settings.defaultCamera);
+            needRestartCamera = true;
+        }
+        
+        if (settings.cameraWidth !== undefined && settings.cameraHeight !== undefined) {
+            state.cameraWidth = settings.cameraWidth;
+            state.cameraHeight = settings.cameraHeight;
+            console.log('摄像头分辨率已更改:', settings.cameraWidth, 'x', settings.cameraHeight);
+            needRestartCamera = true;
+        }
+        
+        if (settings.moveFps !== undefined) {
+            DRAW_CONFIG.cameraFrameInterval = Math.round(1000 / settings.moveFps);
+            console.log('移动时帧率已更改:', settings.moveFps, 'FPS');
+        }
+        
+        if (settings.drawFps !== undefined) {
+            DRAW_CONFIG.cameraFrameIntervalLow = Math.round(1000 / settings.drawFps);
+            console.log('绘画时帧率已更改:', settings.drawFps, 'FPS');
+        }
+        
+        if (needRestartCamera && state.isCameraOpen) {
+            console.log('摄像头设置已更改，重新初始化摄像头...');
+            setCameraState(false).then(() => {
+                setTimeout(() => {
+                    setCameraState(true);
+                }, 300);
+            });
+        }
+    }).catch(err => {
+        console.error('settings-changed 事件监听失败:', err);
+    });
 }
 
 async function processPdfPagesParallel(pdf, totalPages, batchSize = 4) {
@@ -3805,9 +3846,8 @@ function startCameraPreview() {
     function renderFrame(currentTime) {
         if (!state.isCameraOpen) return;
         
-        // 在绘制时完全暂停摄像头处理，减少GPU占用
-        if (state.drawMode === 'comment' || state.drawMode === 'eraser') {
-            // 只在需要时更新（例如旋转或镜像变化）
+        // 橡皮擦模式下完全暂停摄像头处理
+        if (state.drawMode === 'eraser') {
             if (!cachedDrawParams || cachedDrawParams.rotation !== state.cameraRotation) {
                 cachedDrawParams = updateDrawParams();
             }
@@ -3815,8 +3855,8 @@ function startCameraPreview() {
             return;
         }
         
-        // 根据绘制模式选择帧率：绘画时使用低帧率，移动时使用正常帧率
-        const isDrawing = state.drawMode === 'pen' || state.drawMode === 'highlighter';
+        // 根据绘制模式选择帧率：画笔模式使用低帧率，移动模式使用正常帧率
+        const isDrawing = state.drawMode === 'comment';
         const currentInterval = isDrawing ? 
             DRAW_CONFIG.cameraFrameIntervalLow : 
             DRAW_CONFIG.cameraFrameInterval;

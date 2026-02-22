@@ -33,13 +33,6 @@ pub struct ImageSaveResult {
     pub enhanced_data: Option<String>,   // 增强后的图片数据 (base64)
 }
 
-/// 图片数据 (用于批量操作)
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ImageData {
-    pub data: String,           // base64 图片数据
-    pub name: Option<String>,   // 文件名前缀
-}
-
 /// 笔画点 (线段)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StrokePoint {
@@ -409,136 +402,6 @@ fn save_image_with_enhance(image_data: String, prefix: Option<String>) -> Result
         error: None,
         enhanced_data: Some(enhanced_data),
     })
-}
-
-#[tauri::command]
-fn save_images_batch(images: Vec<ImageData>, prefix: Option<String>) -> Result<Vec<ImageSaveResult>, String> {
-    let base_dir = get_cds_dir()?;
-    let prefix_str = prefix.unwrap_or_else(|| "photo".to_string());
-    
-    let results: Vec<ImageSaveResult> = images
-        .par_iter()
-        .map(|img_data| {
-            let decoded = match extract_base64(&img_data.data) {
-                Ok(d) => d,
-                Err(e) => {
-                    return ImageSaveResult {
-                        path: String::new(),
-                        success: false,
-                        error: Some(e),
-                        enhanced_data: None,
-                    };
-                }
-            };
-            
-            let extension = if img_data.data.contains("image/png") {
-                "png"
-            } else if img_data.data.contains("image/jpeg") || img_data.data.contains("image/jpg") {
-                "jpg"
-            } else {
-                "png"
-            };
-            
-            let name_prefix = img_data.name.clone().unwrap_or_else(|| prefix_str.clone());
-            
-            let (file_path, _file_name) = match get_save_path(&base_dir, &name_prefix, extension) {
-                Ok(p) => p,
-                Err(e) => {
-                    return ImageSaveResult {
-                        path: String::new(),
-                        success: false,
-                        error: Some(e),
-                        enhanced_data: None,
-                    };
-                }
-            };
-            
-            match std::fs::write(&file_path, &decoded) {
-                Ok(_) => ImageSaveResult {
-                    path: file_path.to_string_lossy().to_string(),
-                    success: true,
-                    error: None,
-                    enhanced_data: None,
-                },
-                Err(e) => ImageSaveResult {
-                    path: String::new(),
-                    success: false,
-                    error: Some(format!("Failed to write file: {}", e)),
-                    enhanced_data: None,
-                },
-            }
-        })
-        .collect();
-    
-    Ok(results)
-}
-
-#[tauri::command]
-fn save_images_batch_with_enhance(images: Vec<ImageData>, prefix: Option<String>) -> Result<Vec<ImageSaveResult>, String> {
-    let base_dir = get_cds_dir()?;
-    let prefix_str = prefix.unwrap_or_else(|| "photo".to_string());
-    
-    let results: Vec<ImageSaveResult> = images
-        .par_iter()
-        .map(|img_data| {
-            let img = match decode_base64_image(&img_data.data) {
-                Ok(i) => i,
-                Err(e) => {
-                    return ImageSaveResult {
-                        path: String::new(),
-                        success: false,
-                        error: Some(e),
-                        enhanced_data: None,
-                    };
-                }
-            };
-            
-            let enhanced = apply_enhance_filter(&img);
-            
-            let mut buffer = Vec::new();
-            if let Err(e) = enhanced.write_to(&mut std::io::Cursor::new(&mut buffer), image::ImageFormat::Png) {
-                return ImageSaveResult {
-                    path: String::new(),
-                    success: false,
-                    error: Some(format!("Failed to encode image: {}", e)),
-                    enhanced_data: None,
-                };
-            }
-            
-            let name_prefix = img_data.name.clone().unwrap_or_else(|| prefix_str.clone());
-            
-            let (file_path, _file_name) = match get_save_path(&base_dir, &name_prefix, "png") {
-                Ok(p) => p,
-                Err(e) => {
-                    return ImageSaveResult {
-                        path: String::new(),
-                        success: false,
-                        error: Some(e),
-                        enhanced_data: None,
-                    };
-                }
-            };
-            
-            let enhanced_data = format!("data:image/png;base64,{}", general_purpose::STANDARD.encode(&buffer));
-            
-            match std::fs::write(&file_path, &buffer) {
-                Ok(_) => ImageSaveResult {
-                    path: file_path.to_string_lossy().to_string(),
-                    success: true,
-                    error: None,
-                    enhanced_data: Some(enhanced_data),
-                },
-                Err(e) => ImageSaveResult {
-                    path: String::new(),
-                    success: false,
-                    error: Some(format!("Failed to write file: {}", e)),
-                    enhanced_data: None,
-                },
-            }
-        })
-        .collect();
-    
-    Ok(results)
 }
 
 // ==================== 笔画压缩 ====================
@@ -1145,8 +1008,6 @@ pub fn run() {
             rotate_image,
             save_image,
             save_image_with_enhance,
-            save_images_batch,
-            save_images_batch_with_enhance,
             compact_strokes,
             generate_thumbnails_batch,
             open_settings_window,

@@ -373,7 +373,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (window.__TAURI__) {
             try {
                 const { invoke } = window.__TAURI__.core;
+                const { emit } = window.__TAURI__.event;
                 await invoke('save_settings', { settings });
+                
+                await emit('settings-changed', settings);
+                
                 return true;
             } catch (error) {
                 console.error('保存设置失败:', error);
