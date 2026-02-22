@@ -94,12 +94,12 @@ fn decode_base64_image(image_data: &str) -> Result<DynamicImage, String> {
 // ==================== 图像增强 ====================
 // 对比度、亮度、饱和度调整，使用 rayon 并行处理
 
-/// 图像增强命令 (对比度、亮度、饱和度调整)
+/// 图像增强命令 (对比度、亮度、饱和度、锐化调整)
 #[tauri::command]
-fn enhance_image(image_data: String) -> Result<String, String> {
+fn enhance_image(image_data: String, contrast: f32, brightness: f32, saturation: f32, sharpen: f32) -> Result<String, String> {
     let img = decode_base64_image(&image_data)?;
     
-    let enhanced = apply_enhance_filter(&img);
+    let enhanced = apply_enhance_filter(&img, contrast, brightness, saturation, sharpen);
     
     let mut buffer = Vec::new();
     enhanced
@@ -112,16 +112,12 @@ fn enhance_image(image_data: String) -> Result<String, String> {
 }
 
 /// 应用图像增强滤镜 (并行处理)
-/// - 对比度: 1.4x
-/// - 亮度: +10
-/// - 饱和度: 1.2x
-fn apply_enhance_filter(img: &DynamicImage) -> DynamicImage {
+fn apply_enhance_filter(img: &DynamicImage, contrast: f32, brightness: f32, saturation: f32, sharpen: f32) -> DynamicImage {
     let (width, height) = (img.width(), img.height());
-    let contrast: f32 = 1.4;
-    let brightness: f32 = 10.0;
-    let saturation: f32 = 1.2;
     
     let rgba_img = img.to_rgba8();
+    
+    // 第一步：对比度、亮度、饱和度调整
     let pixels: Vec<(u32, u32, Rgba<u8>)> = rgba_img
         .enumerate_pixels()
         .par_bridge()
@@ -151,6 +147,73 @@ fn apply_enhance_filter(img: &DynamicImage) -> DynamicImage {
     let mut enhanced_img: ImageBuffer<Rgba<u8>, Vec<u8>> = ImageBuffer::new(width, height);
     for (x, y, pixel) in pixels {
         enhanced_img.put_pixel(x, y, pixel);
+    }
+    
+    // 第二步：锐化处理 (USM 锐化)
+    if sharpen > 0.0 {
+        let original = enhanced_img.clone();
+        let sharpen_amount = sharpen / 100.0; // 0.0 - 1.0
+        
+        for y in 1..(height - 1) {
+            for x in 1..(width - 1) {
+                let pixel = enhanced_img.get_pixel(x, y);
+                let r = pixel[0] as f32;
+                let g = pixel[1] as f32;
+                let b = pixel[2] as f32;
+                let a = pixel[3];
+                
+                // 拉普拉斯锐化核
+                let neighbors_r: f32 = [
+                    original.get_pixel(x - 1, y - 1)[0],
+                    original.get_pixel(x, y - 1)[0],
+                    original.get_pixel(x + 1, y - 1)[0],
+                    original.get_pixel(x - 1, y)[0],
+                    original.get_pixel(x + 1, y)[0],
+                    original.get_pixel(x - 1, y + 1)[0],
+                    original.get_pixel(x, y + 1)[0],
+                    original.get_pixel(x + 1, y + 1)[0],
+                ].iter().map(|&v| v as f32).sum::<f32>();
+                
+                let neighbors_g: f32 = [
+                    original.get_pixel(x - 1, y - 1)[1],
+                    original.get_pixel(x, y - 1)[1],
+                    original.get_pixel(x + 1, y - 1)[1],
+                    original.get_pixel(x - 1, y)[1],
+                    original.get_pixel(x + 1, y)[1],
+                    original.get_pixel(x - 1, y + 1)[1],
+                    original.get_pixel(x, y + 1)[1],
+                    original.get_pixel(x + 1, y + 1)[1],
+                ].iter().map(|&v| v as f32).sum::<f32>();
+                
+                let neighbors_b: f32 = [
+                    original.get_pixel(x - 1, y - 1)[2],
+                    original.get_pixel(x, y - 1)[2],
+                    original.get_pixel(x + 1, y - 1)[2],
+                    original.get_pixel(x - 1, y)[2],
+                    original.get_pixel(x + 1, y)[2],
+                    original.get_pixel(x - 1, y + 1)[2],
+                    original.get_pixel(x, y + 1)[2],
+                    original.get_pixel(x + 1, y + 1)[2],
+                ].iter().map(|&v| v as f32).sum::<f32>();
+                
+                // 拉普拉斯算子: center * 9 - neighbors
+                let laplacian_r = r * 9.0 - neighbors_r;
+                let laplacian_g = g * 9.0 - neighbors_g;
+                let laplacian_b = b * 9.0 - neighbors_b;
+                
+                // USM: original + amount * laplacian
+                let new_r = r + laplacian_r * sharpen_amount;
+                let new_g = g + laplacian_g * sharpen_amount;
+                let new_b = b + laplacian_b * sharpen_amount;
+                
+                enhanced_img.put_pixel(x, y, Rgba([
+                    new_r.clamp(0.0, 255.0) as u8,
+                    new_g.clamp(0.0, 255.0) as u8,
+                    new_b.clamp(0.0, 255.0) as u8,
+                    a
+                ]));
+            }
+        }
     }
     
     DynamicImage::ImageRgba8(enhanced_img)
@@ -376,13 +439,13 @@ fn save_image(image_data: String, prefix: Option<String>) -> Result<ImageSaveRes
 }
 
 #[tauri::command]
-fn save_image_with_enhance(image_data: String, prefix: Option<String>) -> Result<ImageSaveResult, String> {
+fn save_image_with_enhance(image_data: String, prefix: Option<String>, contrast: f32, brightness: f32, saturation: f32, sharpen: f32) -> Result<ImageSaveResult, String> {
     let base_dir = get_cds_dir()?;
     let prefix_str = prefix.unwrap_or_else(|| "photo".to_string());
     
     let img = decode_base64_image(&image_data)?;
     
-    let enhanced = apply_enhance_filter(&img);
+    let enhanced = apply_enhance_filter(&img, contrast, brightness, saturation, sharpen);
     
     let mut buffer = Vec::new();
     enhanced
@@ -794,7 +857,14 @@ async fn get_settings(app: tauri::AppHandle) -> Result<serde_json::Value, String
         "cameraHeight": 720,
         "moveFps": 30,
         "drawFps": 10,
-        "fileAssociations": []
+        "pdfScale": 1.5,
+        "contrast": 1.4,
+        "brightness": 10,
+        "saturation": 1.2,
+        "sharpen": 0,
+        "canvasScale": 2,
+        "dprLimit": 2,
+        "fileAssociations": false
     });
     
     let config_str = serde_json::to_string_pretty(&default_config).map_err(|e| e.to_string())?;

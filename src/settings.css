@@ -576,3 +576,94 @@ body {
     background: rgba(255, 255, 255, 0.12);
     color: #fff;
 }
+
+.slider-container {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.slider {
+    width: 120px;
+    height: 4px;
+    -webkit-appearance: none;
+    appearance: none;
+    background: rgba(255, 255, 255, 0.15);
+    border-radius: 2px;
+    outline: none;
+    cursor: pointer;
+}
+
+.slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 16px;
+    height: 16px;
+    background: #4a9eff;
+    border-radius: 50%;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.slider::-webkit-slider-thumb:hover {
+    background: #6bb3ff;
+    transform: scale(1.1);
+}
+
+.slider::-moz-range-thumb {
+    width: 16px;
+    height: 16px;
+    background: #4a9eff;
+    border-radius: 50%;
+    cursor: pointer;
+    border: none;
+}
+
+.slider-value {
+    font-size: 12px;
+    color: #4a9eff;
+    min-width: 50px;
+    text-align: right;
+}
+
+.setting-group {
+    margin: 8px 0;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.03);
+    overflow: hidden;
+}
+
+.setting-group-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    cursor: pointer;
+    transition: background 0.2s ease;
+}
+
+.setting-group-header:hover {
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.group-arrow {
+    font-size: 10px;
+    color: #888;
+    transition: transform 0.3s ease;
+}
+
+.setting-group.collapsed .group-arrow {
+    transform: rotate(-90deg);
+}
+
+.setting-group-content {
+    max-height: 500px;
+    overflow: hidden;
+    transition: max-height 0.3s ease;
+    padding: 0 16px;
+}
+
+.setting-group.collapsed .setting-group-content {
+    max-height: 0;
+    padding: 0 16px;
+}

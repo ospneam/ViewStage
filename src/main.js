@@ -89,7 +89,12 @@ const DRAW_CONFIG = {
     canvasScale: 2,                // 画布相对屏幕的缩放倍数
     dpr: Math.min(window.devicePixelRatio || 1, 2),  // 设备像素比 (限制最大为2，减少GPU负担)
     cameraFrameInterval: 33,       // 摄像头帧间隔 (ms) - 30fps
-    cameraFrameIntervalLow: 100    // 低帧率模式 (绘制时)
+    cameraFrameIntervalLow: 100,   // 低帧率模式 (绘制时)
+    pdfScale: 1.5,                 // PDF 渲染缩放比例
+    enhanceContrast: 1.4,          // 增强对比度
+    enhanceBrightness: 10,         // 增强亮度
+    enhanceSaturation: 1.2,        // 增强饱和度
+    enhanceSharpen: 0              // 增强锐化 (0-100)
 };
 
 function getSafeScale() {
@@ -403,6 +408,42 @@ async function loadCameraSetting() {
                 DRAW_CONFIG.cameraFrameIntervalLow = Math.round(1000 / settings.drawFps);
                 console.log('已加载绘画时帧率:', settings.drawFps, 'FPS');
             }
+            
+            // 加载 Canvas 参数设置
+            if (settings.canvasScale) {
+                DRAW_CONFIG.canvasScale = settings.canvasScale;
+                console.log('已加载画布缩放倍数:', settings.canvasScale, 'x');
+            }
+            
+            if (settings.dprLimit) {
+                DRAW_CONFIG.dpr = Math.min(window.devicePixelRatio || 1, settings.dprLimit);
+                console.log('已加载设备像素比限制:', settings.dprLimit);
+            }
+            
+            if (settings.pdfScale) {
+                DRAW_CONFIG.pdfScale = settings.pdfScale;
+                console.log('已加载 PDF 输出分辨率:', settings.pdfScale);
+            }
+            
+            if (settings.contrast) {
+                DRAW_CONFIG.enhanceContrast = settings.contrast;
+                console.log('已加载增强对比度:', settings.contrast);
+            }
+            
+            if (settings.brightness) {
+                DRAW_CONFIG.enhanceBrightness = settings.brightness;
+                console.log('已加载增强亮度:', settings.brightness);
+            }
+            
+            if (settings.saturation) {
+                DRAW_CONFIG.enhanceSaturation = settings.saturation;
+                console.log('已加载增强饱和度:', settings.saturation);
+            }
+            
+            if (settings.sharpen !== undefined) {
+                DRAW_CONFIG.enhanceSharpen = settings.sharpen;
+                console.log('已加载增强锐化:', settings.sharpen);
+            }
         } catch (error) {
             console.error('加载摄像头设置失败:', error);
         }
@@ -524,6 +565,42 @@ function listenForPdfFileOpen() {
             console.log('绘画时帧率已更改:', settings.drawFps, 'FPS');
         }
         
+        // Canvas 参数更改
+        if (settings.canvasScale !== undefined) {
+            DRAW_CONFIG.canvasScale = settings.canvasScale;
+            console.log('画布缩放倍数已更改:', settings.canvasScale, 'x');
+        }
+        
+        if (settings.dprLimit !== undefined) {
+            DRAW_CONFIG.dpr = Math.min(window.devicePixelRatio || 1, settings.dprLimit);
+            console.log('设备像素比限制已更改:', settings.dprLimit);
+        }
+        
+        if (settings.pdfScale !== undefined) {
+            DRAW_CONFIG.pdfScale = settings.pdfScale;
+            console.log('PDF 输出分辨率已更改:', settings.pdfScale);
+        }
+        
+        if (settings.contrast !== undefined) {
+            DRAW_CONFIG.enhanceContrast = settings.contrast;
+            console.log('增强对比度已更改:', settings.contrast);
+        }
+        
+        if (settings.brightness !== undefined) {
+            DRAW_CONFIG.enhanceBrightness = settings.brightness;
+            console.log('增强亮度已更改:', settings.brightness);
+        }
+        
+        if (settings.saturation !== undefined) {
+            DRAW_CONFIG.enhanceSaturation = settings.saturation;
+            console.log('增强饱和度已更改:', settings.saturation);
+        }
+        
+        if (settings.sharpen !== undefined) {
+            DRAW_CONFIG.enhanceSharpen = settings.sharpen;
+            console.log('增强锐化已更改:', settings.sharpen);
+        }
+        
         if (needRestartCamera && state.isCameraOpen) {
             console.log('摄像头设置已更改，重新初始化摄像头...');
             setCameraState(false).then(() => {
@@ -543,7 +620,7 @@ async function processPdfPagesParallel(pdf, totalPages, batchSize = 4) {
     
     async function processPage(pageNum) {
         const page = await pdf.getPage(pageNum);
-        const viewport = page.getViewport({ scale: 1.5 });
+        const viewport = page.getViewport({ scale: DRAW_CONFIG.pdfScale });
         
         const canvas = document.createElement('canvas');
         canvas.width = viewport.width;
@@ -3966,7 +4043,11 @@ async function captureCamera() {
             if (state.enhanceEnabled) {
                 const result = await invoke('save_image_with_enhance', { 
                     imageData: dataUrl,
-                    prefix: 'photo'
+                    prefix: 'photo',
+                    contrast: DRAW_CONFIG.enhanceContrast,
+                    brightness: DRAW_CONFIG.enhanceBrightness,
+                    saturation: DRAW_CONFIG.enhanceSaturation,
+                    sharpen: DRAW_CONFIG.enhanceSharpen
                 });
                 console.log('图片已保存(增强):', result.path);
                 if (result.enhanced_data) {

@@ -332,6 +332,94 @@ document.addEventListener('DOMContentLoaded', async () => {
                     });
                 }
                 
+                // PDF 输出分辨率设置
+                const pdfScaleSelected = document.getElementById('pdfScaleSelected');
+                const pdfScaleOptionsContainer = document.getElementById('pdfScaleOptions');
+                
+                if (pdfScaleSelected && pdfScaleOptionsContainer) {
+                    const savedPdfScale = settings.pdfScale || 1.5;
+                    const pdfScaleOptions = pdfScaleOptionsContainer.querySelectorAll('.select-option');
+                    pdfScaleOptions.forEach(option => {
+                        if (parseFloat(option.dataset.value) === savedPdfScale) {
+                            pdfScaleSelected.textContent = option.textContent;
+                            option.classList.add('selected');
+                        } else {
+                            option.classList.remove('selected');
+                        }
+                    });
+                }
+                
+                // Canvas 参数设置
+                const canvasScaleSlider = document.getElementById('canvasScaleSlider');
+                const canvasScaleValue = document.getElementById('canvasScaleValue');
+                const dprSelected = document.getElementById('dprSelected');
+                const dprOptionsContainer = document.getElementById('dprOptions');
+                
+                if (canvasScaleSlider && canvasScaleValue) {
+                    const savedCanvasScale = settings.canvasScale || 2;
+                    canvasScaleSlider.value = savedCanvasScale;
+                    canvasScaleValue.textContent = `${savedCanvasScale}x`;
+                }
+                
+                if (dprSelected && dprOptionsContainer) {
+                    const savedDpr = settings.dprLimit || 2;
+                    const dprOptions = dprOptionsContainer.querySelectorAll('.select-option');
+                    dprOptions.forEach(option => {
+                        if (parseFloat(option.dataset.value) === savedDpr) {
+                            dprSelected.textContent = option.textContent;
+                            option.classList.add('selected');
+                        } else {
+                            option.classList.remove('selected');
+                        }
+                    });
+                }
+                
+                // 镜像设置
+                const mirrorToggle = document.getElementById('mirrorToggle');
+                if (mirrorToggle) {
+                    try {
+                        const isMirrored = await invoke('get_mirror_state');
+                        mirrorToggle.checked = isMirrored;
+                    } catch (error) {
+                        console.error('获取镜像状态失败:', error);
+                        mirrorToggle.checked = false;
+                    }
+                }
+                
+                // 图像处理强度设置
+                const contrastSlider = document.getElementById('contrastSlider');
+                const contrastValue = document.getElementById('contrastValue');
+                const brightnessSlider = document.getElementById('brightnessSlider');
+                const brightnessValue = document.getElementById('brightnessValue');
+                const saturationSlider = document.getElementById('saturationSlider');
+                const saturationValue = document.getElementById('saturationValue');
+                const sharpenSlider = document.getElementById('sharpenSlider');
+                const sharpenValue = document.getElementById('sharpenValue');
+                
+                if (contrastSlider && contrastValue) {
+                    const savedContrast = settings.contrast || 1.4;
+                    contrastSlider.value = savedContrast;
+                    contrastValue.textContent = savedContrast;
+                }
+                
+                if (brightnessSlider && brightnessValue) {
+                    const savedBrightness = settings.brightness || 10;
+                    brightnessSlider.value = savedBrightness;
+                    brightnessValue.textContent = savedBrightness;
+                }
+                
+                if (saturationSlider && saturationValue) {
+                    const savedSaturation = settings.saturation || 1.2;
+                    saturationSlider.value = savedSaturation;
+                    saturationValue.textContent = savedSaturation;
+                }
+                
+                if (sharpenSlider && sharpenValue) {
+                    const savedSharpen = settings.sharpen || 0;
+                    sharpenSlider.value = savedSharpen;
+                    sharpenValue.textContent = savedSharpen;
+                }
+                
                 // 文件关联设置
                 const assocPdf = document.getElementById('assocPdf');
                 if (assocPdf) {
@@ -341,17 +429,14 @@ document.addEventListener('DOMContentLoaded', async () => {
                         
                         if (isDefault) {
                             // 如果是默认程序，根据配置设置勾选状态
-                            if (settings.fileAssociations) {
-                                assocPdf.checked = settings.fileAssociations.includes('pdf');
-                            }
+                            assocPdf.checked = settings.fileAssociations === true;
                         } else {
                             // 如果不是默认程序，取消勾选
                             assocPdf.checked = false;
                             
                             // 如果配置中有记录，更新配置
-                            if (settings.fileAssociations && settings.fileAssociations.includes('pdf')) {
-                                const newAssociations = settings.fileAssociations.filter(ext => ext !== 'pdf');
-                                await saveSettings({ fileAssociations: newAssociations });
+                            if (settings.fileAssociations === true) {
+                                await saveSettings({ fileAssociations: false });
                             }
                         }
                     } catch (error) {
@@ -606,15 +691,155 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     }
     
+    // PDF 输出分辨率选择
+    const pdfScaleSelect = document.getElementById('pdfScaleSelect');
+    const pdfScaleSelected = document.getElementById('pdfScaleSelected');
+    
+    if (pdfScaleSelect && pdfScaleSelected) {
+        pdfScaleSelected.addEventListener('click', () => {
+            pdfScaleSelect.classList.toggle('open');
+        });
+        
+        document.addEventListener('click', (e) => {
+            if (!pdfScaleSelect.contains(e.target)) {
+                pdfScaleSelect.classList.remove('open');
+            }
+        });
+        
+        pdfScaleSelect.addEventListener('click', async (e) => {
+            const option = e.target.closest('.select-option');
+            if (!option) return;
+            
+            const value = parseFloat(option.dataset.value);
+            pdfScaleSelected.textContent = option.textContent;
+            
+            const pdfScaleOptions = pdfScaleSelect.querySelectorAll('.select-option');
+            pdfScaleOptions.forEach(opt => opt.classList.remove('selected'));
+            option.classList.add('selected');
+            
+            pdfScaleSelect.classList.remove('open');
+            
+            await saveSettings({ pdfScale: value });
+        });
+    }
+    
+    // Canvas 参数设置 - 画布缩放倍数
+    const canvasScaleSlider = document.getElementById('canvasScaleSlider');
+    const canvasScaleValue = document.getElementById('canvasScaleValue');
+    
+    if (canvasScaleSlider && canvasScaleValue) {
+        canvasScaleSlider.addEventListener('input', () => {
+            canvasScaleValue.textContent = `${canvasScaleSlider.value}x`;
+        });
+        
+        canvasScaleSlider.addEventListener('change', async () => {
+            await saveSettings({ canvasScale: parseFloat(canvasScaleSlider.value) });
+        });
+    }
+    
+    // Canvas 参数设置 - 设备像素比限制
+    const dprSelect = document.getElementById('dprSelect');
+    const dprSelected = document.getElementById('dprSelected');
+    
+    if (dprSelect && dprSelected) {
+        dprSelected.addEventListener('click', () => {
+            dprSelect.classList.toggle('open');
+        });
+        
+        document.addEventListener('click', (e) => {
+            if (!dprSelect.contains(e.target)) {
+                dprSelect.classList.remove('open');
+            }
+        });
+        
+        dprSelect.addEventListener('click', async (e) => {
+            const option = e.target.closest('.select-option');
+            if (!option) return;
+            
+            const value = parseFloat(option.dataset.value);
+            dprSelected.textContent = option.textContent;
+            
+            const dprOptions = dprSelect.querySelectorAll('.select-option');
+            dprOptions.forEach(opt => opt.classList.remove('selected'));
+            option.classList.add('selected');
+            
+            dprSelect.classList.remove('open');
+            
+            await saveSettings({ dprLimit: value });
+        });
+    }
+    
+    // 镜像开关
+    const mirrorToggle = document.getElementById('mirrorToggle');
+    if (mirrorToggle) {
+        mirrorToggle.addEventListener('change', async () => {
+            try {
+                const { invoke } = window.__TAURI__.core;
+                await invoke('set_mirror_state', { enabled: mirrorToggle.checked });
+            } catch (error) {
+                console.error('设置镜像状态失败:', error);
+            }
+        });
+    }
+    
+    // 图像处理折叠功能
+    const imageProcessHeader = document.getElementById('imageProcessHeader');
+    const imageProcessGroup = imageProcessHeader?.closest('.setting-group');
+    
+    if (imageProcessHeader && imageProcessGroup) {
+        imageProcessHeader.addEventListener('click', () => {
+            imageProcessGroup.classList.toggle('collapsed');
+        });
+    }
+    
+    // 图像处理强度设置
+    const contrastSlider = document.getElementById('contrastSlider');
+    const contrastValue = document.getElementById('contrastValue');
+    const brightnessSlider = document.getElementById('brightnessSlider');
+    const brightnessValue = document.getElementById('brightnessValue');
+    const saturationSlider = document.getElementById('saturationSlider');
+    const saturationValue = document.getElementById('saturationValue');
+    const sharpenSlider = document.getElementById('sharpenSlider');
+    const sharpenValue = document.getElementById('sharpenValue');
+    
+    if (contrastSlider && contrastValue) {
+        contrastSlider.addEventListener('input', () => {
+            contrastValue.textContent = contrastSlider.value;
+        });
+        
+        contrastSlider.addEventListener('change', async () => {
+            await saveSettings({ 
+                contrast: parseFloat(contrastSlider.value),
+                brightness: parseFloat(brightnessSlider.value),
+                saturation: parseFloat(saturationSlider.value),
+                sharpen: parseFloat(sharpenSlider.value)
+            });
+        });
+    }
+    
+    if (brightnessSlider && brightnessValue) {
+        brightnessSlider.addEventListener('input', () => {
+            brightnessValue.textContent = brightnessSlider.value;
+        });
+    }
+    
+    if (saturationSlider && saturationValue) {
+        saturationSlider.addEventListener('input', () => {
+            saturationValue.textContent = saturationSlider.value;
+        });
+    }
+    
+    if (sharpenSlider && sharpenValue) {
+        sharpenSlider.addEventListener('input', () => {
+            sharpenValue.textContent = sharpenSlider.value;
+        });
+    }
+    
     // 默认打开方式复选框
     const assocPdf = document.getElementById('assocPdf');
     if (assocPdf) {
         assocPdf.addEventListener('change', async () => {
-            const associations = [];
-            if (assocPdf.checked) {
-                associations.push('pdf');
-            }
-            await saveSettings({ fileAssociations: associations });
+            await saveSettings({ fileAssociations: assocPdf.checked });
         });
     }
     

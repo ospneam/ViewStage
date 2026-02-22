@@ -72,7 +72,22 @@
                 <div class="page" id="pageCanvas">
                     <h2 class="page-title">Canvas调节</h2>
                     <div class="setting-item">
-                        <span class="setting-label">画布设置</span>
+                        <span class="setting-label">画布缩放倍数</span>
+                        <div class="slider-container">
+                            <input type="range" id="canvasScaleSlider" min="1" max="3" step="0.5" value="2" class="slider">
+                            <span class="slider-value" id="canvasScaleValue">2x</span>
+                        </div>
+                    </div>
+                    <div class="setting-item">
+                        <span class="setting-label">设备像素比限制</span>
+                        <div class="custom-select" id="dprSelect">
+                            <div class="select-selected" id="dprSelected">2</div>
+                            <div class="select-options" id="dprOptions">
+                                <div class="select-option" data-value="1">1</div>
+                                <div class="select-option" data-value="1.5">1.5</div>
+                                <div class="select-option" data-value="2">2</div>
+                            </div>
+                        </div>
                     </div>
                 </div>
                 
@@ -104,6 +119,64 @@
                         <div class="custom-select" id="drawFpsSelect">
                             <div class="select-selected" id="drawFpsSelected">10 FPS</div>
                             <div class="select-options" id="drawFpsOptions"></div>
+                        </div>
+                    </div>
+                    <div class="setting-item">
+                        <span class="setting-label">PDF 输出分辨率</span>
+                        <div class="custom-select" id="pdfScaleSelect">
+                            <div class="select-selected" id="pdfScaleSelected">1.5x</div>
+                            <div class="select-options" id="pdfScaleOptions">
+                                <div class="select-option" data-value="1">1x (低)</div>
+                                <div class="select-option" data-value="1.5">1.5x (中)</div>
+                                <div class="select-option" data-value="2">2x (高)</div>
+                                <div class="select-option" data-value="2.5">2.5x (超高)</div>
+                                <div class="select-option" data-value="3">3x (最高)</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="setting-item">
+                        <span class="setting-label">画面镜像</span>
+                        <div class="file-associations">
+                            <label class="checkbox-item">
+                                <input type="checkbox" id="mirrorToggle">
+                                <span class="checkbox-label">启用镜像</span>
+                            </label>
+                        </div>
+                    </div>
+                    <div class="setting-group collapsed">
+                        <div class="setting-group-header" id="imageProcessHeader">
+                            <span class="setting-label">图像处理</span>
+                            <span class="group-arrow">▼</span>
+                        </div>
+                        <div class="setting-group-content" id="imageProcessContent">
+                            <div class="setting-item">
+                                <span class="setting-label">对比度</span>
+                                <div class="slider-container">
+                                    <input type="range" id="contrastSlider" min="0.5" max="3" step="0.1" value="1.4" class="slider">
+                                    <span class="slider-value" id="contrastValue">1.4</span>
+                                </div>
+                            </div>
+                            <div class="setting-item">
+                                <span class="setting-label">亮度</span>
+                                <div class="slider-container">
+                                    <input type="range" id="brightnessSlider" min="-50" max="50" step="5" value="10" class="slider">
+                                    <span class="slider-value" id="brightnessValue">10</span>
+                                </div>
+                            </div>
+                            <div class="setting-item">
+                                <span class="setting-label">饱和度</span>
+                                <div class="slider-container">
+                                    <input type="range" id="saturationSlider" min="0.5" max="2" step="0.1" value="1.2" class="slider">
+                                    <span class="slider-value" id="saturationValue">1.2</span>
+                                </div>
+                            </div>
+                            <div class="setting-item">
+                                <span class="setting-label">锐化</span>
+                                <div class="slider-container">
+                                    <input type="range" id="sharpenSlider" min="0" max="100" step="5" value="0" class="slider">
+                                    <span class="slider-value" id="sharpenValue">0</span>
+                                </div>
+                            </div>
                         </div>
                     </div>
                     <div class="setting-item">
