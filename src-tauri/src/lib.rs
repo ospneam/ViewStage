@@ -175,70 +175,81 @@ fn apply_enhance_filter(img: &DynamicImage, contrast: f32, brightness: f32, satu
         enhanced_img.put_pixel(x, y, pixel);
     }
     
-    // 第二步：锐化处理 (USM 锐化)
+    // 第二步：锐化处理 (USM 锐化) - 并行优化
     if sharpen > 0.0 && width > 2 && height > 2 {
         let original = enhanced_img.clone();
-        let sharpen_amount = sharpen / 100.0; // 0.0 - 1.0
+        let original_raw = original.as_raw();
+        let sharpen_amount = sharpen / 100.0;
         
-        for y in 1..(height - 1) {
-            for x in 1..(width - 1) {
-                let pixel = enhanced_img.get_pixel(x, y);
-                let r = pixel[0] as f32;
-                let g = pixel[1] as f32;
-                let b = pixel[2] as f32;
-                let a = pixel[3];
-                
-                // 拉普拉斯锐化核
-                let neighbors_r: f32 = [
-                    original.get_pixel(x - 1, y - 1)[0],
-                    original.get_pixel(x, y - 1)[0],
-                    original.get_pixel(x + 1, y - 1)[0],
-                    original.get_pixel(x - 1, y)[0],
-                    original.get_pixel(x + 1, y)[0],
-                    original.get_pixel(x - 1, y + 1)[0],
-                    original.get_pixel(x, y + 1)[0],
-                    original.get_pixel(x + 1, y + 1)[0],
-                ].iter().map(|&v| v as f32).sum::<f32>();
-                
-                let neighbors_g: f32 = [
-                    original.get_pixel(x - 1, y - 1)[1],
-                    original.get_pixel(x, y - 1)[1],
-                    original.get_pixel(x + 1, y - 1)[1],
-                    original.get_pixel(x - 1, y)[1],
-                    original.get_pixel(x + 1, y)[1],
-                    original.get_pixel(x - 1, y + 1)[1],
-                    original.get_pixel(x, y + 1)[1],
-                    original.get_pixel(x + 1, y + 1)[1],
-                ].iter().map(|&v| v as f32).sum::<f32>();
-                
-                let neighbors_b: f32 = [
-                    original.get_pixel(x - 1, y - 1)[2],
-                    original.get_pixel(x, y - 1)[2],
-                    original.get_pixel(x + 1, y - 1)[2],
-                    original.get_pixel(x - 1, y)[2],
-                    original.get_pixel(x + 1, y)[2],
-                    original.get_pixel(x - 1, y + 1)[2],
-                    original.get_pixel(x, y + 1)[2],
-                    original.get_pixel(x + 1, y + 1)[2],
-                ].iter().map(|&v| v as f32).sum::<f32>();
-                
-                // 拉普拉斯算子: center * 9 - neighbors
-                let laplacian_r = r * 9.0 - neighbors_r;
-                let laplacian_g = g * 9.0 - neighbors_g;
-                let laplacian_b = b * 9.0 - neighbors_b;
-                
-                // USM: original + amount * laplacian
-                let new_r = r + laplacian_r * sharpen_amount;
-                let new_g = g + laplacian_g * sharpen_amount;
-                let new_b = b + laplacian_b * sharpen_amount;
-                
-                enhanced_img.put_pixel(x, y, Rgba([
-                    new_r.clamp(0.0, 255.0) as u8,
-                    new_g.clamp(0.0, 255.0) as u8,
-                    new_b.clamp(0.0, 255.0) as u8,
-                    a
-                ]));
-            }
+        let sharpened_pixels: Vec<(u32, u32, Rgba<u8>)> = (1..height - 1)
+            .into_par_iter()
+            .flat_map(|y| {
+                (1..width - 1).into_par_iter().map(move |x| {
+                    let idx = ((y * width + x) * 4) as usize;
+                    
+                    let r = original_raw[idx] as f32;
+                    let g = original_raw[idx + 1] as f32;
+                    let b = original_raw[idx + 2] as f32;
+                    let a = original_raw[idx + 3];
+                    
+                    let prev_row = ((y - 1) * width) as usize;
+                    let curr_row = (y * width) as usize;
+                    let next_row = ((y + 1) * width) as usize;
+                    let x_offset = (x * 4) as usize;
+                    
+                    let neighbors_r: f32 = [
+                        original_raw[prev_row + x_offset - 4],
+                        original_raw[prev_row + x_offset],
+                        original_raw[prev_row + x_offset + 4],
+                        original_raw[curr_row + x_offset - 4],
+                        original_raw[curr_row + x_offset + 4],
+                        original_raw[next_row + x_offset - 4],
+                        original_raw[next_row + x_offset],
+                        original_raw[next_row + x_offset + 4],
+                    ].iter().map(|&v| v as f32).sum();
+                    
+                    let neighbors_g: f32 = [
+                        original_raw[prev_row + x_offset - 3],
+                        original_raw[prev_row + x_offset + 1],
+                        original_raw[prev_row + x_offset + 5],
+                        original_raw[curr_row + x_offset - 3],
+                        original_raw[curr_row + x_offset + 5],
+                        original_raw[next_row + x_offset - 3],
+                        original_raw[next_row + x_offset + 1],
+                        original_raw[next_row + x_offset + 5],
+                    ].iter().map(|&v| v as f32).sum();
+                    
+                    let neighbors_b: f32 = [
+                        original_raw[prev_row + x_offset - 2],
+                        original_raw[prev_row + x_offset + 2],
+                        original_raw[prev_row + x_offset + 6],
+                        original_raw[curr_row + x_offset - 2],
+                        original_raw[curr_row + x_offset + 6],
+                        original_raw[next_row + x_offset - 2],
+                        original_raw[next_row + x_offset + 2],
+                        original_raw[next_row + x_offset + 6],
+                    ].iter().map(|&v| v as f32).sum();
+                    
+                    let laplacian_r = r * 9.0 - neighbors_r;
+                    let laplacian_g = g * 9.0 - neighbors_g;
+                    let laplacian_b = b * 9.0 - neighbors_b;
+                    
+                    let new_r = r + laplacian_r * sharpen_amount;
+                    let new_g = g + laplacian_g * sharpen_amount;
+                    let new_b = b + laplacian_b * sharpen_amount;
+                    
+                    (x, y, Rgba([
+                        new_r.clamp(0.0, 255.0) as u8,
+                        new_g.clamp(0.0, 255.0) as u8,
+                        new_b.clamp(0.0, 255.0) as u8,
+                        a
+                    ]))
+                })
+            })
+            .collect();
+        
+        for (x, y, pixel) in sharpened_pixels {
+            enhanced_img.put_pixel(x, y, pixel);
         }
     }
     

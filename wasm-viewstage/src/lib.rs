@@ -322,6 +322,7 @@ pub fn process_stroke_points(request_json: &str) -> String {
 }
 
 // 导出函数：收集点
+// 优化：前端已完成量化和距离过滤，这里只做时间过滤和简化
 #[wasm_bindgen]
 pub fn collect_points(request_json: &str) -> String {
     let request: CollectPointsRequest = match serde_json::from_str(request_json) {
@@ -333,19 +334,10 @@ pub fn collect_points(request_json: &str) -> String {
         }
     };
     
-    let mut collected_points = Vec::new();
+    let mut collected_points = Vec::with_capacity(request.points.len());
     let mut last_time = request.last_time;
     
     for point in request.points {
-        let q_from_x = quantize_coord(point.from_x, request.config.quantization);
-        let q_from_y = quantize_coord(point.from_y, request.config.quantization);
-        let q_to_x = quantize_coord(point.to_x, request.config.quantization);
-        let q_to_y = quantize_coord(point.to_y, request.config.quantization);
-        
-        if distance(q_from_x, q_from_y, q_to_x, q_to_y) < request.config.min_distance {
-            continue;
-        }
-        
         let now = request.current_time;
         
         if now - last_time < 30 {
@@ -355,10 +347,10 @@ pub fn collect_points(request_json: &str) -> String {
         last_time = now;
         
         collected_points.push(StrokePoint {
-            from_x: q_from_x,
-            from_y: q_from_y,
-            to_x: q_to_x,
-            to_y: q_to_y
+            from_x: point.from_x,
+            from_y: point.from_y,
+            to_x: point.to_x,
+            to_y: point.to_y
         });
         
         if collected_points.len() > 1500 {

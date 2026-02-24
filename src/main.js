@@ -355,6 +355,47 @@ function getCachedCanvasRect() {
     return cachedCanvasRect;
 }
 
+// ==================== Blob URL 内存管理 ====================
+// 用于追踪和清理 Blob URL，防止内存泄漏
+
+const blobUrlRegistry = new Set();
+
+function registerBlobUrl(url) {
+    if (url && url.startsWith('blob:')) {
+        blobUrlRegistry.add(url);
+    }
+    return url;
+}
+
+function revokeBlobUrl(url) {
+    if (url && url.startsWith('blob:') && blobUrlRegistry.has(url)) {
+        URL.revokeObjectURL(url);
+        blobUrlRegistry.delete(url);
+    }
+}
+
+function cleanupImageBlobUrls(imgData) {
+    if (!imgData) return;
+    revokeBlobUrl(imgData.full);
+    revokeBlobUrl(imgData.thumbnail);
+}
+
+function cleanupFolderBlobUrls(folder) {
+    if (!folder || !folder.pages) return;
+    for (const page of folder.pages) {
+        revokeBlobUrl(page.full);
+        revokeBlobUrl(page.thumbnail);
+    }
+}
+
+function cleanupAllBlobUrls() {
+    for (const url of blobUrlRegistry) {
+        URL.revokeObjectURL(url);
+    }
+    blobUrlRegistry.clear();
+    console.log('所有 Blob URL 已清理');
+}
+
 // ==================== 初始化 ====================
 // 应用启动入口：DOM初始化、画布初始化、事件绑定、配置加载
 
@@ -418,6 +459,9 @@ window.addEventListener('DOMContentLoaded', async () => {
             console.log('未检测到摄像头，跳过摄像头初始化');
             showNoCameraMessage('未检测到摄像头');
         }
+        
+        // 页面卸载时清理所有 Blob URL
+        window.addEventListener('beforeunload', cleanupAllBlobUrls);
         
         console.log('画布初始化完成');
     } catch (error) {
@@ -734,7 +778,7 @@ async function processPdfPagesParallel(pdf, totalPages, batchSize = 4) {
                 else reject(new Error('Failed to create blob'));
             }, 'image/jpeg', 0.85);
         });
-        const fullUrl = URL.createObjectURL(fullBlob);
+        const fullUrl = registerBlobUrl(URL.createObjectURL(fullBlob));
         
         const thumbnail = await generateThumbnailFromCanvas(canvas, 150);
         
@@ -775,7 +819,7 @@ async function generateThumbnailFromCanvas(canvas, maxSize = 150) {
             else reject(new Error('Failed to create blob'));
         }, 'image/jpeg', 0.85);
     });
-    const blobUrl = URL.createObjectURL(blob);
+    const blobUrl = registerBlobUrl(URL.createObjectURL(blob));
     
     await new Promise((resolve, reject) => {
         img.onload = resolve;
@@ -798,7 +842,7 @@ async function generateThumbnailFromCanvas(canvas, maxSize = 150) {
     const thumbCtx = thumbCanvas.getContext('2d');
     thumbCtx.drawImage(img, 0, 0, thumbW, thumbH);
     
-    URL.revokeObjectURL(blobUrl);
+    revokeBlobUrl(blobUrl);
     
     const thumbBlob = await new Promise((resolve, reject) => {
         thumbCanvas.toBlob(blob => {
@@ -807,12 +851,12 @@ async function generateThumbnailFromCanvas(canvas, maxSize = 150) {
         }, 'image/jpeg', 0.7);
     });
     
-    return URL.createObjectURL(thumbBlob);
+    return registerBlobUrl(URL.createObjectURL(thumbBlob));
 }
 
 async function generateThumbnailBlob(blob, maxSize = 150) {
     const img = new Image();
-    const url = URL.createObjectURL(blob);
+    const url = registerBlobUrl(URL.createObjectURL(blob));
     
     await new Promise((resolve, reject) => {
         img.onload = resolve;
@@ -835,7 +879,7 @@ async function generateThumbnailBlob(blob, maxSize = 150) {
     const thumbCtx = thumbCanvas.getContext('2d');
     thumbCtx.drawImage(img, 0, 0, thumbW, thumbH);
     
-    URL.revokeObjectURL(url);
+    revokeBlobUrl(url);
     
     const thumbBlob = await new Promise((resolve, reject) => {
         thumbCanvas.toBlob(blob => {
@@ -844,7 +888,7 @@ async function generateThumbnailBlob(blob, maxSize = 150) {
         }, 'image/jpeg', 0.7);
     });
     
-    return URL.createObjectURL(thumbBlob);
+    return registerBlobUrl(URL.createObjectURL(thumbBlob));
 }
 
 async function loadPdfFromPath(filePath) {
@@ -2293,6 +2337,7 @@ async function endStroke() {
     
     await batchDrawManager.endDrawing();
     
+    await pointCollector.finalize();
     pointCollector.clear();
     
     batchDrawManager.clear();
@@ -2490,6 +2535,7 @@ function perpendicularDistance(px, py, x1, y1, x2, y2) {
 
 /**
  * 批量收集线段点
+ * 优化：本地累积点，批量调用WASM，减少JS-WASM边界开销
  */
 class PointCollector {
     constructor() {
@@ -2497,9 +2543,50 @@ class PointCollector {
         this.lastTime = Date.now();
         this.lastX = 0;
         this.lastY = 0;
+        this.pendingPoints = [];
+        this.batchSize = 20;
+        this.flushRafId = null;
     }
     
-    async addPoint(fromX, fromY, toX, toY) {
+    addPoint(fromX, fromY, toX, toY) {
+        const qFromX = quantizeCoord(fromX);
+        const qFromY = quantizeCoord(fromY);
+        const qToX = quantizeCoord(toX);
+        const qToY = quantizeCoord(toY);
+        
+        if (distance(qFromX, qFromY, qToX, qToY) < POINT_OPTIMIZATION.minDistance) {
+            return false;
+        }
+        
+        const now = Date.now();
+        if (now - this.lastTime < POINT_OPTIMIZATION.batchInterval) {
+            return false;
+        }
+        
+        this.lastTime = now;
+        this.lastX = qToX;
+        this.lastY = qToY;
+        
+        this.pendingPoints.push({
+            fromX: qFromX,
+            fromY: qFromY,
+            toX: qToX,
+            toY: qToY
+        });
+        
+        if (this.pendingPoints.length >= this.batchSize) {
+            this.flushPendingPoints();
+        }
+        
+        return true;
+    }
+    
+    async flushPendingPoints() {
+        if (this.pendingPoints.length === 0) return;
+        
+        const pointsToProcess = [...this.pendingPoints];
+        this.pendingPoints = [];
+        
         try {
             const config = {
                 epsilon: POINT_OPTIMIZATION.epsilon,
@@ -2507,75 +2594,61 @@ class PointCollector {
                 quantization: POINT_OPTIMIZATION.quantization
             };
             
-            const points = [{
-                fromX: fromX,
-                fromY: fromY,
-                toX: toX,
-                toY: toY
-            }];
-            
             const result = await wasmPointProcessor.collectPoints(
-                points,
+                pointsToProcess,
                 config,
                 this.lastTime,
                 this.lastX,
                 this.lastY
             );
             
-            if (result.error) {
-                throw new Error(result.error);
-            }
-            
             if (result.collectedPoints && result.collectedPoints.length > 0) {
-                const collectedPoint = result.collectedPoints[0];
-                this.points.push({
-                    fromX: collectedPoint.fromX,
-                    fromY: collectedPoint.fromY,
-                    toX: collectedPoint.toX,
-                    toY: collectedPoint.toY
-                });
-                
+                for (const pt of result.collectedPoints) {
+                    this.points.push({
+                        fromX: pt.fromX,
+                        fromY: pt.fromY,
+                        toX: pt.toX,
+                        toY: pt.toY
+                    });
+                }
                 this.lastTime = result.lastTime;
                 this.lastX = result.lastX;
                 this.lastY = result.lastY;
-                
-                return true;
             }
         } catch (error) {
-            console.warn('WASM点收集失败，使用前端降级方案:', error);
-            const qFromX = quantizeCoord(fromX);
-            const qFromY = quantizeCoord(fromY);
-            const qToX = quantizeCoord(toX);
-            const qToY = quantizeCoord(toY);
-            
-            if (distance(qFromX, qFromY, qToX, qToY) < POINT_OPTIMIZATION.minDistance) {
-                return false;
+            for (const pt of pointsToProcess) {
+                this.points.push(pt);
             }
-            
-            const now = Date.now();
-            if (now - this.lastTime < POINT_OPTIMIZATION.batchInterval) {
-                return false;
-            }
-            
-            this.lastTime = now;
-            this.lastX = qToX;
-            this.lastY = qToY;
-            
-            this.points.push({
-                fromX: qFromX,
-                fromY: qFromY,
-                toX: qToX,
-                toY: qToY
-            });
             
             if (this.points.length > POINT_OPTIMIZATION.maxPointsPerStroke) {
                 this.points = simplifyPoints(this.points, POINT_OPTIMIZATION.epsilon);
             }
-            
-            return true;
+        }
+    }
+    
+    async finalize() {
+        if (this.pendingPoints.length > 0) {
+            await this.flushPendingPoints();
         }
         
-        return false;
+        if (this.points.length > 50) {
+            try {
+                const config = {
+                    epsilon: POINT_OPTIMIZATION.epsilon,
+                    minDistance: POINT_OPTIMIZATION.minDistance,
+                    quantization: POINT_OPTIMIZATION.quantization
+                };
+                const processedPoints = await wasmPointProcessor.processStrokePoints(
+                    this.points,
+                    config
+                );
+                if (Array.isArray(processedPoints) && processedPoints.length > 0) {
+                    this.points = processedPoints;
+                }
+            } catch (error) {
+                this.points = simplifyPoints(this.points, POINT_OPTIMIZATION.epsilon);
+            }
+        }
     }
     
     getPoints() {
@@ -2584,7 +2657,10 @@ class PointCollector {
     
     clear() {
         this.points = [];
+        this.pendingPoints = [];
         this.lastTime = Date.now();
+        this.lastX = 0;
+        this.lastY = 0;
     }
 }
 
@@ -3641,12 +3717,7 @@ function deleteImage(index) {
     if (index < 0 || index >= state.imageList.length) return;
     
     const imgData = state.imageList[index];
-    if (imgData.full && imgData.full.startsWith('blob:')) {
-        URL.revokeObjectURL(imgData.full);
-    }
-    if (imgData.thumbnail && imgData.thumbnail.startsWith('blob:')) {
-        URL.revokeObjectURL(imgData.thumbnail);
-    }
+    cleanupImageBlobUrls(imgData);
     
     state.imageList.splice(index, 1);
     
@@ -4764,7 +4835,7 @@ async function captureCamera() {
         }
     }
     
-    const blobUrl = URL.createObjectURL(blob);
+    const blobUrl = registerBlobUrl(URL.createObjectURL(blob));
     const img = new Image();
     img.src = blobUrl;
     img.onload = () => {
@@ -4840,7 +4911,7 @@ async function importImage() {
                 updateLoadingProgress(`正在读取图片 ${i + 1}/${files.length}...`);
             }
             
-            const blobUrl = URL.createObjectURL(file);
+            const blobUrl = registerBlobUrl(URL.createObjectURL(file));
             
             imageDataList.push({
                 data: blobUrl,
@@ -4897,7 +4968,7 @@ async function importImage() {
             let thumbnail;
             if (thumbnails[i] && thumbnails[i].length > 0) {
                 const thumbBlob = await fetch(thumbnails[i]).then(r => r.blob());
-                thumbnail = URL.createObjectURL(thumbBlob);
+                thumbnail = registerBlobUrl(URL.createObjectURL(thumbBlob));
             } else {
                 thumbnail = await generateThumbnailBlob(imgData.blob, 150);
             }
@@ -4951,7 +5022,7 @@ async function importImage() {
 
 async function addImageToList(img, name, isLast = true) {
     const blob = await fetch(img.src).then(r => r.blob());
-    const blobUrl = URL.createObjectURL(blob);
+    const blobUrl = registerBlobUrl(URL.createObjectURL(blob));
     const thumbnail = await generateThumbnailBlob(blob, 150);
     
     const imgData = {
@@ -4997,7 +5068,7 @@ async function addImageToList(img, name, isLast = true) {
 
 async function addImageToListNoHighlight(img, name) {
     const blob = await fetch(img.src).then(r => r.blob());
-    const blobUrl = URL.createObjectURL(blob);
+    const blobUrl = registerBlobUrl(URL.createObjectURL(blob));
     const thumbnail = await generateThumbnailBlob(blob, 150);
     
     const imgData = {
