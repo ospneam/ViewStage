@@ -956,6 +956,7 @@ fn get_default_config() -> serde_json::Value {
         "moveFps": 30,
         "drawFps": 10,
         "pdfScale": 1.5,
+        "defaultRotation": 0,
         "contrast": 1.4,
         "brightness": 10,
         "saturation": 1.2,

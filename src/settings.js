@@ -481,6 +481,22 @@ document.addEventListener('DOMContentLoaded', async () => {
                     }
                 }
                 
+                // 默认旋转角度设置
+                const defaultRotationSelected = document.getElementById('defaultRotationSelected');
+                const defaultRotationOptionsContainer = document.getElementById('defaultRotationOptions');
+                if (defaultRotationSelected && defaultRotationOptionsContainer) {
+                    const savedRotation = settings.defaultRotation || 0;
+                    const rotationOptions = defaultRotationOptionsContainer.querySelectorAll('.select-option');
+                    rotationOptions.forEach(option => {
+                        if (parseInt(option.dataset.value) === savedRotation) {
+                            defaultRotationSelected.textContent = option.textContent;
+                            option.classList.add('selected');
+                        } else {
+                            option.classList.remove('selected');
+                        }
+                    });
+                }
+                
                 // 界面模糊效果设置
                 const blurEffectToggle = document.getElementById('blurEffectToggle');
                 if (blurEffectToggle) {
@@ -929,6 +945,37 @@ document.addEventListener('DOMContentLoaded', async () => {
                 await invoke('set_mirror_state', { enabled: mirrorToggle.checked });
             } catch (error) {
                 console.error('设置镜像状态失败:', error);
+            }
+        });
+    }
+    
+    // 默认旋转角度选择
+    const defaultRotationSelect = document.getElementById('defaultRotationSelect');
+    const defaultRotationSelected = document.getElementById('defaultRotationSelected');
+    
+    if (defaultRotationSelect && defaultRotationSelected) {
+        defaultRotationSelected.addEventListener('click', () => {
+            defaultRotationSelect.classList.toggle('open');
+        });
+        
+        const rotationOptions = document.querySelectorAll('#defaultRotationOptions .select-option');
+        rotationOptions.forEach(option => {
+            option.addEventListener('click', async () => {
+                const value = parseInt(option.dataset.value);
+                defaultRotationSelected.textContent = option.textContent;
+                
+                rotationOptions.forEach(opt => opt.classList.remove('selected'));
+                option.classList.add('selected');
+                
+                defaultRotationSelect.classList.remove('open');
+                
+                await saveSettings({ defaultRotation: value });
+            });
+        });
+        
+        document.addEventListener('click', (e) => {
+            if (!defaultRotationSelect.contains(e.target)) {
+                defaultRotationSelect.classList.remove('open');
             }
         });
     }

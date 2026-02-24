@@ -444,6 +444,12 @@ async function loadCameraSetting() {
                 console.log('已加载绘画时帧率:', settings.drawFps, 'FPS');
             }
             
+            // 加载默认旋转角度
+            if (settings.defaultRotation !== undefined) {
+                state.cameraRotation = settings.defaultRotation;
+                console.log('已加载默认旋转角度:', settings.defaultRotation, '°');
+            }
+            
             // 加载 Canvas 参数设置
             if (settings.canvasScale) {
                 DRAW_CONFIG.canvasScale = settings.canvasScale;
