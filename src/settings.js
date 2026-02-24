@@ -541,18 +541,14 @@ document.addEventListener('DOMContentLoaded', async () => {
                 // 文件关联设置
                 const assocPdf = document.getElementById('assocPdf');
                 if (assocPdf) {
-                    // 检查 ViewStage 是否是 PDF 的默认打开程序
                     try {
                         const isDefault = await invoke('check_pdf_default_app');
                         
                         if (isDefault) {
-                            // 如果是默认程序，根据配置设置勾选状态
                             assocPdf.checked = settings.fileAssociations === true;
                         } else {
-                            // 如果不是默认程序，取消勾选
                             assocPdf.checked = false;
                             
-                            // 如果配置中有记录，更新配置
                             if (settings.fileAssociations === true) {
                                 await saveSettings({ fileAssociations: false });
                             }
@@ -561,6 +557,11 @@ document.addEventListener('DOMContentLoaded', async () => {
                         console.error('检查默认程序失败:', error);
                         assocPdf.checked = false;
                     }
+                }
+                
+                const assocWord = document.getElementById('assocWord');
+                if (assocWord) {
+                    assocWord.checked = settings.wordAssociations === true;
                 }
                 
                 return settings;
@@ -1046,6 +1047,29 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (assocPdf) {
         assocPdf.addEventListener('change', async () => {
             await saveSettings({ fileAssociations: assocPdf.checked });
+            if (assocPdf.checked) {
+                try {
+                    const { invoke } = window.__TAURI__.core;
+                    await invoke('set_file_type_icons');
+                } catch (e) {
+                    console.log('设置文件图标失败:', e);
+                }
+            }
+        });
+    }
+    
+    const assocWord = document.getElementById('assocWord');
+    if (assocWord) {
+        assocWord.addEventListener('change', async () => {
+            await saveSettings({ wordAssociations: assocWord.checked });
+            if (assocWord.checked) {
+                try {
+                    const { invoke } = window.__TAURI__.core;
+                    await invoke('set_file_type_icons');
+                } catch (e) {
+                    console.log('设置文件图标失败:', e);
+                }
+            }
         });
     }
     

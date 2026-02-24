@@ -982,7 +982,8 @@ fn get_default_config() -> serde_json::Value {
             {"r": 0, "g": 0, "b": 0},
             {"r": 255, "g": 255, "b": 255}
         ],
-        "fileAssociations": false
+        "fileAssociations": false,
+        "wordAssociations": false
     })
 }
 
@@ -1606,6 +1607,74 @@ async fn convert_docx_to_pdf(_docx_path: String, _app: tauri::AppHandle) -> Resu
     Err("此功能仅支持 Windows 系统".to_string())
 }
 
+#[cfg(target_os = "windows")]
+#[tauri::command]
+async fn set_file_type_icons(app: tauri::AppHandle) -> Result<(), String> {
+    use std::process::Command;
+    
+    let resource_dir = app.path().resource_dir()
+        .map_err(|e| format!("获取资源目录失败: {}", e))?;
+    
+    let pdf_icon = resource_dir.join("icons").join("pdf.ico").to_string_lossy().to_string();
+    let word_icon = resource_dir.join("icons").join("word.ico").to_string_lossy().to_string();
+    
+    let app_id = "com.viewstage.app";
+    
+    println!("PDF 图标路径: {}", pdf_icon);
+    println!("Word 图标路径: {}", word_icon);
+    
+    let ps_script = format!(r#"
+        $ErrorActionPreference = 'SilentlyContinue'
+        
+        # 设置 PDF 文件图标
+        $pdfKey = 'HKCU:\Software\Classes\{app_id}.pdf'
+        New-Item -Path $pdfKey -Force | Out-Null
+        New-Item -Path "$pdfKey\DefaultIcon" -Force | Out-Null
+        Set-ItemProperty -Path "$pdfKey\DefaultIcon" -Name '(Default)' -Value '{pdf_icon}'
+        
+        # 设置 DOCX 文件图标
+        $docxKey = 'HKCU:\Software\Classes\{app_id}.docx'
+        New-Item -Path $docxKey -Force | Out-Null
+        New-Item -Path "$docxKey\DefaultIcon" -Force | Out-Null
+        Set-ItemProperty -Path "$docxKey\DefaultIcon" -Name '(Default)' -Value '{word_icon}'
+        
+        # 设置 DOC 文件图标
+        $docKey = 'HKCU:\Software\Classes\{app_id}.doc'
+        New-Item -Path $docKey -Force | Out-Null
+        New-Item -Path "$docKey\DefaultIcon" -Force | Out-Null
+        Set-ItemProperty -Path "$docKey\DefaultIcon" -Name '(Default)' -Value '{word_icon}'
+        
+        # 刷新图标缓存
+        $code = @'
+        [DllImport("shell32.dll")]
+        public static extern void SHChangeNotify(int wEventId, uint uFlags, IntPtr dwItem1, IntPtr dwItem2);
+'@
+        Add-Type -MemberDefinition $code -Name Shell -Namespace WinAPI
+        [WinAPI.Shell]::SHChangeNotify(0x8000000, 0x1000, [IntPtr]::Zero, [IntPtr]::Zero)
+        
+        Write-Host "文件类型图标已设置"
+    "#, app_id = app_id, pdf_icon = pdf_icon, word_icon = word_icon);
+    
+    let output = Command::new("powershell")
+        .args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", &ps_script])
+        .output()
+        .map_err(|e| format!("设置图标失败: {}", e))?;
+    
+    if output.status.success() {
+        println!("文件类型图标设置成功");
+        Ok(())
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        Err(format!("设置图标失败: {}", stderr))
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+#[tauri::command]
+async fn set_file_type_icons() -> Result<(), String> {
+    Err("此功能仅支持 Windows 系统".to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -1742,7 +1811,8 @@ pub fn run() {
             exit_app,
             detect_office,
             convert_docx_to_pdf,
-            convert_docx_to_pdf_from_bytes
+            convert_docx_to_pdf_from_bytes,
+            set_file_type_icons
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
