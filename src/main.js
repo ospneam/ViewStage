@@ -1010,6 +1010,7 @@ async function resizeCanvas(newScreenW, newScreenH) {
     state.canvasX = oldCanvasX;
     state.canvasY = oldCanvasY;
     
+    updateMoveBound();
     clampCanvasPosition();
     updateCanvasTransform();
     
@@ -1132,7 +1133,6 @@ function updateMoveBound() {
         state.moveBound.minX = -(scaledW - screenW);
         state.moveBound.maxX = 0;
     } else {
-        // 画布小于屏幕时，居中显示
         state.moveBound.minX = (screenW - scaledW) / 2;
         state.moveBound.maxX = (screenW - scaledW) / 2;
     }
@@ -1141,15 +1141,15 @@ function updateMoveBound() {
         state.moveBound.minY = -(scaledH - screenH);
         state.moveBound.maxY = 0;
     } else {
-        // 画布小于屏幕时，居中显示
         state.moveBound.minY = (screenH - scaledH) / 2;
         state.moveBound.maxY = (screenH - scaledH) / 2;
     }
 }
 
 function clampCanvasPosition() {
-    state.canvasX = Math.max(state.moveBound.minX, Math.min(state.moveBound.maxX, state.canvasX));
-    state.canvasY = Math.max(state.moveBound.minY, Math.min(state.moveBound.maxY, state.canvasY));
+    const eps = 0.001;
+    state.canvasX = Math.max(state.moveBound.minX - eps, Math.min(state.moveBound.maxX + eps, state.canvasX));
+    state.canvasY = Math.max(state.moveBound.minY - eps, Math.min(state.moveBound.maxY + eps, state.canvasY));
 }
 
 // 绑定所有事件
@@ -1932,6 +1932,7 @@ function handleTouchMove(e) {
         state.canvasY = centerY - (state.startScaleY - state.startCanvasY) * finalRatio;
         state.scale = newScale;
         
+        updateMoveBound();
         clampCanvasPosition();
         updateCanvasTransform();
     }
@@ -2013,6 +2014,9 @@ function animateCanvasTransform(targetX, targetY, targetScale, duration = 250) {
         state.canvasX = startX + deltaX * easeProgress;
         state.canvasY = startY + deltaY * easeProgress;
         state.scale = startScale + deltaScale * easeProgress;
+        
+        updateMoveBound();
+        clampCanvasPosition();
         
         lastCanvasTransform.x = state.canvasX;
         lastCanvasTransform.y = state.canvasY;
