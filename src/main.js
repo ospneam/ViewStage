@@ -841,6 +841,125 @@ async function loadPdfFromPath(filePath) {
         await setCameraState(false);
     }
     
+    console.log('开始加载文件:', filePath);
+    
+    const fileName_lower = filePath.toLowerCase();
+    const isWord = fileName_lower.endsWith('.docx') || fileName_lower.endsWith('.doc');
+    
+    if (isWord) {
+        showLoadingOverlay('正在解析 Word 文档...');
+        
+        const { invoke } = window.__TAURI__.core;
+        const { fs } = window.__TAURI__;
+        
+        try {
+            const detection = await invoke('detect_office');
+            console.log('Office 检测结果:', detection);
+            if (detection.recommended === 'None') {
+                hideLoadingOverlay();
+                alert('未检测到可用的 Office 软件\n\n请安装以下软件之一：\n• Microsoft Word\n• WPS Office\n• LibreOffice\n\n或将 Word 文档另存为 PDF 后导入');
+                return;
+            }
+        } catch (e) {
+            console.log('检测 Office 失败:', e);
+        }
+        
+        let fileData;
+        try {
+            fileData = await fs.readFile(filePath);
+        } catch (readError) {
+            hideLoadingOverlay();
+            console.error('文件读取失败:', readError);
+            alert('无法读取文件: ' + readError.message);
+            return;
+        }
+        
+        let uint8Array;
+        if (Array.isArray(fileData)) {
+            uint8Array = new Uint8Array(fileData);
+        } else {
+            uint8Array = new Uint8Array(fileData);
+        }
+        
+        console.log('文件大小:', uint8Array.length, '字节');
+        
+        let pdfPath = null;
+        try {
+            pdfPath = await invoke('convert_docx_to_pdf_from_bytes', { 
+                fileData: Array.from(uint8Array),
+                fileName: filePath.split(/[/\\]/).pop()
+            });
+            console.log('Word 文档已转换为 PDF:', pdfPath);
+        } catch (convertError) {
+            hideLoadingOverlay();
+            console.error('Word 转换失败:', convertError);
+            alert(`Word 文档转换失败\n\n${convertError}`);
+            return;
+        }
+        
+        updateLoadingProgress('正在导入文件...');
+        
+        try {
+            const pdfReady = await waitForPdfJs();
+            if (!pdfReady) {
+                hideLoadingOverlay();
+                console.error('PDF.js 库加载超时');
+                alert('PDF库加载超时，请重启应用后重试');
+                return;
+            }
+            
+            const pdfBytes = await fs.readFile(pdfPath);
+            const pdfArrayBuffer = pdfBytes.buffer;
+            const pdf = await pdfjsLib.getDocument({ data: pdfArrayBuffer }).promise;
+            console.log('PDF加载成功，页数:', pdf.numPages);
+            
+            const totalPages = pdf.numPages;
+            const fileName = filePath.split(/[/\\]/).pop().replace(/\.(pdf|docx|doc)$/i, '');
+            
+            const folder = {
+                name: fileName,
+                pages: [],
+                isWord: true
+            };
+            
+            const processedPages = await processPdfPagesParallel(pdf, totalPages);
+            folder.pages = processedPages;
+            
+            state.fileList.push(folder);
+            updateFileSidebarContent();
+            expandFileSidebar();
+            
+            if (folder.pages.length > 0) {
+                const firstPage = folder.pages[0];
+                const img = new Image();
+                img.onload = () => {
+                    state.currentImage = img;
+                    state.currentFolderIndex = state.fileList.length - 1;
+                    state.currentFolderPageIndex = 0;
+                    drawImageToCenter(img);
+                    updatePhotoButtonState();
+                    updateEnhanceButtonState();
+                };
+                img.src = firstPage.full;
+            }
+            
+            hideLoadingOverlay();
+            console.log(`文件已导入: ${folder.name}，共${folder.pages.length}页`);
+            
+            try {
+                await fs.remove(pdfPath);
+            } catch (e) {
+                console.log('清理转换的 PDF 失败:', e);
+            }
+        } catch (error) {
+            hideLoadingOverlay();
+            console.error('文件导入失败:', error);
+            alert('文件导入失败，请确保文件格式正确');
+        }
+        
+        return;
+    }
+    
     showLoadingOverlay('正在导入文件...');
     
     try {
@@ -852,49 +971,11 @@ async function loadPdfFromPath(filePath) {
             return;
         }
         
-        console.log('开始加载文件:', filePath);
-        
-        let pdfPath = null;
-        let cleanupPdf = false;
-        const fileName_lower = filePath.toLowerCase();
-        
-        if (fileName_lower.endsWith('.docx') || fileName_lower.endsWith('.doc')) {
-            showLoadingOverlay('正在转换 Word 文档...');
-            
-            const { invoke } = window.__TAURI__.core;
-            
-            try {
-                const detection = await invoke('detect_office');
-                if (detection.recommended === 'None') {
-                    hideLoadingOverlay();
-                    alert('未检测到可用的 Office 软件\n\n请安装以下软件之一：\n• Microsoft Word\n• WPS Office\n• LibreOffice\n\n或将 Word 文档另存为 PDF 后导入');
-                    return;
-                }
-            } catch (e) {
-                console.log('检测 Office 失败:', e);
-            }
-            
-            try {
-                pdfPath = await invoke('convert_docx_to_pdf', { docxPath: filePath });
-                cleanupPdf = true;
-                console.log('Word 文档已转换为 PDF:', pdfPath);
-            } catch (convertError) {
-                hideLoadingOverlay();
-                console.error('Word 转换失败:', convertError);
-                alert(`Word 文档转换失败\n\n${convertError}`);
-                return;
-            }
-            
-            showLoadingOverlay('正在导入文件...');
-        }
-        
         const { fs } = window.__TAURI__;
-        
-        const actualPath = pdfPath || filePath;
         
         let fileData;
         try {
-            fileData = await fs.readFile(actualPath);
+            fileData = await fs.readFile(filePath);
             console.log('文件读取成功，数据类型:', typeof fileData, '是否数组:', Array.isArray(fileData));
         } catch (readError) {
             console.error('文件读取失败:', readError);
@@ -922,7 +1003,8 @@ async function loadPdfFromPath(filePath) {
         
         const folder = {
             name: fileName,
-            pages: []
+            pages: [],
+            isWord: false
         };
         
         const processedPages = await processPdfPagesParallel(pdf, totalPages);
@@ -948,14 +1030,6 @@ async function loadPdfFromPath(filePath) {
         
         hideLoadingOverlay();
         console.log(`文件已导入: ${folder.name}，共${folder.pages.length}页`);
-        
-        if (cleanupPdf && pdfPath) {
-            try {
-                await fs.remove(pdfPath);
-            } catch (e) {
-                console.log('清理转换的 PDF 失败:', e);
-            }
-        }
     } catch (error) {
         hideLoadingOverlay();
         console.error('文件导入失败:', error);
@@ -3647,6 +3721,12 @@ function toggleFileSidebar() {
 }
 
 function expandFileSidebar() {
+    const existingSidebar = document.querySelector('.file-sidebar');
+    if (existingSidebar) {
+        updateFileSidebarContent();
+        return;
+    }
+    
     const fileSidebarElement = document.createElement('div');
     fileSidebarElement.classList.add('sidebar', 'file-sidebar');
     
@@ -3655,9 +3735,13 @@ function expandFileSidebar() {
         contentHTML = '<div class="sidebar-empty">暂无文件</div>';
     } else {
         state.fileList.forEach((folder, index) => {
+            const isWord = folder.isWord === true;
+            const iconSrc = isWord 
+                ? 'assets/icon/file-earmark-word-fill.svg' 
+                : 'assets/icon/pdf.svg';
             contentHTML += `
                 <div class="sidebar-folder-item" data-index="${index}">
-                    <img src="assets/icon/file.svg" width="16" height="16" alt="文件夹" style="filter: invert(1);">
+                    <img src="${iconSrc}" width="16" height="16" alt="文件" style="filter: invert(1);">
                     <span class="folder-name">${folder.name}</span>
                     <span class="folder-count">${folder.pages.length}页</span>
                 </div>
@@ -3884,12 +3968,14 @@ function updateFileSidebarContent() {
         contentHTML = '<div class="sidebar-empty">暂无文件</div>';
     } else {
         state.fileList.forEach((folder, index) => {
-            const iconSrc = folder.isWord 
+            const isWord = folder.isWord === true;
+            const iconSrc = isWord 
                 ? 'assets/icon/file-earmark-word-fill.svg' 
                 : 'assets/icon/pdf.svg';
+            console.log(`文件夹 ${folder.name}: isWord=${isWord}, iconSrc=${iconSrc}`);
             contentHTML += `
                 <div class="sidebar-folder-item" data-index="${index}">
-                    <img src="${iconSrc}" width="16" height="16" alt="文件" style="filter: invert(1);">
+                    <img src="${iconSrc}" width="16" height="16" alt="文件" style="filter: invert(1);" onerror="this.style.display='none'">
                     <span class="folder-name">${folder.name}</span>
                     <span class="folder-count">${folder.pages.length}页</span>
                 </div>
