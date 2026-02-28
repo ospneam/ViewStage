@@ -69,10 +69,13 @@
  - ✅设置
  - ✅笔颜色（目前支持存储15中颜色）
  - ✅多语言
+ - ❎支持手机作为信号源
+ - ❎支持手机上传图片及文件
  - ❓更多功能(欢迎到issues提交(*^_^*))
 
 ## 许可证
 本项目采用开源许可证，详见 [LICENSE](https://github.com/ospneam/ViewStage/blob/main/LICENSE) 文件。
+
 
 
 
