@@ -5281,7 +5281,7 @@ function drawImageToCenter(img) {
     const imgRatio = img.width / img.height;
     const screenRatio = screenW / screenH;
     
-    let drawW, drawH, drawX, drawY;
+    let drawW, drawH;
     
     if (imgRatio > screenRatio) {
         drawW = screenW;
@@ -5290,6 +5290,10 @@ function drawImageToCenter(img) {
         drawH = screenH;
         drawW = screenH * imgRatio;
     }
+    
+    // 居中位置（屏幕坐标）
+    let drawX = (screenW - drawW) / 2;
+    let drawY = (screenH - drawH) / 2;
     
     // 计算 Canvas 到屏幕的缩放比例
     const scaleX = DRAW_CONFIG.canvasW / screenW;
