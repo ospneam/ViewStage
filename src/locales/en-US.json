@@ -61,6 +61,8 @@
     "language": "Language",
     "resolution": "Resolution",
     "blurEffect": "Blur Effect",
+    "highResOptimization": "High Resolution Optimization",
+    "highResOptimizationHint": "Reduce rendering precision to improve performance on high-resolution screens",
     "settingsManagement": "Settings Management",
     "exportSettings": "Export Settings",
     "importSettings": "Import Settings",

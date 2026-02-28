@@ -52,6 +52,7 @@ const defaultConfig = {
     dprLimit: 2,
     smoothStrength: 0.5,
     blurEffect: true,
+    highResOptimization: false,
     penColors: [
         {"r": 52, "g": 152, "b": 219},
         {"r": 46, "g": 204, "b": 113},
@@ -414,6 +415,7 @@ function setupPage3Buttons() {
     document.getElementById('btnNext3').addEventListener('click', async () => {
         const resolutionSelect = document.getElementById('resolutionSelect');
         const blurToggle = document.getElementById('blurToggle');
+        const highResOptimizationToggle = document.getElementById('highResOptimizationToggle');
         
         const resolution = resolutionSelect.querySelector('.select-option.selected').dataset.value;
         const [width, height] = resolution.split('x').map(Number);
@@ -421,6 +423,7 @@ function setupPage3Buttons() {
         cachedSettings.width = width;
         cachedSettings.height = height;
         cachedSettings.blurEffect = blurToggle.checked;
+        cachedSettings.highResOptimization = highResOptimizationToggle ? highResOptimizationToggle.checked : false;
         
         showPage4();
     });
