@@ -97,6 +97,8 @@ const DRAW_CONFIG = {
     enhanceSharpen: 0,             // 增强锐化 (0-100)
     smoothStrength: 0.5,           // 绘画平滑度 (0-1, 0=无平滑, 1=最大平滑)
     blurEffect: true,              // 界面模糊效果
+    highResOptimization: false,    // 高分辨率优化
+    imageSmoothingQuality: 'medium', // 图像平滑质量
     penColors: [                   // 画笔颜色列表
         '#3498db', '#2ecc71', '#e74c3c', '#f39c12', '#9b59b6',
         '#1abc9c', '#34495e', '#e91e63', '#00bcd4', '#8bc34a',
@@ -513,6 +515,20 @@ async function loadCameraSetting() {
                 DRAW_CONFIG.blurEffect = settings.blurEffect;
                 console.log('已加载界面模糊效果:', settings.blurEffect);
                 updateBlurEffect(settings.blurEffect);
+            }
+            
+            if (settings.highResOptimization !== undefined) {
+                DRAW_CONFIG.highResOptimization = settings.highResOptimization;
+                if (settings.highResOptimization) {
+                    DRAW_CONFIG.dpr = 1;
+                    DRAW_CONFIG.imageSmoothingQuality = 'low';
+                    smartDrawScheduler.minDistance = 1.5;
+                    smartDrawScheduler.maxPointsPerFlush = 20;
+                    POINT_OPTIMIZATION.epsilon = 0.5;
+                    POINT_OPTIMIZATION.minDistance = 2;
+                    batchDrawManager.minDistance = 1.0;
+                }
+                console.log('已加载高分辨率优化:', settings.highResOptimization);
             }
             
             if (settings.penColors && Array.isArray(settings.penColors)) {
@@ -4839,9 +4855,7 @@ function startCameraPreview() {
                 
                 dom.imageCtx.rotate(rotation * Math.PI / 180);
                 
-                // 降低摄像头画面的绘制质量，减少GPU负担
-                const originalQuality = dom.imageCtx.imageSmoothingQuality;
-                dom.imageCtx.imageSmoothingQuality = 'low';
+                dom.imageCtx.imageSmoothingQuality = DRAW_CONFIG.imageSmoothingQuality;
                 
                 if (isRotated) {
                     dom.imageCtx.drawImage(video, -drawH / 2, -drawW / 2, drawH, drawW);
@@ -4849,7 +4863,6 @@ function startCameraPreview() {
                     dom.imageCtx.drawImage(video, -drawW / 2, -drawH / 2, drawW, drawH);
                 }
                 
-                dom.imageCtx.imageSmoothingQuality = originalQuality;
                 dom.imageCtx.restore();
             }
         }

@@ -536,6 +536,13 @@ document.addEventListener('DOMContentLoaded', async () => {
                     blurEffectToggle.checked = savedBlurEffect;
                 }
                 
+                // 高分辨率优化设置
+                const highResOptimizationToggle = document.getElementById('highResOptimizationToggle');
+                if (highResOptimizationToggle) {
+                    const savedHighResOpt = settings.highResOptimization !== undefined ? settings.highResOptimization : false;
+                    highResOptimizationToggle.checked = savedHighResOpt;
+                }
+                
                 // 图像处理强度设置
                 const contrastSlider = document.getElementById('contrastSlider');
                 const contrastValue = document.getElementById('contrastValue');
@@ -1030,6 +1037,20 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (blurEffectToggle) {
         blurEffectToggle.addEventListener('change', async () => {
             await saveSettings({ blurEffect: blurEffectToggle.checked });
+        });
+    }
+    
+    // 高分辨率优化开关
+    const highResOptimizationToggle = document.getElementById('highResOptimizationToggle');
+    if (highResOptimizationToggle) {
+        highResOptimizationToggle.addEventListener('change', async () => {
+            const saved = await saveSettings({ highResOptimization: highResOptimizationToggle.checked });
+            if (saved) {
+                const restartModal = document.getElementById('restartModal');
+                if (restartModal) {
+                    restartModal.classList.add('active');
+                }
+            }
         });
     }
     
