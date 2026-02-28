@@ -2339,81 +2339,162 @@ async function processEraserStroke(eraserStroke) {
 }
 
 async function redrawAllStrokes() {
-    dom.drawCtx.clearRect(0, 0, DRAW_CONFIG.canvasW, DRAW_CONFIG.canvasH);
+    const ctx = dom.drawCtx;
+    ctx.clearRect(0, 0, DRAW_CONFIG.canvasW, DRAW_CONFIG.canvasH);
     
     if (state.baseImageObj) {
-        dom.drawCtx.drawImage(state.baseImageObj, 0, 0, DRAW_CONFIG.canvasW, DRAW_CONFIG.canvasH);
+        ctx.drawImage(state.baseImageObj, 0, 0, DRAW_CONFIG.canvasW, DRAW_CONFIG.canvasH);
     }
+    
+    if (state.strokeHistory.length === 0) return;
+    
+    const eraseStrokes = new Map();
+    const drawStrokes = new Map();
     
     for (const stroke of state.strokeHistory) {
         if (stroke.type === 'erase') {
-            await drawEraserStroke(stroke);
+            const sizeKey = stroke.eraserSize || DRAW_CONFIG.eraserSize;
+            if (!eraseStrokes.has(sizeKey)) {
+                eraseStrokes.set(sizeKey, []);
+            }
+            eraseStrokes.get(sizeKey).push(stroke);
         } else if (stroke.type === 'draw' || stroke.type === 'comment') {
-            await drawStroke(stroke);
+            const stateKey = `${stroke.color || DRAW_CONFIG.penColor}-${stroke.lineWidth || DRAW_CONFIG.penWidth}`;
+            if (!drawStrokes.has(stateKey)) {
+                drawStrokes.set(stateKey, {
+                    color: stroke.color || DRAW_CONFIG.penColor,
+                    lineWidth: stroke.lineWidth || DRAW_CONFIG.penWidth,
+                    strokes: []
+                });
+            }
+            drawStrokes.get(stateKey).strokes.push(stroke);
         }
     }
+    
+    ctx.save();
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    
+    for (const [eraserSize, strokes] of eraseStrokes) {
+        ctx.globalCompositeOperation = 'destination-out';
+        ctx.strokeStyle = 'rgba(0, 0, 0, 1)';
+        ctx.lineWidth = eraserSize;
+        
+        const erasePath = new Path2D();
+        for (const stroke of strokes) {
+            if (!stroke.points || stroke.points.length < 1) continue;
+            
+            const firstPoint = stroke.points[0];
+            if (firstPoint.x !== undefined) {
+                erasePath.moveTo(firstPoint.x, firstPoint.y);
+                for (let i = 1; i < stroke.points.length; i++) {
+                    erasePath.lineTo(stroke.points[i].x, stroke.points[i].y);
+                }
+            } else {
+                erasePath.moveTo(firstPoint.fromX, firstPoint.fromY);
+                erasePath.lineTo(firstPoint.toX, firstPoint.toY);
+                for (let i = 1; i < stroke.points.length; i++) {
+                    erasePath.moveTo(stroke.points[i].fromX, stroke.points[i].fromY);
+                    erasePath.lineTo(stroke.points[i].toX, stroke.points[i].toY);
+                }
+            }
+        }
+        ctx.stroke(erasePath);
+    }
+    
+    ctx.globalCompositeOperation = 'source-over';
+    
+    for (const [stateKey, group] of drawStrokes) {
+        ctx.strokeStyle = group.color;
+        ctx.lineWidth = group.lineWidth;
+        
+        const drawPath = new Path2D();
+        for (const stroke of group.strokes) {
+            if (!stroke.points || stroke.points.length < 1) continue;
+            
+            const firstPoint = stroke.points[0];
+            if (firstPoint.x !== undefined) {
+                drawPath.moveTo(firstPoint.x, firstPoint.y);
+                for (let i = 1; i < stroke.points.length; i++) {
+                    drawPath.lineTo(stroke.points[i].x, stroke.points[i].y);
+                }
+            } else {
+                drawPath.moveTo(firstPoint.fromX, firstPoint.fromY);
+                drawPath.lineTo(firstPoint.toX, firstPoint.toY);
+                for (let i = 1; i < stroke.points.length; i++) {
+                    drawPath.moveTo(stroke.points[i].fromX, stroke.points[i].fromY);
+                    drawPath.lineTo(stroke.points[i].toX, stroke.points[i].toY);
+                }
+            }
+        }
+        ctx.stroke(drawPath);
+    }
+    
+    ctx.restore();
 }
 
 async function drawEraserStroke(stroke) {
     if (!stroke.points || stroke.points.length < 1) return;
     
-    dom.drawCtx.save();
-    dom.drawCtx.globalCompositeOperation = 'destination-out';
-    dom.drawCtx.strokeStyle = 'rgba(0, 0, 0, 1)';
-    dom.drawCtx.lineWidth = stroke.eraserSize || DRAW_CONFIG.eraserSize;
-    dom.drawCtx.lineCap = 'round';
-    dom.drawCtx.lineJoin = 'round';
+    const ctx = dom.drawCtx;
+    ctx.save();
+    ctx.globalCompositeOperation = 'destination-out';
+    ctx.strokeStyle = 'rgba(0, 0, 0, 1)';
+    ctx.lineWidth = stroke.eraserSize || DRAW_CONFIG.eraserSize;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
     
-    dom.drawCtx.beginPath();
+    const path = new Path2D();
     
     const firstPoint = stroke.points[0];
     if (firstPoint.x !== undefined) {
-        dom.drawCtx.moveTo(firstPoint.x, firstPoint.y);
+        path.moveTo(firstPoint.x, firstPoint.y);
         for (let i = 1; i < stroke.points.length; i++) {
-            dom.drawCtx.lineTo(stroke.points[i].x, stroke.points[i].y);
+            path.lineTo(stroke.points[i].x, stroke.points[i].y);
         }
     } else {
-        dom.drawCtx.moveTo(firstPoint.fromX, firstPoint.fromY);
-        dom.drawCtx.lineTo(firstPoint.toX, firstPoint.toY);
+        path.moveTo(firstPoint.fromX, firstPoint.fromY);
+        path.lineTo(firstPoint.toX, firstPoint.toY);
         for (let i = 1; i < stroke.points.length; i++) {
-            dom.drawCtx.moveTo(stroke.points[i].fromX, stroke.points[i].fromY);
-            dom.drawCtx.lineTo(stroke.points[i].toX, stroke.points[i].toY);
+            path.moveTo(stroke.points[i].fromX, stroke.points[i].fromY);
+            path.lineTo(stroke.points[i].toX, stroke.points[i].toY);
         }
     }
     
-    dom.drawCtx.stroke();
-    dom.drawCtx.restore();
+    ctx.stroke(path);
+    ctx.restore();
 }
 
 async function drawStroke(stroke) {
     if (!stroke.points || stroke.points.length < 1) return;
     
-    dom.drawCtx.save();
-    dom.drawCtx.strokeStyle = stroke.color || DRAW_CONFIG.penColor;
-    dom.drawCtx.lineWidth = stroke.lineWidth || DRAW_CONFIG.penWidth;
-    dom.drawCtx.lineCap = 'round';
-    dom.drawCtx.lineJoin = 'round';
-    dom.drawCtx.globalCompositeOperation = 'source-over';
+    const ctx = dom.drawCtx;
+    ctx.save();
+    ctx.strokeStyle = stroke.color || DRAW_CONFIG.penColor;
+    ctx.lineWidth = stroke.lineWidth || DRAW_CONFIG.penWidth;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.globalCompositeOperation = 'source-over';
     
-    dom.drawCtx.beginPath();
+    const path = new Path2D();
     
     const firstPoint = stroke.points[0];
     if (firstPoint.x !== undefined) {
-        dom.drawCtx.moveTo(firstPoint.x, firstPoint.y);
+        path.moveTo(firstPoint.x, firstPoint.y);
         for (let i = 1; i < stroke.points.length; i++) {
-            dom.drawCtx.lineTo(stroke.points[i].x, stroke.points[i].y);
+            path.lineTo(stroke.points[i].x, stroke.points[i].y);
         }
     } else {
-        dom.drawCtx.moveTo(firstPoint.fromX, firstPoint.fromY);
-        dom.drawCtx.lineTo(firstPoint.toX, firstPoint.toY);
+        path.moveTo(firstPoint.fromX, firstPoint.fromY);
+        path.lineTo(firstPoint.toX, firstPoint.toY);
         for (let i = 1; i < stroke.points.length; i++) {
-            dom.drawCtx.moveTo(stroke.points[i].fromX, stroke.points[i].fromY);
-            dom.drawCtx.lineTo(stroke.points[i].toX, stroke.points[i].toY);
+            path.moveTo(stroke.points[i].fromX, stroke.points[i].fromY);
+            path.lineTo(stroke.points[i].toX, stroke.points[i].toY);
         }
     }
     
-    dom.drawCtx.stroke();
-    dom.drawCtx.restore();
+    ctx.stroke(path);
+    ctx.restore();
 }
 
 let compactIdleId = null;
@@ -2759,60 +2840,74 @@ class BatchDrawManager {
         if (!batch || batch.commands.length === 0) return;
         
         const ctx = dom.drawCtx;
+        const isErase = batch.type === 'erase';
         
-        const maxCommandsPerBatch = 100;
-        const commandsToProcess = batch.commands.slice(0, maxCommandsPerBatch);
-        const remainingCommands = batch.commands.slice(maxCommandsPerBatch);
+        ctx.save();
         
-        if (batch.type === 'erase') {
-            ctx.save();
+        if (isErase) {
             ctx.globalCompositeOperation = 'destination-out';
             ctx.strokeStyle = 'rgba(0, 0, 0, 1)';
-            ctx.lineWidth = batch.lineWidth;
-            ctx.lineCap = 'round';
-            ctx.lineJoin = 'round';
-            
-            ctx.beginPath();
-            for (const cmd of commandsToProcess) {
-                ctx.moveTo(cmd.fromX, cmd.fromY);
-                ctx.lineTo(cmd.toX, cmd.toY);
-            }
-            ctx.stroke();
-            ctx.restore();
         } else {
-            setContextState(ctx, {
-                strokeStyle: batch.color,
-                lineWidth: batch.lineWidth,
-                lineCap: 'round',
-                lineJoin: 'round',
-                globalCompositeOperation: 'source-over'
-            });
-            
-            const path = new Path2D();
-            for (const cmd of commandsToProcess) {
-                path.moveTo(cmd.fromX, cmd.fromY);
-                path.lineTo(cmd.toX, cmd.toY);
-            }
-            ctx.stroke(path);
+            ctx.globalCompositeOperation = 'source-over';
+            ctx.strokeStyle = batch.color;
         }
         
-        batch.commands = remainingCommands;
+        ctx.lineWidth = batch.lineWidth;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        
+        const path = new Path2D();
+        for (const cmd of batch.commands) {
+            path.moveTo(cmd.fromX, cmd.fromY);
+            path.lineTo(cmd.toX, cmd.toY);
+        }
+        ctx.stroke(path);
+        
+        ctx.restore();
+        
+        batch.commands = [];
     }
     
     /**
      * 执行所有批处理
      */
     flushAll() {
-        for (const stateKey of this.batches.keys()) {
-            this.flushBatch(stateKey);
+        if (this.batches.size === 0) return;
+        
+        const ctx = dom.drawCtx;
+        
+        ctx.save();
+        
+        for (const [stateKey, batch] of this.batches) {
+            if (batch.commands.length === 0) continue;
+            
+            const isErase = batch.type === 'erase';
+            
+            if (isErase) {
+                ctx.globalCompositeOperation = 'destination-out';
+                ctx.strokeStyle = 'rgba(0, 0, 0, 1)';
+            } else {
+                ctx.globalCompositeOperation = 'source-over';
+                ctx.strokeStyle = batch.color;
+            }
+            
+            ctx.lineWidth = batch.lineWidth;
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+            
+            const path = new Path2D();
+            for (const cmd of batch.commands) {
+                path.moveTo(cmd.fromX, cmd.fromY);
+                path.lineTo(cmd.toX, cmd.toY);
+            }
+            ctx.stroke(path);
+            
+            batch.commands = [];
         }
         
-        // 清理空批处理
-        for (const [stateKey, batch] of this.batches.entries()) {
-            if (batch.commands.length === 0) {
-                this.batches.delete(stateKey);
-            }
-        }
+        ctx.restore();
+        
+        this.batches.clear();
     }
     
     /**
