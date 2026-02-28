@@ -718,10 +718,9 @@ document.addEventListener('DOMContentLoaded', async () => {
                 const saved = await saveSettings({ width, height });
                 
                 if (saved) {
-                    const restartModal = document.getElementById('restartModal');
-                    if (restartModal) {
-                        restartModal.classList.add('active');
-                    }
+                    // 发送事件通知主窗口实时更新
+                    const { emit } = window.__TAURI__.event;
+                    await emit('settings-changed', { width, height });
                 } else {
                     showSettingsDialog(window.i18n?.t('settings.saveFailed') || '保存失败', window.i18n?.t('settings.saveFailedRetry') || '保存设置失败，请重试', 'error');
                 }
