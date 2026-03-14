@@ -98,7 +98,6 @@ const DRAW_CONFIG = {
     enhanceBrightness: 10,         // 增强亮度
     enhanceSaturation: 1.2,        // 增强饱和度
     enhanceSharpen: 0,             // 增强锐化 (0-100)
-    smoothStrength: 0.5,           // 绘画平滑度 (0-1, 0=无平滑, 1=最大平滑)
     blurEffect: true,              // 界面模糊效果
     imageSmoothingQuality: 'high', // 图像平滑质量
     dynamicResolution: true,       // 动态分辨率调整
@@ -821,11 +820,6 @@ async function loadCameraSetting() {
                 console.log('已加载增强锐化:', settings.sharpen);
             }
             
-            if (settings.smoothStrength !== undefined) {
-                DRAW_CONFIG.smoothStrength = Math.max(0, Math.min(1, settings.smoothStrength));
-                console.log('已加载绘画平滑度:', settings.smoothStrength);
-            }
-            
             if (settings.blurEffect !== undefined) {
                 DRAW_CONFIG.blurEffect = settings.blurEffect;
                 console.log('已加载界面模糊效果:', settings.blurEffect);
@@ -1002,11 +996,6 @@ function listenForPdfFileOpen() {
         if (settings.sharpen !== undefined) {
             DRAW_CONFIG.enhanceSharpen = settings.sharpen;
             console.log('增强锐化已更改:', settings.sharpen);
-        }
-        
-        if (settings.smoothStrength !== undefined) {
-            DRAW_CONFIG.smoothStrength = Math.max(0, Math.min(1, settings.smoothStrength));
-            console.log('绘画平滑度已更改:', DRAW_CONFIG.smoothStrength);
         }
         
         if (settings.blurEffect !== undefined) {
@@ -2953,39 +2942,7 @@ async function endStroke() {
         if (state.currentStroke.type === 'erase') {
             await processEraserStroke(state.currentStroke);
         } else {
-            if (state.currentStroke.points.length > 50) {
-                try {
-                    const config = {
-                        epsilon: POINT_OPTIMIZATION.epsilon * 0.8,
-                        min_distance: POINT_OPTIMIZATION.minDistance,
-                        quantization: POINT_OPTIMIZATION.quantization
-                    };
-                    const processedPoints = await wasmPointProcessor.processStrokePoints(
-                        state.currentStroke.points,
-                        config
-                    );
-                    
-                    if (Array.isArray(processedPoints) && processedPoints.length > 0) {
-                        state.currentStroke.points = processedPoints;
-                    }
-                    
-                    if (state.currentStroke.points.length > 3 && DRAW_CONFIG.smoothStrength > 0) {
-                        const smoothedPoints = await wasmPointProcessor.smoothPath(
-                            state.currentStroke.points,
-                            DRAW_CONFIG.smoothStrength,
-                            'bezier'
-                        );
-                        
-                        if (Array.isArray(smoothedPoints) && smoothedPoints.length > 0) {
-                            state.currentStroke.points = smoothedPoints;
-                        }
-                    }
-                } catch (error) {
-                    console.warn('WASM点处理失败，使用前端降级方案:', error);
-                    state.currentStroke.points = simplifyPoints(state.currentStroke.points, POINT_OPTIMIZATION.epsilon * 0.8);
-                }
-            }
-            
+            // 钢笔模式：直接保存笔画，不需要复杂的点优化
             state.strokeHistory.push(state.currentStroke);
             
             if (state.strokeHistory.length > state.STROKE_COMPACT_THRESHOLD) {

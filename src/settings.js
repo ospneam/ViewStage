@@ -456,17 +456,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                     });
                 }
                 
-                // 绘画平滑度设置
-                const smoothStrengthSlider = document.getElementById('smoothStrengthSlider');
-                const smoothStrengthValue = document.getElementById('smoothStrengthValue');
-                
-                if (smoothStrengthSlider && smoothStrengthValue) {
-                    let savedSmoothStrength = settings.smoothStrength !== undefined ? settings.smoothStrength : 0.5;
-                    savedSmoothStrength = Math.max(0, Math.min(1, savedSmoothStrength));
-                    smoothStrengthSlider.value = savedSmoothStrength;
-                    smoothStrengthValue.textContent = savedSmoothStrength;
-                }
-                
                 // 画笔颜色设置
                 const defaultColors = [
                     '#3498db', '#2ecc71', '#e74c3c', '#f39c12', '#9b59b6',
@@ -948,20 +937,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             dprSelect.classList.remove('open');
             
             await saveSettings({ dprLimit: value });
-        });
-    }
-    
-    // 绘画平滑度设置
-    const smoothStrengthSlider = document.getElementById('smoothStrengthSlider');
-    const smoothStrengthValue = document.getElementById('smoothStrengthValue');
-    
-    if (smoothStrengthSlider && smoothStrengthValue) {
-        smoothStrengthSlider.addEventListener('input', () => {
-            smoothStrengthValue.textContent = smoothStrengthSlider.value;
-        });
-        
-        smoothStrengthSlider.addEventListener('change', async () => {
-            await saveSettings({ smoothStrength: parseFloat(smoothStrengthSlider.value) });
         });
     }
     
