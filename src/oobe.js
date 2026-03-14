@@ -50,6 +50,7 @@ const defaultConfig = {
     sharpen: 0,
     canvasScale: 2,
     dprLimit: 2,
+    dynamicResolution: false,
     blurEffect: true,
     highResOptimization: false,
     penColors: [

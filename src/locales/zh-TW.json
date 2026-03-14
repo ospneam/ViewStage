@@ -71,6 +71,7 @@
     "resetApp": "重置應用",
     "canvasScale": "畫布縮放倍數",
     "dprLimit": "設備像素比限制",
+    "dynamicResolution": "動態解析度",
     "penColors": "畫筆顏色",
     "defaultCamera": "預設攝影機",
     "cameraResolution": "攝影機解析度",

@@ -100,7 +100,7 @@ const DRAW_CONFIG = {
     enhanceSharpen: 0,             // 增强锐化 (0-100)
     blurEffect: true,              // 界面模糊效果
     imageSmoothingQuality: 'high', // 图像平滑质量
-    dynamicResolution: true,       // 动态分辨率调整
+    dynamicResolution: false,      // 动态分辨率调整（禁用以避免卡顿）
     scaleThresholdHigh: 1.5,       // 高分辨率缩放阈值
     scaleThresholdUltra: 2.5,      // 超高分辨率缩放阈值
     baseDpr: Math.min(window.devicePixelRatio || 1, 2), // 基础设备像素比
@@ -2778,12 +2778,13 @@ function scheduleDprAdjustment(scale) {
         clearTimeout(dprAdjustDebounce);
     }
     
+    // 缩放停止 500ms 后才调整分辨率，避免缩放过程中频繁调整
     dprAdjustDebounce = setTimeout(() => {
         const newDpr = calculateAdaptiveDpr(scale);
         if (newDpr !== DRAW_CONFIG.dpr) {
             adjustCanvasResolution(newDpr);
         }
-    }, 100);
+    }, 500);
 }
 
 function updateCanvasTransform() {

@@ -75,19 +75,16 @@ body {
 
 /* 悬浮岛模块 */
 .island-module {
-    background: rgba(255, 255, 255, 0.05);
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
+    background: rgba(255, 255, 255, 0.08);
     border-radius: 12px;
     border: 1px solid rgba(255, 255, 255, 0.1);
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
-    transition: all 0.3s ease;
+    transition: background 0.3s ease;
     overflow: hidden;
     margin: 0;
 }
 
 .island-module:hover {
-    transform: translateY(-5px);
     box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
     border-color: rgba(255, 255, 255, 0.15);
 }
@@ -132,14 +129,12 @@ body {
     align-items: center;
     gap: 0;
     padding: 6px 12px;
-    background: rgba(60, 60, 60, 0.7);
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
+    background: rgba(60, 60, 60, 0.85);
     border-radius: 20px;
     border: 1px solid rgba(255, 255, 255, 0.1);
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
     flex: none;
-    transition: all 0.5s ease;
+    transition: background 0.3s ease;
     pointer-events: auto;
 }
 
@@ -267,14 +262,12 @@ body {
     justify-content: flex-start;
     gap: 8px;
     padding: 12px;
-    background: rgba(255, 255, 255, 0.08);
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
+    background: rgba(255, 255, 255, 0.1);
     border-radius: 12px;
     border: 1px solid rgba(255, 255, 255, 0.15);
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
     flex: none;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    transition: background 0.3s ease;
     width: 180px;
     height: 87vh;
     max-height: 87vh;
@@ -588,6 +581,9 @@ body {
     top: 0;
     left: 0;
     transform-origin: 0 0;
+}
+
+.canvas-wrapper.dragging {
     will-change: transform;
 }
 
@@ -645,12 +641,12 @@ body {
     pointer-events: none;
     display: none;
     transform-origin: center center;
-    will-change: transform, left, top;
     contain: layout style;
 }
 
 .eraser-hint.active {
     display: block;
+    will-change: transform, left, top;
 }
 
 /* ========== 笔触控制面板 ========== */
@@ -1087,7 +1083,6 @@ body {
     background: rgba(76, 209, 55, 0.25) !important;
     border-color: #4cd137 !important;
     box-shadow: 0 0 0 2px rgba(76, 209, 55, 0.4), 0 0 12px rgba(76, 209, 55, 0.3) !important;
-    animation: cameraPulse 2s infinite;
 }
 
 @keyframes cameraPulse {

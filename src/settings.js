@@ -456,6 +456,12 @@ document.addEventListener('DOMContentLoaded', async () => {
                     });
                 }
                 
+                // 动态分辨率设置
+                const dynamicResolutionSwitch = document.getElementById('dynamicResolutionSwitch');
+                if (dynamicResolutionSwitch) {
+                    dynamicResolutionSwitch.checked = settings.dynamicResolution !== undefined ? settings.dynamicResolution : false;
+                }
+                
                 // 画笔颜色设置
                 const defaultColors = [
                     '#3498db', '#2ecc71', '#e74c3c', '#f39c12', '#9b59b6',
@@ -937,6 +943,14 @@ document.addEventListener('DOMContentLoaded', async () => {
             dprSelect.classList.remove('open');
             
             await saveSettings({ dprLimit: value });
+        });
+    }
+    
+    // 动态分辨率开关事件
+    const dynamicResolutionSwitch = document.getElementById('dynamicResolutionSwitch');
+    if (dynamicResolutionSwitch) {
+        dynamicResolutionSwitch.addEventListener('change', async () => {
+            await saveSettings({ dynamicResolution: dynamicResolutionSwitch.checked });
         });
     }
     

@@ -71,6 +71,7 @@
     "resetApp": "Reset App",
     "canvasScale": "Canvas Scale",
     "dprLimit": "Device Pixel Ratio Limit",
+    "dynamicResolution": "Dynamic Resolution",
     "penColors": "Pen Colors",
     "defaultCamera": "Default Camera",
     "cameraResolution": "Camera Resolution",
