@@ -71,7 +71,6 @@
     "resetApp": "Reset App",
     "canvasScale": "Canvas Scale",
     "dprLimit": "Device Pixel Ratio Limit",
-    "smoothStrength": "Drawing Smoothness",
     "penColors": "Pen Colors",
     "defaultCamera": "Default Camera",
     "cameraResolution": "Camera Resolution",

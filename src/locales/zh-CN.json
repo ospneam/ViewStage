@@ -71,7 +71,6 @@
     "resetApp": "重置应用",
     "canvasScale": "画布缩放倍数",
     "dprLimit": "设备像素比限制",
-    "smoothStrength": "绘画平滑度",
     "penColors": "画笔颜色",
     "defaultCamera": "默认摄像头",
     "cameraResolution": "摄像头分辨率",
