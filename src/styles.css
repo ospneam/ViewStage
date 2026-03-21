@@ -262,10 +262,10 @@ body {
     justify-content: flex-start;
     gap: 8px;
     padding: 12px;
-    background: rgba(255, 255, 255, 0.1);
+    background: rgba(60, 60, 60, 0.85);
     border-radius: 12px;
-    border: 1px solid rgba(255, 255, 255, 0.15);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
     flex: none;
     transition: background 0.3s ease;
     width: 180px;
@@ -581,6 +581,7 @@ body {
     top: 0;
     left: 0;
     transform-origin: 0 0;
+    background-color: #3a3a3a;
 }
 
 .canvas-wrapper.dragging {
@@ -591,20 +592,17 @@ body {
     transition: transform 0.25s cubic-bezier(0.25, 0.46, 0.45, 0.94);
 }
 
-.canvas-base {
-    z-index: 1;
-    background-color: #3a3a3a;
-}
-
 .canvas-image {
     z-index: 2;
     background-color: transparent;
+    image-rendering: pixelated;
 }
 
 .canvas-draw {
     z-index: 3;
     background-color: transparent;
     cursor: grab;
+    image-rendering: pixelated;
 }
 
 .camera-video {
@@ -613,6 +611,7 @@ body {
     display: none;
     pointer-events: none;
     object-fit: contain;
+    image-rendering: pixelated;
 }
 
 .canvas-wrapper.smooth-transform {

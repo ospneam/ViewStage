@@ -456,12 +456,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                     });
                 }
                 
-                // 动态分辨率设置
-                const dynamicResolutionSwitch = document.getElementById('dynamicResolutionSwitch');
-                if (dynamicResolutionSwitch) {
-                    dynamicResolutionSwitch.checked = settings.dynamicResolution !== undefined ? settings.dynamicResolution : false;
-                }
-                
                 // 画笔颜色设置
                 const defaultColors = [
                     '#3498db', '#2ecc71', '#e74c3c', '#f39c12', '#9b59b6',
@@ -524,25 +518,11 @@ document.addEventListener('DOMContentLoaded', async () => {
                     });
                 }
                 
-                // 界面模糊效果设置
-                const blurEffectToggle = document.getElementById('blurEffectToggle');
-                if (blurEffectToggle) {
-                    const savedBlurEffect = settings.blurEffect !== undefined ? settings.blurEffect : true;
-                    blurEffectToggle.checked = savedBlurEffect;
-                }
-                
                 // 高分辨率优化设置
                 const highResOptimizationToggle = document.getElementById('highResOptimizationToggle');
                 if (highResOptimizationToggle) {
                     const savedHighResOpt = settings.highResOptimization !== undefined ? settings.highResOptimization : false;
                     highResOptimizationToggle.checked = savedHighResOpt;
-                }
-                
-                // 动态分辨率设置
-                const dynamicResolutionToggle = document.getElementById('dynamicResolutionToggle');
-                if (dynamicResolutionToggle) {
-                    const savedDynamicResolution = settings.dynamicResolution !== undefined ? settings.dynamicResolution : true;
-                    dynamicResolutionToggle.checked = savedDynamicResolution;
                 }
                 
                 // 图像处理强度设置
@@ -946,14 +926,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     }
     
-    // 动态分辨率开关事件
-    const dynamicResolutionSwitch = document.getElementById('dynamicResolutionSwitch');
-    if (dynamicResolutionSwitch) {
-        dynamicResolutionSwitch.addEventListener('change', async () => {
-            await saveSettings({ dynamicResolution: dynamicResolutionSwitch.checked });
-        });
-    }
-    
     // 画笔颜色选择器事件
     for (let i = 1; i <= 15; i++) {
         const picker = document.getElementById(`colorPicker${i}`);
@@ -1033,14 +1005,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     }
     
-    // 界面模糊效果开关
-    const blurEffectToggle = document.getElementById('blurEffectToggle');
-    if (blurEffectToggle) {
-        blurEffectToggle.addEventListener('change', async () => {
-            await saveSettings({ blurEffect: blurEffectToggle.checked });
-        });
-    }
-    
     // 高分辨率优化开关
     const highResOptimizationToggle = document.getElementById('highResOptimizationToggle');
     if (highResOptimizationToggle) {
@@ -1051,17 +1015,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                 if (restartModal) {
                     restartModal.classList.add('active');
                 }
-            }
-        });
-    }
-    
-    // 动态分辨率开关
-    const dynamicResolutionToggle = document.getElementById('dynamicResolutionToggle');
-    if (dynamicResolutionToggle) {
-        dynamicResolutionToggle.addEventListener('change', async () => {
-            const saved = await saveSettings({ dynamicResolution: dynamicResolutionToggle.checked });
-            if (!saved) {
-                showSettingsDialog(window.i18n?.t('settings.saveFailed') || '保存失败', window.i18n?.t('settings.saveFailedRetry') || '保存设置失败，请重试', 'error');
             }
         });
     }

@@ -50,8 +50,6 @@ const defaultConfig = {
     sharpen: 0,
     canvasScale: 2,
     dprLimit: 2,
-    dynamicResolution: false,
-    blurEffect: true,
     highResOptimization: false,
     penColors: [
         {"r": 52, "g": 152, "b": 219},
@@ -414,7 +412,6 @@ function setupPage3Buttons() {
 
     document.getElementById('btnNext3').addEventListener('click', async () => {
         const resolutionSelect = document.getElementById('resolutionSelect');
-        const blurToggle = document.getElementById('blurToggle');
         const highResOptimizationToggle = document.getElementById('highResOptimizationToggle');
         
         const resolution = resolutionSelect.querySelector('.select-option.selected').dataset.value;
@@ -422,7 +419,6 @@ function setupPage3Buttons() {
         
         cachedSettings.width = width;
         cachedSettings.height = height;
-        cachedSettings.blurEffect = blurToggle.checked;
         cachedSettings.highResOptimization = highResOptimizationToggle ? highResOptimizationToggle.checked : false;
         
         showPage4();

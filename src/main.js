@@ -18,6 +18,30 @@
 import wasmPointProcessor from './wasm-processor.js';
 import './batch-draw.js';
 
+// ==================== 全局变量 ====================
+let lastCanvasTransform = { x: null, y: null, scale: null };
+let currentAnimationId = null;
+let pendingTransform = null;
+let transformRafId = null;
+
+// 节流更新 transform（减少 DOM 操作频率）
+function scheduleTransformUpdate(x, y, scale) {
+    pendingTransform = { x, y, scale };
+    
+    if (transformRafId === null) {
+        transformRafId = requestAnimationFrame(() => {
+            if (pendingTransform) {
+                const { x, y, scale } = pendingTransform;
+                dom.canvasWrapper.style.transform = `translate(${x}px, ${y}px) scale(${scale})`;
+                lastCanvasTransform.x = x;
+                lastCanvasTransform.y = y;
+                lastCanvasTransform.scale = scale;
+            }
+            transformRafId = null;
+        });
+    }
+}
+
 // ==================== PDF.js 配置 ====================
 // PDF.js 库初始化和等待加载
 
@@ -82,7 +106,9 @@ const DRAW_CONFIG = {
     penWidth: 5,                   // 默认笔宽 (px)
     eraserSize: 15,                // 橡皮大小 (px)
     minScale: 0.5,                 // 最小缩放比例
-    maxScale: 5,                   // 最大缩放比例
+    maxScale: 3,                   // 默认最大缩放比例
+    maxScaleCamera: 2,             // 摄像头模式最大缩放比例
+    maxScaleImage: 4,              // 图片/文档模式最大缩放比例
     canvasW: 1000,                 // 画布宽度 (逻辑像素)
     canvasH: 600,                  // 画布高度 (逻辑像素)
     screenW: 0,                    // 屏幕宽度
@@ -98,11 +124,7 @@ const DRAW_CONFIG = {
     enhanceBrightness: 10,         // 增强亮度
     enhanceSaturation: 1.2,        // 增强饱和度
     enhanceSharpen: 0,             // 增强锐化 (0-100)
-    blurEffect: true,              // 界面模糊效果
     imageSmoothingQuality: 'high', // 图像平滑质量
-    dynamicResolution: false,      // 动态分辨率调整（禁用以避免卡顿）
-    scaleThresholdHigh: 1.5,       // 高分辨率缩放阈值
-    scaleThresholdUltra: 2.5,      // 超高分辨率缩放阈值
     baseDpr: Math.min(window.devicePixelRatio || 1, 2), // 基础设备像素比
     penColors: [                   // 画笔颜色列表
         '#3498db', '#2ecc71', '#e74c3c', '#f39c12', '#9b59b6',
@@ -627,6 +649,101 @@ let state = {
     lastLineWidth: 0               // 上一个点的线宽
 };
 
+// ==================== 源ID管理系统 ====================
+// 统一管理所有源（摄像头、图片、文档）的缩放和批注数据
+
+// 源ID计数器
+let sourceIdCounters = {
+    pic: 0,      // 图片计数器
+    doc: 0       // 文档计数器
+};
+
+// 当前源ID
+let currentSourceId = null;
+
+// 统一存储结构
+let sourceDataStore = {};
+
+// 生成源ID
+function generateSourceId(type, pageIndex = null) {
+    if (type === 'cam') {
+        return 'cam';
+    } else if (type === 'pic') {
+        sourceIdCounters.pic++;
+        return `pic-${sourceIdCounters.pic}`;
+    } else if (type === 'doc') {
+        if (pageIndex !== null) {
+            return `doc-${sourceIdCounters.doc}-${pageIndex}`;
+        }
+    }
+    return null;
+}
+
+// 保存当前源数据
+function saveCurrentSourceData() {
+    if (!currentSourceId) return;
+    
+    sourceDataStore[currentSourceId] = {
+        scale: state.scale,
+        canvasX: state.canvasX,
+        canvasY: state.canvasY,
+        strokeHistory: cloneStrokes(state.strokeHistory),
+        baseImageURL: state.baseImageURL
+    };
+    
+    console.log(`[源管理] 保存数据: ${currentSourceId}, 缩放: ${state.scale.toFixed(2)}, 笔画: ${state.strokeHistory.length}`);
+}
+
+// 加载指定源数据
+function loadSourceData(sourceId) {
+    if (!sourceId) return;
+    
+    const data = sourceDataStore[sourceId];
+    if (data) {
+        state.scale = data.scale;
+        state.canvasX = data.canvasX;
+        state.canvasY = data.canvasY;
+        state.strokeHistory = data.strokeHistory || [];
+        state.baseImageURL = data.baseImageURL;
+        state.baseImageObj = null;
+        
+        console.log(`[源管理] 加载数据: ${sourceId}, 缩放: ${state.scale.toFixed(2)}, 笔画: ${state.strokeHistory.length}`);
+    } else {
+        // 新源，使用默认值
+        state.scale = 1;
+        state.canvasX = -(DRAW_CONFIG.canvasW - DRAW_CONFIG.screenW) / 2;
+        state.canvasY = -(DRAW_CONFIG.canvasH - DRAW_CONFIG.screenH) / 2;
+        state.strokeHistory = [];
+        state.baseImageURL = null;
+        state.baseImageObj = null;
+        
+        console.log(`[源管理] 新源初始化: ${sourceId}`);
+    }
+    
+    currentSourceId = sourceId;
+}
+
+// 切换到新源
+async function switchToSource(newSourceId) {
+    // 保存当前源数据
+    saveCurrentSourceData();
+    
+    // 加载新源数据
+    loadSourceData(newSourceId);
+    
+    // 清除画布并重新渲染
+    clearDrawCanvas();
+    if (state.strokeHistory.length > 0) {
+        await redrawAllStrokes();
+    }
+    
+    // 更新UI
+    updateMoveBound();
+    clampCanvasPosition();
+    updateCanvasTransform();
+    updateUndoBtnStatus();
+}
+
 let dom = {};  // DOM 元素引用缓存
 
 // 将 dom 暴露到全局，供 batch-draw.js 使用
@@ -820,17 +937,6 @@ async function loadCameraSetting() {
                 console.log('已加载增强锐化:', settings.sharpen);
             }
             
-            if (settings.blurEffect !== undefined) {
-                DRAW_CONFIG.blurEffect = settings.blurEffect;
-                console.log('已加载界面模糊效果:', settings.blurEffect);
-                updateBlurEffect(settings.blurEffect);
-            }
-            
-            if (settings.dynamicResolution !== undefined) {
-                DRAW_CONFIG.dynamicResolution = settings.dynamicResolution;
-                console.log('已加载动态分辨率:', settings.dynamicResolution);
-            }
-            
             if (settings.penColors && Array.isArray(settings.penColors)) {
                 DRAW_CONFIG.penColors = settings.penColors.map(color => {
                     if (typeof color === 'object' && color.r !== undefined) {
@@ -998,17 +1104,6 @@ function listenForPdfFileOpen() {
             console.log('增强锐化已更改:', settings.sharpen);
         }
         
-        if (settings.blurEffect !== undefined) {
-            DRAW_CONFIG.blurEffect = settings.blurEffect;
-            updateBlurEffect(settings.blurEffect);
-            console.log('界面模糊效果已更改:', settings.blurEffect);
-        }
-        
-        if (settings.dynamicResolution !== undefined) {
-            DRAW_CONFIG.dynamicResolution = settings.dynamicResolution;
-            console.log('动态分辨率已更改:', settings.dynamicResolution);
-        }
-        
         if (settings.penColors && Array.isArray(settings.penColors)) {
             DRAW_CONFIG.penColors = settings.penColors.map(color => {
                 if (typeof color === 'object' && color.r !== undefined) {
@@ -1033,7 +1128,7 @@ function listenForPdfFileOpen() {
     });
 }
 
-async function processPdfPagesParallel(pdf, totalPages, batchSize = 4) {
+async function processPdfPagesParallel(pdf, totalPages, batchSize = 4, docNumber = null) {
     const pages = [];
     let processedCount = 0;
     
@@ -1064,13 +1159,20 @@ async function processPdfPagesParallel(pdf, totalPages, batchSize = 4) {
         processedCount++;
         updateLoadingProgress(window.i18n?.t('loading.processingPage', { current: processedCount, total: totalPages }) || `正在处理 ${processedCount}/${totalPages} 页`);
         
+        // 生成源ID
+        let sourceId = null;
+        if (docNumber !== null) {
+            sourceId = `doc-${docNumber}-${pageNum}`;
+        }
+        
         return {
             full: fullUrl,
             fullBlob: fullBlob,
             thumbnail: thumbnail,
             pageNum: pageNum,
             strokeHistory: null,
-            baseImageURL: null
+            baseImageURL: null,
+            sourceId: sourceId
         };
     }
     
@@ -1297,10 +1399,13 @@ async function loadPdfFromPath(filePath) {
             const folder = {
                 name: fileName,
                 pages: [],
-                isWord: true
+                isPdf: true
             };
             
-            const processedPages = await processPdfPagesParallel(pdf, totalPages);
+            sourceIdCounters.doc++;  // 增加文档计数器
+            const docNumber = sourceIdCounters.doc;
+            
+            const processedPages = await processPdfPagesParallel(pdf, totalPages, 4, docNumber);
             folder.pages = processedPages;
             
             state.fileList.push(folder);
@@ -1310,10 +1415,16 @@ async function loadPdfFromPath(filePath) {
             if (folder.pages.length > 0) {
                 const firstPage = folder.pages[0];
                 const img = new Image();
-                img.onload = () => {
+                img.onload = async () => {
                     state.currentImage = img;
                     state.currentFolderIndex = state.fileList.length - 1;
                     state.currentFolderPageIndex = 0;
+                    
+                    // 切换到新源ID
+                    if (firstPage.sourceId) {
+                        await switchToSource(firstPage.sourceId);
+                    }
+                    
                     drawImageToCenter(img);
                     updatePhotoButtonState();
                     updateEnhanceButtonState();
@@ -1397,7 +1508,10 @@ async function loadPdfFromPath(filePath) {
             isWord: false
         };
         
-        const processedPages = await processPdfPagesParallel(pdf, totalPages);
+        sourceIdCounters.doc++;  // 增加文档计数器
+        const docNumber = sourceIdCounters.doc;
+        
+        const processedPages = await processPdfPagesParallel(pdf, totalPages, 4, docNumber);
         folder.pages = processedPages;
         
         state.fileList.push(folder);
@@ -1407,10 +1521,16 @@ async function loadPdfFromPath(filePath) {
         if (folder.pages.length > 0) {
             const firstPage = folder.pages[0];
             const img = new Image();
-            img.onload = () => {
+            img.onload = async () => {
                 state.currentImage = img;
                 state.currentFolderIndex = state.fileList.length - 1;
                 state.currentFolderPageIndex = 0;
+                
+                // 切换到新源ID
+                if (firstPage.sourceId) {
+                    await switchToSource(firstPage.sourceId);
+                }
+                
                 drawImageToCenter(img);
                 updatePhotoButtonState();
                 updateEnhanceButtonState();
@@ -1472,59 +1592,66 @@ async function resizeCanvas(newScreenW, newScreenH) {
     DRAW_CONFIG.canvasW = Math.floor(newScreenW * adaptiveCanvasScale);
     DRAW_CONFIG.canvasH = Math.floor(newScreenH * adaptiveCanvasScale);
     
-    // 根据当前缩放比例计算合适的 DPR
-    const adaptiveDpr = calculateAdaptiveDpr(oldScale);
-    DRAW_CONFIG.dpr = adaptiveDpr;
-    lastAppliedDpr = adaptiveDpr;
+    // 使用固定的 DPR
+    DRAW_CONFIG.dpr = DRAW_CONFIG.baseDpr;
     
     updateMoveBound();
     
-    // 背景层和图像层：物理尺寸 = CSS尺寸 × dpr
-    dom.bgCanvas.width = DRAW_CONFIG.canvasW * DRAW_CONFIG.dpr;
-    dom.bgCanvas.height = DRAW_CONFIG.canvasH * DRAW_CONFIG.dpr;
-    dom.imageCanvas.width = DRAW_CONFIG.canvasW * DRAW_CONFIG.dpr;
-    dom.imageCanvas.height = DRAW_CONFIG.canvasH * DRAW_CONFIG.dpr;
+    // 图像层：摄像头模式下不使用，跳过以提升性能
+    if (!state.isCameraOpen) {
+        dom.imageCanvas.width = DRAW_CONFIG.canvasW * DRAW_CONFIG.dpr;
+        dom.imageCanvas.height = DRAW_CONFIG.canvasH * DRAW_CONFIG.dpr;
+    }
     
-    // 批注层：物理尺寸 = CSS尺寸 × dpr
-    dom.drawCanvas.width = DRAW_CONFIG.canvasW * DRAW_CONFIG.dpr;
-    dom.drawCanvas.height = DRAW_CONFIG.canvasH * DRAW_CONFIG.dpr;
+    // 批注层：摄像头模式下如果没有批注，可以跳过尺寸设置
+    const hasStrokes = state.strokeHistory && state.strokeHistory.length > 0;
+    const hasBaseImage = state.baseImageObj !== null;
+    
+    if (!state.isCameraOpen || hasStrokes || hasBaseImage) {
+        dom.drawCanvas.width = DRAW_CONFIG.canvasW * DRAW_CONFIG.dpr;
+        dom.drawCanvas.height = DRAW_CONFIG.canvasH * DRAW_CONFIG.dpr;
+    }
     
     // 所有层 CSS 尺寸相同
-    dom.bgCanvas.style.width = DRAW_CONFIG.canvasW + 'px';
-    dom.bgCanvas.style.height = DRAW_CONFIG.canvasH + 'px';
-    dom.imageCanvas.style.width = DRAW_CONFIG.canvasW + 'px';
-    dom.imageCanvas.style.height = DRAW_CONFIG.canvasH + 'px';
     dom.drawCanvas.style.width = DRAW_CONFIG.canvasW + 'px';
     dom.drawCanvas.style.height = DRAW_CONFIG.canvasH + 'px';
     
-    // 重置上下文
-    dom.bgCtx.setTransform(1, 0, 0, 1, 0, 0);
-    dom.imageCtx.setTransform(1, 0, 0, 1, 0, 0);
-    dom.drawCtx.setTransform(1, 0, 0, 1, 0, 0);
-    dom.bgCtx.scale(DRAW_CONFIG.dpr, DRAW_CONFIG.dpr);
-    dom.imageCtx.scale(DRAW_CONFIG.dpr, DRAW_CONFIG.dpr);
-    dom.drawCtx.scale(DRAW_CONFIG.dpr, DRAW_CONFIG.dpr);
+    // imageCanvas CSS 尺寸：摄像头模式下跳过
+    if (!state.isCameraOpen) {
+        dom.imageCanvas.style.width = DRAW_CONFIG.canvasW + 'px';
+        dom.imageCanvas.style.height = DRAW_CONFIG.canvasH + 'px';
+    }
     
-    // 设置绘制质量
-    dom.bgCtx.imageSmoothingEnabled = true;
-    dom.bgCtx.imageSmoothingQuality = 'high';
-    dom.imageCtx.imageSmoothingEnabled = true;
-    dom.imageCtx.imageSmoothingQuality = 'high';
-    dom.drawCtx.imageSmoothingEnabled = true;
-    dom.drawCtx.imageSmoothingQuality = 'high';
-    dom.drawCtx.lineCap = 'round';
-    dom.drawCtx.lineJoin = 'round';
-    dom.drawCtx.miterLimit = 10;
+    // 图像层上下文：摄像头模式下跳过
+    if (!state.isCameraOpen) {
+        dom.imageCtx.setTransform(1, 0, 0, 1, 0, 0);
+        dom.imageCtx.scale(DRAW_CONFIG.dpr, DRAW_CONFIG.dpr);
+    }
     
-    // 重置背景
-    resetBgCanvas();
+    // 批注层上下文：只在有内容时设置
+    if (!state.isCameraOpen || hasStrokes || hasBaseImage) {
+        dom.drawCtx.setTransform(1, 0, 0, 1, 0, 0);
+        dom.drawCtx.scale(DRAW_CONFIG.dpr, DRAW_CONFIG.dpr);
+    }
+    
+    if (!state.isCameraOpen) {
+        dom.imageCtx.imageSmoothingEnabled = true;
+        dom.imageCtx.imageSmoothingQuality = 'high';
+    }
+    
+    if (!state.isCameraOpen || hasStrokes || hasBaseImage) {
+        dom.drawCtx.imageSmoothingEnabled = true;
+        dom.drawCtx.imageSmoothingQuality = 'high';
+        dom.drawCtx.lineCap = 'round';
+        dom.drawCtx.lineJoin = 'round';
+        dom.drawCtx.miterLimit = 10;
+    }
     
     // 重新绘制内容
     if (state.currentImage) {
         drawImageToCenter(state.currentImage);
-    } else if (state.isCameraOpen) {
-        // 摄像头画面会通过renderFrame重新绘制
     }
+    // 摄像头模式下不需要重绘 imageCanvas，video 元素直接显示
     
     // 重新绘制批注
     if (state.strokeHistory.length > 0 || state.baseImageObj) {
@@ -1547,7 +1674,6 @@ async function resizeCanvas(newScreenW, newScreenH) {
 function initDOM() {
     dom.canvasContainer = document.getElementById('canvasContainer');
     dom.canvasWrapper = document.getElementById('canvasWrapper');
-    dom.bgCanvas = document.getElementById('bgCanvas');
     dom.imageCanvas = document.getElementById('imageCanvas');
     dom.drawCanvas = document.getElementById('drawCanvas');
     dom.cameraVideo = document.getElementById('cameraVideo');
@@ -1576,12 +1702,11 @@ function initDOM() {
     dom.btnMenu = document.getElementById('btnMenu');
     dom.btnEnhance = document.getElementById('btnEnhance');
     
-    if (!dom.bgCanvas || !dom.imageCanvas || !dom.drawCanvas || !dom.canvasContainer) {
+    if (!dom.imageCanvas || !dom.drawCanvas || !dom.canvasContainer) {
         console.error('必需的 Canvas 元素未找到');
         return false;
     }
     
-    dom.bgCtx = dom.bgCanvas.getContext('2d', { alpha: false });
     dom.imageCtx = dom.imageCanvas.getContext('2d', { alpha: true, desynchronized: true });
     dom.drawCtx = dom.drawCanvas.getContext('2d', { alpha: true, desynchronized: true });
     
@@ -1589,13 +1714,12 @@ function initDOM() {
 }
 
 // ==================== 画布初始化 ====================
-// 三层Canvas初始化：背景层、图像层、批注层
+// 两层Canvas初始化：图像层、批注层
 
 /**
- * 初始化三层画布
+ * 初始化画布
  * - 物理尺寸 = 逻辑尺寸 × DPR (Retina适配)
  * - CSS尺寸 = 逻辑尺寸
- * - 批注层物理尺寸 = renderW × renderH (分辨率设置)
  */
 function initCanvas() {
     const container = dom.canvasContainer;
@@ -1606,8 +1730,6 @@ function initCanvas() {
     DRAW_CONFIG.screenH = screenH;
     DRAW_CONFIG.canvasW = Math.floor(screenW * DRAW_CONFIG.canvasScale);
     DRAW_CONFIG.canvasH = Math.floor(screenH * DRAW_CONFIG.canvasScale);
-    
-    lastAppliedDpr = DRAW_CONFIG.dpr;
     
     updateMoveBound();
     
@@ -1623,9 +1745,7 @@ function initCanvas() {
         baseImageURL: null
     };
     
-    // 背景层和图像层：物理尺寸 = CSS尺寸 × dpr
-    dom.bgCanvas.width = DRAW_CONFIG.canvasW * DRAW_CONFIG.dpr;
-    dom.bgCanvas.height = DRAW_CONFIG.canvasH * DRAW_CONFIG.dpr;
+    // 图像层：物理尺寸 = CSS尺寸 × dpr
     dom.imageCanvas.width = DRAW_CONFIG.canvasW * DRAW_CONFIG.dpr;
     dom.imageCanvas.height = DRAW_CONFIG.canvasH * DRAW_CONFIG.dpr;
     
@@ -1634,14 +1754,11 @@ function initCanvas() {
     dom.drawCanvas.height = DRAW_CONFIG.canvasH * DRAW_CONFIG.dpr;
     
     // 所有层 CSS 尺寸相同
-    dom.bgCanvas.style.width = DRAW_CONFIG.canvasW + 'px';
-    dom.bgCanvas.style.height = DRAW_CONFIG.canvasH + 'px';
     dom.imageCanvas.style.width = DRAW_CONFIG.canvasW + 'px';
     dom.imageCanvas.style.height = DRAW_CONFIG.canvasH + 'px';
     dom.drawCanvas.style.width = DRAW_CONFIG.canvasW + 'px';
     dom.drawCanvas.style.height = DRAW_CONFIG.canvasH + 'px';
     
-    dom.bgCtx.scale(DRAW_CONFIG.dpr, DRAW_CONFIG.dpr);
     dom.imageCtx.scale(DRAW_CONFIG.dpr, DRAW_CONFIG.dpr);
     dom.drawCtx.scale(DRAW_CONFIG.dpr, DRAW_CONFIG.dpr);
     
@@ -1655,7 +1772,6 @@ function initCanvas() {
     dc.lineJoin = 'round';
     dc.miterLimit = 10;
     
-    resetBgCanvas();
     setPenStyle();
     updateEraserHintSize();
     updateCanvasTransform();
@@ -1693,6 +1809,43 @@ function clampCanvasPosition() {
     const eps = 0.001;
     state.canvasX = Math.max(state.moveBound.minX - eps, Math.min(state.moveBound.maxX + eps, state.canvasX));
     state.canvasY = Math.max(state.moveBound.minY - eps, Math.min(state.moveBound.maxY + eps, state.canvasY));
+}
+
+// 获取当前可见区域（Canvas 坐标系）
+function getVisibleRect() {
+    const scale = state.scale || 1;
+    const screenW = DRAW_CONFIG.screenW;
+    const screenH = DRAW_CONFIG.screenH;
+    
+    // 计算可见区域在 Canvas 坐标系中的位置
+    let visibleX = Math.max(0, -state.canvasX / scale);
+    let visibleY = Math.max(0, -state.canvasY / scale);
+    let visibleW = Math.min(DRAW_CONFIG.canvasW - visibleX, screenW / scale);
+    let visibleH = Math.min(DRAW_CONFIG.canvasH - visibleY, screenH / scale);
+    
+    // 添加边距，避免边缘裁剪问题
+    const padding = 10;
+    visibleX = Math.max(0, visibleX - padding);
+    visibleY = Math.max(0, visibleY - padding);
+    visibleW = Math.min(DRAW_CONFIG.canvasW - visibleX, visibleW + padding * 2);
+    visibleH = Math.min(DRAW_CONFIG.canvasH - visibleY, visibleH + padding * 2);
+    
+    return {
+        x: visibleX,
+        y: visibleY,
+        width: visibleW,
+        height: visibleH
+    };
+}
+
+// 检查笔画是否在可见区域内
+function isStrokeVisible(stroke, visibleRect) {
+    if (!stroke.bounds) return true;
+    
+    return !(stroke.bounds.maxX < visibleRect.x ||
+             stroke.bounds.minX > visibleRect.x + visibleRect.width ||
+             stroke.bounds.maxY < visibleRect.y ||
+             stroke.bounds.minY > visibleRect.y + visibleRect.height);
 }
 
 // 绑定所有事件
@@ -2031,20 +2184,6 @@ function initTriangleSlider(wrapper, thumb, valueLabel, minValue, maxValue, init
     updateThumbPosition();
 }
 
-// 更新界面模糊效果
-function updateBlurEffect(enabled) {
-    const blurElements = document.querySelectorAll('.toolbar-left, .toolbar-center, .toolbar-right, .pen-control-panel, .settings-panel, .sidebar, .menu-popup');
-    blurElements.forEach(element => {
-        if (enabled) {
-            element.style.backdropFilter = 'blur(10px)';
-            element.style.webkitBackdropFilter = 'blur(10px)';
-        } else {
-            element.style.backdropFilter = 'none';
-            element.style.webkitBackdropFilter = 'none';
-        }
-    });
-}
-
 // RGB转十六进制颜色
 function rgbToHex(r, g, b) {
     return '#' + [r, g, b].map(x => {
@@ -2237,6 +2376,7 @@ function handlePointerDown(e) {
         state.isDragging = true;
         state.startDragX = e.clientX - state.canvasX;
         state.startDragY = e.clientY - state.canvasY;
+        dom.canvasWrapper.classList.add('dragging');
         dom.drawCanvas.classList.add('dragging');
     } else if (state.drawMode === 'comment') {
         hidePenControlPanel();
@@ -2324,6 +2464,7 @@ function handlePointerMove(e) {
 async function handlePointerUp(e) {
     if (state.isDragging) {
         state.isDragging = false;
+        dom.canvasWrapper.classList.remove('dragging');
         dom.drawCanvas.classList.remove('dragging');
     }
     if (state.isDrawing) {
@@ -2370,6 +2511,7 @@ function handleMouseDown(e) {
         state.isDragging = true;
         state.startDragX = e.clientX - state.canvasX;
         state.startDragY = e.clientY - state.canvasY;
+        dom.canvasWrapper.classList.add('dragging');
         dom.drawCanvas.classList.add('dragging');
     } else if (state.drawMode === 'comment') {
         hidePenControlPanel();
@@ -2460,6 +2602,7 @@ async function flushDrawPoints() {
 async function handleMouseUp(e) {
     if (state.isDragging) {
         state.isDragging = false;
+        dom.canvasWrapper.classList.remove('dragging');
         dom.drawCanvas.classList.remove('dragging');
     }
     if (state.isDrawing) {
@@ -2472,6 +2615,7 @@ async function handleMouseUp(e) {
 async function handleMouseLeave(e) {
     if (state.isDragging) {
         state.isDragging = false;
+        dom.canvasWrapper.classList.remove('dragging');
         dom.drawCanvas.classList.remove('dragging');
     }
     if (state.isDrawing) {
@@ -2484,7 +2628,8 @@ async function handleMouseLeave(e) {
 function handleWheel(e) {
     e.preventDefault();
     const delta = e.deltaY > 0 ? -0.1 : 0.1;
-    const newScale = Math.max(DRAW_CONFIG.minScale, Math.min(DRAW_CONFIG.maxScale, state.scale + delta));
+    const maxScale = state.isCameraOpen ? DRAW_CONFIG.maxScaleCamera : DRAW_CONFIG.maxScaleImage;
+    const newScale = Math.max(DRAW_CONFIG.minScale, Math.min(maxScale, state.scale + delta));
     
     if (newScale !== state.scale) {
         const containerRect = dom.canvasContainer.getBoundingClientRect();
@@ -2527,6 +2672,8 @@ function handleTouchStart(e) {
             state.isDragging = true;
             state.startDragX = touch.clientX - state.canvasX;
             state.startDragY = touch.clientY - state.canvasY;
+            dom.canvasWrapper.classList.add('dragging');
+            dom.drawCanvas.classList.add('dragging');
         } else if (state.drawMode === 'comment') {
             state.isDrawing = true;
             state.lastX = (touch.clientX - rect.left) / getSafeScale();
@@ -2549,6 +2696,7 @@ function handleTouchStart(e) {
         state.startScaleY = (touches[0].clientY + touches[1].clientY) / 2;
         state.startCanvasX = state.canvasX;
         state.startCanvasY = state.canvasY;
+        dom.canvasWrapper.classList.add('dragging');
     }
 }
 
@@ -2621,7 +2769,8 @@ function handleTouchMove(e) {
         const currentDistance = getTouchDistance(touches[0], touches[1]);
         const scaleRatio = currentDistance / state.startDistance;
         let newScale = state.startScale * scaleRatio;
-        newScale = Math.max(DRAW_CONFIG.minScale, Math.min(DRAW_CONFIG.maxScale, newScale));
+        const maxScale = state.isCameraOpen ? DRAW_CONFIG.maxScaleCamera : DRAW_CONFIG.maxScaleImage;
+        newScale = Math.max(DRAW_CONFIG.minScale, Math.min(maxScale, newScale));
         
         const centerX = (touches[0].clientX + touches[1].clientX) / 2;
         const centerY = (touches[0].clientY + touches[1].clientY) / 2;
@@ -2634,19 +2783,13 @@ function handleTouchMove(e) {
         updateMoveBound();
         clampCanvasPosition();
         
-        // 直接更新容器 transform，提高跟手性
-        const transform = `translate(${state.canvasX}px, ${state.canvasY}px) scale(${state.scale})`;
-        dom.canvasWrapper.style.transform = transform;
+        // 使用节流更新 transform
+        scheduleTransformUpdate(state.canvasX, state.canvasY, state.scale);
         
         // 更新 video 元素
         if (dom.cameraVideo && state.isCameraOpen && state.isCameraReady) {
             updateCameraVideoStyle();
         }
-        
-        // 更新 lastCanvasTransform
-        lastCanvasTransform.x = state.canvasX;
-        lastCanvasTransform.y = state.canvasY;
-        lastCanvasTransform.scale = state.scale;
     }
 }
 
@@ -2656,6 +2799,8 @@ async function handleTouchEnd(e) {
     if (e.touches.length === 0) {
         state.isDragging = false;
         state.isScaling = false;
+        dom.canvasWrapper.classList.remove('dragging');
+        dom.drawCanvas.classList.remove('dragging');
         
         if (state.isDrawing) {
             state.isDrawing = false;
@@ -2683,110 +2828,6 @@ function getTouchDistance(touch1, touch2) {
     return Math.max(1, Math.sqrt(dx * dx + dy * dy));
 }
 
-let lastCanvasTransform = { x: null, y: null, scale: null };
-let lastAppliedDpr = null;
-let dprAdjustDebounce = null;
-let isDprAdjusting = false;
-let pendingDprRequest = null;
-let currentAnimationId = null;
-
-function calculateAdaptiveDpr(scale) {
-    if (!DRAW_CONFIG.dynamicResolution) {
-        return DRAW_CONFIG.baseDpr;
-    }
-    
-    const baseDpr = DRAW_CONFIG.baseDpr;
-    
-    // 放大时大幅提高DPR，确保清晰度
-    if (scale >= DRAW_CONFIG.scaleThresholdUltra) {
-        return Math.min(baseDpr * 2.5, 5);
-    } else if (scale >= DRAW_CONFIG.scaleThresholdHigh) {
-        return Math.min(baseDpr * 2, 4);
-    } else if (scale > 1.2) {
-        return Math.min(baseDpr * 1.5, 3);
-    } else {
-        return baseDpr;
-    }
-}
-
-async function adjustCanvasResolution(newDpr) {
-    if (newDpr === lastAppliedDpr || isDprAdjusting) {
-        pendingDprRequest = newDpr;
-        return;
-    }
-    
-    isDprAdjusting = true;
-    lastAppliedDpr = newDpr;
-    DRAW_CONFIG.dpr = newDpr;
-    
-    const hasStrokes = state.strokeHistory.length > 0 || state.baseImageObj;
-    const hasImage = state.currentImage !== null;
-    const hasCamera = state.isCameraOpen && state.cameraStream;
-    
-    dom.bgCanvas.width = DRAW_CONFIG.canvasW * newDpr;
-    dom.bgCanvas.height = DRAW_CONFIG.canvasH * newDpr;
-    dom.bgCtx.setTransform(1, 0, 0, 1, 0, 0);
-    dom.bgCtx.scale(newDpr, newDpr);
-    dom.bgCtx.imageSmoothingEnabled = true;
-    dom.bgCtx.imageSmoothingQuality = 'high';
-    resetBgCanvas();
-    
-    // 摄像头层使用较低DPR，大幅降低GPU开销
-    const imageDpr = hasCamera ? 1 : newDpr;
-    dom.imageCanvas.width = DRAW_CONFIG.canvasW * imageDpr;
-    dom.imageCanvas.height = DRAW_CONFIG.canvasH * imageDpr;
-    dom.imageCtx.setTransform(1, 0, 0, 1, 0, 0);
-    dom.imageCtx.scale(imageDpr, imageDpr);
-    dom.imageCtx.imageSmoothingEnabled = true;
-    dom.imageCtx.imageSmoothingQuality = 'medium';
-    
-    if (hasImage) {
-        drawImageToCenter(state.currentImage);
-    } else if (hasCamera) {
-        renderFrame();
-    }
-    
-    dom.drawCanvas.width = DRAW_CONFIG.canvasW * newDpr;
-    dom.drawCanvas.height = DRAW_CONFIG.canvasH * newDpr;
-    dom.drawCtx.setTransform(1, 0, 0, 1, 0, 0);
-    dom.drawCtx.scale(newDpr, newDpr);
-    dom.drawCtx.imageSmoothingEnabled = true;
-    dom.drawCtx.imageSmoothingQuality = 'high';
-    dom.drawCtx.lineCap = 'round';
-    dom.drawCtx.lineJoin = 'round';
-    dom.drawCtx.miterLimit = 10;
-    
-    if (hasStrokes) {
-        await redrawAllStrokes();
-    }
-    
-    console.log(`动态分辨率调整: DPR ${newDpr.toFixed(2)}, 缩放 ${state.scale.toFixed(2)}`);
-    
-    isDprAdjusting = false;
-    
-    if (pendingDprRequest && pendingDprRequest !== newDpr) {
-        const pending = pendingDprRequest;
-        pendingDprRequest = null;
-        requestAnimationFrame(() => adjustCanvasResolution(pending));
-    }
-}
-
-function scheduleDprAdjustment(scale) {
-    if (!DRAW_CONFIG.dynamicResolution) return;
-    
-    if (dprAdjustDebounce) {
-        clearTimeout(dprAdjustDebounce);
-    }
-    
-    // 缩放停止 500ms 后才调整分辨率，避免缩放过程中频繁调整
-    dprAdjustDebounce = setTimeout(() => {
-        const newDpr = calculateAdaptiveDpr(scale);
-        if (newDpr !== DRAW_CONFIG.dpr) {
-            adjustCanvasResolution(newDpr);
-        }
-    }, 500);
-}
-
 function updateCanvasTransform() {
     if (lastCanvasTransform.x === state.canvasX && 
         lastCanvasTransform.y === state.canvasY && 
@@ -2806,8 +2847,6 @@ function updateCanvasTransform() {
     if (dom.cameraVideo && state.isCameraOpen && state.isCameraReady) {
         updateCameraVideoStyle();
     }
-    
-    scheduleDprAdjustment(state.scale);
 }
 
 function animateCanvasTransform(targetX, targetY, targetScale, duration = 250) {
@@ -2860,8 +2899,6 @@ function animateCanvasTransform(targetX, targetY, targetScale, duration = 250) {
         } else {
             currentAnimationId = null;
             dom.canvasWrapper.classList.remove('smooth-transform');
-            
-            scheduleDprAdjustment(state.scale);
         }
     }
     
@@ -3057,7 +3094,13 @@ function pointToSegmentDistance(px, py, x1, y1, x2, y2) {
 }
 
 async function redrawAllStrokes(dirtyRect = null) {
+    const startTime = performance.now();
     const ctx = dom.drawCtx;
+    
+    // 获取可见区域，用于过滤不可见的笔画
+    const visibleRect = getVisibleRect();
+    
+    console.log(`[重绘] 可见区域: (${visibleRect.x.toFixed(0)}, ${visibleRect.y.toFixed(0)}) ${visibleRect.width.toFixed(0)}x${visibleRect.height.toFixed(0)}, 缩放: ${state.scale.toFixed(2)}`);
     
     // 如果有脏区域，只清除和重绘该区域
     if (dirtyRect) {
@@ -3068,14 +3111,20 @@ async function redrawAllStrokes(dirtyRect = null) {
         ctx.clip();
         ctx.clearRect(x, y, width, height);
     } else {
-        ctx.clearRect(0, 0, DRAW_CONFIG.canvasW, DRAW_CONFIG.canvasH);
+        // 优化：只清除可见区域
+        ctx.clearRect(visibleRect.x, visibleRect.y, visibleRect.width, visibleRect.height);
     }
     
     if (state.baseImageObj) {
         if (dirtyRect) {
             ctx.drawImage(state.baseImageObj, 0, 0, DRAW_CONFIG.canvasW, DRAW_CONFIG.canvasH);
         } else {
-            ctx.drawImage(state.baseImageObj, 0, 0, DRAW_CONFIG.canvasW, DRAW_CONFIG.canvasH);
+            // 优化：只绘制可见区域
+            ctx.drawImage(
+                state.baseImageObj,
+                visibleRect.x, visibleRect.y, visibleRect.width, visibleRect.height,
+                visibleRect.x, visibleRect.y, visibleRect.width, visibleRect.height
+            );
         }
     }
     
@@ -3086,7 +3135,7 @@ async function redrawAllStrokes(dirtyRect = null) {
         return;
     }
     
-    // 过滤出需要重绘的笔画（在脏区域内或有交集）
+    // 过滤出需要重绘的笔画（在脏区域内或有交集，且在可见区域内）
     let strokesToRedraw = state.strokeHistory;
     if (dirtyRect) {
         // 使用四叉树空间索引快速查询
@@ -3096,6 +3145,15 @@ async function redrawAllStrokes(dirtyRect = null) {
         }
         strokesToRedraw = Array.from(strokeQuadTree.query(dirtyRect));
     }
+    
+    // 进一步过滤：只保留可见区域内的笔画
+    strokesToRedraw = strokesToRedraw.filter(stroke => isStrokeVisible(stroke, visibleRect));
+    
+    const totalStrokes = state.strokeHistory.length;
+    const visibleStrokes = strokesToRedraw.length;
+    const savedPercent = totalStrokes > 0 ? ((1 - visibleStrokes / totalStrokes) * 100).toFixed(1) : 0;
+    
+    console.log(`[重绘] 笔画: ${visibleStrokes}/${totalStrokes} (节省 ${savedPercent}%)`);
     
     // 分离可变线宽笔画和固定线宽笔画
     const eraseStrokes = [];
@@ -3223,6 +3281,9 @@ async function redrawAllStrokes(dirtyRect = null) {
     if (dirtyRect) {
         ctx.restore();
     }
+    
+    const endTime = performance.now();
+    console.log(`[重绘] 完成，耗时: ${(endTime - startTime).toFixed(2)}ms`);
 }
 
 async function drawEraserStroke(stroke) {
@@ -3548,17 +3609,6 @@ class BatchDrawManager {
         const distance = Math.sqrt(Math.pow(toX - fromX, 2) + Math.pow(toY - fromY, 2));
         if (distance < this.minDistance) {
             return; // 跳过太近的点
-        }
-        
-        // 如果启用了真实笔触效果且有可变线宽，使用可变线宽模式
-        if (DRAW_CONFIG.realPenEffect && fromWidth !== null && toWidth !== null) {
-            this.variableWidthCommands.push({
-                type,
-                fromX, fromY, toX, toY,
-                color,
-                fromWidth, toWidth
-            });
-            return;
         }
         
         // 生成状态键
@@ -4134,12 +4184,6 @@ function clearAllDrawings() {
     console.log('清空所有批注');
 }
 
-function resetBgCanvas() {
-    dom.bgCtx.clearRect(0, 0, DRAW_CONFIG.canvasW, DRAW_CONFIG.canvasH);
-    dom.bgCtx.fillStyle = '#3a3a3a';
-    dom.bgCtx.fillRect(0, 0, DRAW_CONFIG.canvasW, DRAW_CONFIG.canvasH);
-}
-
 // 拍照功能
 function takePhoto() {
     if (state.isCameraOpen) {
@@ -4236,7 +4280,10 @@ function saveMergedCanvas() {
     const offscreen = getOffscreenCanvas();
     const mergedCtx = offscreen.ctx;
     
-    mergedCtx.drawImage(dom.bgCanvas, 0, 0, DRAW_CONFIG.canvasW, DRAW_CONFIG.canvasH);
+    // 填充背景色
+    mergedCtx.fillStyle = '#3a3a3a';
+    mergedCtx.fillRect(0, 0, DRAW_CONFIG.canvasW, DRAW_CONFIG.canvasH);
+    
     mergedCtx.drawImage(dom.imageCanvas, 0, 0, DRAW_CONFIG.canvasW, DRAW_CONFIG.canvasH);
     mergedCtx.drawImage(dom.drawCanvas, 0, 0, DRAW_CONFIG.canvasW, DRAW_CONFIG.canvasH);
     
@@ -4608,7 +4655,7 @@ function expandSidebar() {
     console.log('展开侧边栏');
 }
 
-function selectImage(index) {
+async function selectImage(index) {
     if (index < 0 || index >= state.imageList.length) return;
     
     if (index === state.currentImageIndex && state.currentImage) {
@@ -4676,28 +4723,18 @@ function selectImage(index) {
         };
     }
     
+    // 使用源ID管理系统切换
+    const imgData = state.imageList[index];
+    if (imgData.sourceId) {
+        await switchToSource(imgData.sourceId);
+    }
+    
     saveCurrentDrawData();
     saveCurrentFolderPageDrawData();
     
     state.currentImageIndex = index;
     state.currentFolderIndex = -1;
     state.currentFolderPageIndex = -1;
-    
-    const imgData = state.imageList[index];
-    
-    if (imgData.viewState) {
-        state.scale = imgData.viewState.scale;
-        state.canvasX = imgData.viewState.canvasX;
-        state.canvasY = imgData.viewState.canvasY;
-        updateMoveBound();
-        updateCanvasTransform();
-    } else {
-        state.scale = 1;
-        state.canvasX = -(DRAW_CONFIG.canvasW - DRAW_CONFIG.screenW) / 2;
-        state.canvasY = -(DRAW_CONFIG.canvasH - DRAW_CONFIG.screenH) / 2;
-        updateMoveBound();
-        updateCanvasTransform();
-    }
     
     const img = new Image();
     img.onload = async () => {
@@ -4708,7 +4745,7 @@ function selectImage(index) {
         }
         drawImageToCenter(img);
         
-        await restoreDrawData(index);
+        await redrawAllStrokes();
         updateSidebarSelection();
         updatePhotoButtonState();
         updateEnhanceButtonState();
@@ -5048,18 +5085,24 @@ function selectFolderPage(folderIndex, pageIndex) {
             
             const page = folder.pages[pageIndex];
             
-            if (page.viewState) {
-                state.scale = page.viewState.scale;
-                state.canvasX = page.viewState.canvasX;
-                state.canvasY = page.viewState.canvasY;
-                updateMoveBound();
-                updateCanvasTransform();
+            // 使用源ID管理系统切换
+            if (page.sourceId) {
+                await switchToSource(page.sourceId);
             } else {
-                state.scale = 1;
-                state.canvasX = -(DRAW_CONFIG.canvasW - DRAW_CONFIG.screenW) / 2;
-                state.canvasY = -(DRAW_CONFIG.canvasH - DRAW_CONFIG.screenH) / 2;
-                updateMoveBound();
-                updateCanvasTransform();
+                // 兼容旧数据
+                if (page.viewState) {
+                    state.scale = page.viewState.scale;
+                    state.canvasX = page.viewState.canvasX;
+                    state.canvasY = page.viewState.canvasY;
+                    updateMoveBound();
+                    updateCanvasTransform();
+                } else {
+                    state.scale = 1;
+                    state.canvasX = -(DRAW_CONFIG.canvasW - DRAW_CONFIG.screenW) / 2;
+                    state.canvasY = -(DRAW_CONFIG.canvasH - DRAW_CONFIG.screenH) / 2;
+                    updateMoveBound();
+                    updateCanvasTransform();
+                }
             }
             
             const img = new Image();
@@ -5069,7 +5112,14 @@ function selectFolderPage(folderIndex, pageIndex) {
                 state.currentFolderIndex = folderIndex;
                 state.currentFolderPageIndex = pageIndex;
                 drawImageToCenter(img);
-                await restoreFolderPageDrawData(folderIndex, pageIndex);
+                
+                // 如果有源ID，数据已经通过 switchToSource 加载
+                if (!page.sourceId) {
+                    await restoreFolderPageDrawData(folderIndex, pageIndex);
+                } else {
+                    await redrawAllStrokes();
+                }
+                
                 updateFolderPageSelection(folderIndex, pageIndex);
                 updatePhotoButtonState();
                 updateEnhanceButtonState();
@@ -5303,7 +5353,10 @@ function importPDF() {
                     isWord: true
                 };
                 
-                folder.pages = await processPdfPagesParallel(pdf, totalPages);
+                sourceIdCounters.doc++;  // 增加文档计数器
+                const docNumber = sourceIdCounters.doc;
+                
+                folder.pages = await processPdfPagesParallel(pdf, totalPages, 4, docNumber);
                 
                 state.fileList.push(folder);
                 updateFileSidebarContent();
@@ -5316,10 +5369,16 @@ function importPDF() {
                 if (folder.pages.length > 0) {
                     const firstPage = folder.pages[0];
                     const img = new Image();
-                    img.onload = () => {
+                    img.onload = async () => {
                         state.currentImage = img;
                         state.currentFolderIndex = state.fileList.length - 1;
                         state.currentFolderPageIndex = 0;
+                        
+                        // 切换到新源ID
+                        if (firstPage.sourceId) {
+                            await switchToSource(firstPage.sourceId);
+                        }
+                        
                         drawImageToCenter(img);
                         updatePhotoButtonState();
                         updateEnhanceButtonState();
@@ -5368,7 +5427,10 @@ function importPDF() {
                     pages: []
                 };
                 
-                folder.pages = await processPdfPagesParallel(pdf, totalPages);
+                sourceIdCounters.doc++;  // 增加文档计数器
+                const docNumber = sourceIdCounters.doc;
+                
+                folder.pages = await processPdfPagesParallel(pdf, totalPages, 4, docNumber);
                 
                 state.fileList.push(folder);
                 updateFileSidebarContent();
@@ -5381,10 +5443,16 @@ function importPDF() {
                 if (folder.pages.length > 0) {
                     const firstPage = folder.pages[0];
                     const img = new Image();
-                    img.onload = () => {
+                    img.onload = async () => {
                         state.currentImage = img;
                         state.currentFolderIndex = state.fileList.length - 1;
                         state.currentFolderPageIndex = 0;
+                        
+                        // 切换到新源ID
+                        if (firstPage.sourceId) {
+                            await switchToSource(firstPage.sourceId);
+                        }
+                        
                         drawImageToCenter(img);
                         updatePhotoButtonState();
                         updateEnhanceButtonState();
@@ -5535,6 +5603,9 @@ async function setCameraState(open, options = {}) {
         }
         
         try {
+            // 保存当前源数据
+            saveCurrentSourceData();
+            
             let constraints;
             
             if (state.defaultCameraId) {
@@ -5575,6 +5646,9 @@ async function setCameraState(open, options = {}) {
             }
             
             state.isCameraOpen = true;
+            
+            // 切换到摄像头源ID
+            await switchToSource('cam');
             
             // 重置图片索引，避免摄像头的批注被错误保存到图片
             state.currentImageIndex = -1;
@@ -5628,14 +5702,27 @@ async function setCameraState(open, options = {}) {
         updatePhotoButtonState();
         updateEnhanceButtonState();
         
+        // 保存摄像头数据
+        saveCurrentSourceData();
+        
+        // 恢复之前的数据
         if (state.currentImage && state.currentImageIndex >= 0) {
+            const imgData = state.imageList[state.currentImageIndex];
+            if (imgData && imgData.sourceId) {
+                await switchToSource(imgData.sourceId);
+            }
             drawImageToCenter(state.currentImage);
-            await restoreDrawData(state.currentImageIndex);
         } else if (state.currentImage && state.currentFolderIndex >= 0 && state.currentFolderPageIndex >= 0) {
+            const folder = state.fileList[state.currentFolderIndex];
+            const page = folder.pages[state.currentFolderPageIndex];
+            if (page && page.sourceId) {
+                await switchToSource(page.sourceId);
+            }
             drawImageToCenter(state.currentImage);
-            await restoreFolderPageDrawData(state.currentFolderIndex, state.currentFolderPageIndex);
         } else {
             clearImageLayer();
+            clearDrawCanvas();
+            state.strokeHistory = [];
         }
         
         console.log('摄像头已关闭');
@@ -5739,6 +5826,12 @@ function createCameraVideo() {
     };
 }
 
+// 缓存上次 video 样式的值，避免不必要的 DOM 更新
+let lastVideoStyleCache = {
+    drawW: 0, drawH: 0, offsetX: 0, offsetY: 0,
+    rotation: -1, isMirrored: null
+};
+
 function updateCameraVideoStyle() {
     const video = dom.cameraVideo;
     if (!video) return;
@@ -5770,16 +5863,31 @@ function updateCameraVideoStyle() {
         drawW = screenH * videoRatio;
     }
     
-    video.style.width = drawW + 'px';
-    video.style.height = drawH + 'px';
-    video.style.left = '0px';
-    video.style.top = '0px';
-    
     // 计算 video 在 canvas 中的居中偏移
     const canvasW = DRAW_CONFIG.canvasW;
     const canvasH = DRAW_CONFIG.canvasH;
     const offsetX = (canvasW - drawW) / 2;
     const offsetY = (canvasH - drawH) / 2;
+    
+    // 检查是否有变化，避免不必要的 DOM 更新
+    const styleChanged = 
+        lastVideoStyleCache.drawW !== drawW ||
+        lastVideoStyleCache.drawH !== drawH ||
+        lastVideoStyleCache.offsetX !== offsetX ||
+        lastVideoStyleCache.offsetY !== offsetY ||
+        lastVideoStyleCache.rotation !== rotation ||
+        lastVideoStyleCache.isMirrored !== state.isMirrored;
+    
+    if (!styleChanged) return;
+    
+    // 更新缓存
+    lastVideoStyleCache = { drawW, drawH, offsetX, offsetY, rotation, isMirrored: state.isMirrored };
+    
+    // 只在值变化时更新 DOM
+    video.style.width = drawW + 'px';
+    video.style.height = drawH + 'px';
+    video.style.left = '0px';
+    video.style.top = '0px';
     
     // video 只需要设置额外偏移，容器已经应用了主要的 transform
     let videoTransform = `translate(${offsetX}px, ${offsetY}px)`;
@@ -6096,7 +6204,8 @@ async function addImageToList(img, name, isLast = true) {
         height: img.height,
         strokeHistory: null,
         baseImageURL: null,
-        viewState: null
+        viewState: null,
+        sourceId: generateSourceId('pic')  // 分配源ID
     };
     
     state.imageList.push(imgData);
@@ -6104,6 +6213,9 @@ async function addImageToList(img, name, isLast = true) {
     state.currentImage = img;
     state.currentFolderIndex = -1;
     state.currentFolderPageIndex = -1;
+    
+    // 切换到新源ID
+    await switchToSource(imgData.sourceId);
     
     clearDrawCanvas();
     state.strokeHistory = [];
