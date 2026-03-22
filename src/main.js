@@ -5466,16 +5466,15 @@ function updateCameraVideoStyle() {
     const rotation = state.cameraRotation;
     const isRotated = rotation === 90 || rotation === 270;
     
-    // 旋转时交换宽高
-    const effectiveVideoW = isRotated ? videoH : videoW;
-    const effectiveVideoH = isRotated ? videoW : videoH;
+    // 视频原始比例
+    const videoRatio = videoW / videoH;
     
-    // 在 100% 缩放时，video 适应屏幕高度
+    // 屏幕比例
     const screenW = DRAW_CONFIG.screenW;
     const screenH = DRAW_CONFIG.screenH;
-    const videoRatio = effectiveVideoW / effectiveVideoH;
     const screenRatio = screenW / screenH;
     
+    // 计算视频在屏幕上的显示大小（基于原始比例）
     let drawW, drawH;
     if (videoRatio > screenRatio) {
         drawW = screenW;
@@ -5485,13 +5484,13 @@ function updateCameraVideoStyle() {
         drawW = screenH * videoRatio;
     }
     
-    // 计算 video 在 canvas 中的居中偏移
+    // 计算居中偏移
     const canvasW = DRAW_CONFIG.canvasW;
     const canvasH = DRAW_CONFIG.canvasH;
     const offsetX = (canvasW - drawW) / 2;
     const offsetY = (canvasH - drawH) / 2;
     
-    // 检查是否有变化，避免不必要的 DOM 更新
+    // 检查是否有变化
     const styleChanged = 
         lastVideoStyleCache.drawW !== drawW ||
         lastVideoStyleCache.drawH !== drawH ||
@@ -5505,27 +5504,25 @@ function updateCameraVideoStyle() {
     // 更新缓存
     lastVideoStyleCache = { drawW, drawH, offsetX, offsetY, rotation, isMirrored: state.isMirrored };
     
-    // 只在值变化时更新 DOM
+    // 设置 video 元素大小 - 始终使用 drawW x drawH
     video.style.width = drawW + 'px';
     video.style.height = drawH + 'px';
-    video.style.left = '0px';
-    video.style.top = '0px';
+    video.style.left = offsetX + 'px';
+    video.style.top = offsetY + 'px';
     
-    // video 只需要设置额外偏移，容器已经应用了主要的 transform
-    let videoTransform = `translate(${offsetX}px, ${offsetY}px)`;
+    // 简单变换：只需要旋转和镜像，位置由 left/top 控制
+    let transforms = [];
     
-    // 镜像
-    if (state.isMirrored) {
-        videoTransform += ' scaleX(-1)';
-    }
-    
-    // 旋转
     if (rotation !== 0) {
-        videoTransform += ` rotate(${rotation}deg)`;
+        transforms.push(`rotate(${rotation}deg)`);
     }
     
-    video.style.transform = videoTransform;
-    video.style.transformOrigin = '0 0';
+    if (state.isMirrored) {
+        transforms.push('scaleX(-1)');
+    }
+    
+    video.style.transform = transforms.join(' ');
+    video.style.transformOrigin = 'center center';
 }
 
 function startCameraPreview() {
