@@ -430,6 +430,12 @@ document.addEventListener('DOMContentLoaded', async () => {
                     highFrameRateToggle.checked = settings.highFrameRate || false;
                 }
                 
+                // 简化UI设置
+                const simplifiedUIToggle = document.getElementById('simplifiedUIToggle');
+                if (simplifiedUIToggle) {
+                    simplifiedUIToggle.checked = settings.simplifiedUI || false;
+                }
+                
                 // 默认旋转角度设置
                 const defaultRotationSelected = document.getElementById('defaultRotationSelected');
                 const defaultRotationOptionsContainer = document.getElementById('defaultRotationOptions');
@@ -840,6 +846,14 @@ document.addEventListener('DOMContentLoaded', async () => {
                     restartModal.classList.add('active');
                 }
             }
+        });
+    }
+    
+    // 简化UI开关
+    const simplifiedUIToggle = document.getElementById('simplifiedUIToggle');
+    if (simplifiedUIToggle) {
+        simplifiedUIToggle.addEventListener('change', async () => {
+            await saveSettings({ simplifiedUI: simplifiedUIToggle.checked });
         });
     }
     

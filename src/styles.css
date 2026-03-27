@@ -307,8 +307,10 @@ body {
 
 .sidebar-thumbnail {
     width: 100%;
-    height: auto;
+    aspect-ratio: 16 / 9;
+    object-fit: contain;
     display: block;
+    background: rgba(40, 40, 40, 0.9);
 }
 
 .sidebar-image-actions {
