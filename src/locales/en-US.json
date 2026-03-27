@@ -67,6 +67,7 @@
     "importSettings": "Import Settings",
     "resetApp": "Reset App",
     "canvasScale": "Canvas Scale",
+    "backgroundColor": "Canvas Background Color",
     "dprLimit": "Device Pixel Ratio Limit",
     "highFrameRate": "High Frame Rate Drawing",
     "highFrameRateHint": "May cause performance issues on low-end computers",

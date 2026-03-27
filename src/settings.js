@@ -348,6 +348,22 @@ document.addEventListener('DOMContentLoaded', async () => {
                 const dprSelected = document.getElementById('dprSelected');
                 const dprOptionsContainer = document.getElementById('dprOptions');
                 
+                // 画布背景颜色设置
+                const bgColorSelected = document.getElementById('bgColorSelected');
+                const bgColorOptionsContainer = document.getElementById('bgColorOptions');
+                if (bgColorSelected && bgColorOptionsContainer) {
+                    const savedBgColor = settings.canvasBgColor || '#2a2a2a';
+                    const bgColorOptions = bgColorOptionsContainer.querySelectorAll('.select-option');
+                    bgColorOptions.forEach(option => {
+                        if (option.dataset.value === savedBgColor) {
+                            bgColorSelected.textContent = option.textContent;
+                            option.classList.add('selected');
+                        } else {
+                            option.classList.remove('selected');
+                        }
+                    });
+                }
+                
                 if (canvasScaleSlider && canvasScaleValue) {
                     const savedCanvasScale = settings.canvasScale || 2;
                     canvasScaleSlider.value = savedCanvasScale;
@@ -729,6 +745,38 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Canvas 参数设置 - 画布缩放倍数
     const canvasScaleSlider = document.getElementById('canvasScaleSlider');
     const canvasScaleValue = document.getElementById('canvasScaleValue');
+    
+    // 画布背景颜色选择
+    const bgColorSelect = document.getElementById('bgColorSelect');
+    const bgColorSelected = document.getElementById('bgColorSelected');
+    
+    if (bgColorSelect && bgColorSelected) {
+        bgColorSelected.addEventListener('click', () => {
+            bgColorSelect.classList.toggle('open');
+        });
+        
+        document.addEventListener('click', (e) => {
+            if (!bgColorSelect.contains(e.target)) {
+                bgColorSelect.classList.remove('open');
+            }
+        });
+        
+        bgColorSelect.addEventListener('click', async (e) => {
+            const option = e.target.closest('.select-option');
+            if (!option) return;
+            
+            const value = option.dataset.value;
+            bgColorSelected.textContent = option.textContent;
+            
+            const bgColorOptions = bgColorSelect.querySelectorAll('.select-option');
+            bgColorOptions.forEach(opt => opt.classList.remove('selected'));
+            option.classList.add('selected');
+            
+            bgColorSelect.classList.remove('open');
+            
+            await saveSettings({ canvasBgColor: value });
+        });
+    }
     
     if (canvasScaleSlider && canvasScaleValue) {
         canvasScaleSlider.addEventListener('input', () => {

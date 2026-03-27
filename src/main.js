@@ -119,6 +119,7 @@ const DRAW_CONFIG = {
     enhanceSharpen: 0,             // 增强锐化 (0-100)
     imageSmoothingQuality: 'high', // 图像平滑质量
     baseDpr: Math.min(window.devicePixelRatio || 1, 2), // 基础设备像素比
+    canvasBgColor: '#2a2a2a',      // 画布背景颜色
     penColors: [                   // 画笔颜色列表
         '#3498db', '#2ecc71', '#e74c3c', '#f39c12', '#9b59b6',
         '#1abc9c', '#34495e', '#e91e63', '#00bcd4', '#8bc34a',
@@ -666,6 +667,13 @@ async function loadCameraSetting() {
                 }
                 console.log('已加载高帧率绘制设置:', settings.highFrameRate);
             }
+            
+            // 加载画布背景颜色设置
+            if (settings.canvasBgColor) {
+                DRAW_CONFIG.canvasBgColor = settings.canvasBgColor;
+                updateCanvasBgColor(settings.canvasBgColor);
+                console.log('已加载画布背景颜色:', settings.canvasBgColor);
+            }
         } catch (error) {
             console.error('加载摄像头设置失败:', error);
         }
@@ -823,6 +831,13 @@ function listenForPdfFileOpen() {
             });
             updateColorButtons();
             console.log('画笔颜色已更改:', DRAW_CONFIG.penColors);
+        }
+        
+        // 画布背景颜色更改
+        if (settings.canvasBgColor) {
+            DRAW_CONFIG.canvasBgColor = settings.canvasBgColor;
+            updateCanvasBgColor(settings.canvasBgColor);
+            console.log('画布背景颜色已更改:', settings.canvasBgColor);
         }
         
         if (needRestartCamera && state.isCameraOpen) {
@@ -1485,10 +1500,21 @@ function initCanvas() {
     setPenStyle();
     updateEraserHintSize();
     updateCanvasTransform();
+    updateCanvasBgColor(DRAW_CONFIG.canvasBgColor);
     
     dom.btnMove.classList.add('primary-btn');
     
     console.log(`画布初始化: 屏幕 ${screenW}x${screenH}, 画布 ${DRAW_CONFIG.canvasW}x${DRAW_CONFIG.canvasH}`);
+}
+
+// 更新画布背景颜色
+function updateCanvasBgColor(color) {
+    if (dom.canvasContainer) {
+        dom.canvasContainer.style.backgroundColor = color;
+    }
+    if (dom.canvasWrapper) {
+        dom.canvasWrapper.style.backgroundColor = color;
+    }
 }
 
 // 计算画布移动边界 (缩放后)

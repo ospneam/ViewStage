@@ -67,6 +67,7 @@
     "importSettings": "匯入設定",
     "resetApp": "重置應用",
     "canvasScale": "畫布縮放倍數",
+    "backgroundColor": "畫布背景顏色",
     "dprLimit": "設備像素比限制",
     "highFrameRate": "批註高幀率繪製",
     "highFrameRateHint": "低階電腦可能導致效能異常",
