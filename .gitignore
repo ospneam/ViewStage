@@ -32,3 +32,4 @@ src/wasm/
 .venv/
 DexiNed/
 cache/
+model/
