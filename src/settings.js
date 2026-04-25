@@ -467,6 +467,54 @@ document.addEventListener('DOMContentLoaded', async () => {
                     showDocScanButtonToggle.checked = settings.showDocScanButton !== false;
                 }
                 
+                // 扫描质量设置
+                const scanQualitySelected = document.getElementById('scanQualitySelected');
+                const scanQualityOptionsContainer = document.getElementById('scanQualityOptions');
+                if (scanQualitySelected && scanQualityOptionsContainer) {
+                    const savedScanQuality = settings.scanQuality || 'standard';
+                    const scanQualityOptions = scanQualityOptionsContainer.querySelectorAll('.select-option');
+                    scanQualityOptions.forEach(option => {
+                        if (option.dataset.value === savedScanQuality) {
+                            scanQualitySelected.textContent = option.textContent;
+                            option.classList.add('selected');
+                        } else {
+                            option.classList.remove('selected');
+                        }
+                    });
+                }
+                
+                // 扫描模式设置
+                const scanModeSelected = document.getElementById('scanModeSelected');
+                const scanModeOptionsContainer = document.getElementById('scanModeOptions');
+                if (scanModeSelected && scanModeOptionsContainer) {
+                    const savedScanMode = settings.scanMode || 'auto';
+                    const scanModeOptions = scanModeOptionsContainer.querySelectorAll('.select-option');
+                    scanModeOptions.forEach(option => {
+                        if (option.dataset.value === savedScanMode) {
+                            scanModeSelected.textContent = option.textContent;
+                            option.classList.add('selected');
+                        } else {
+                            option.classList.remove('selected');
+                        }
+                    });
+                }
+                
+                // 增强模式设置
+                const enhanceModeSelected = document.getElementById('enhanceModeSelected');
+                const enhanceModeOptionsContainer = document.getElementById('enhanceModeOptions');
+                if (enhanceModeSelected && enhanceModeOptionsContainer) {
+                    const savedEnhanceMode = settings.enhanceMode || 'auto';
+                    const enhanceModeOptions = enhanceModeOptionsContainer.querySelectorAll('.select-option');
+                    enhanceModeOptions.forEach(option => {
+                        if (option.dataset.value === savedEnhanceMode) {
+                            enhanceModeSelected.textContent = option.textContent;
+                            option.classList.add('selected');
+                        } else {
+                            option.classList.remove('selected');
+                        }
+                    });
+                }
+                
                 // 主题设置
                 const themeSelected = document.getElementById('themeSelected');
                 const themeOptionsContainer = document.getElementById('themeOptions');
@@ -919,6 +967,99 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (showDocScanButtonToggle) {
         showDocScanButtonToggle.addEventListener('change', async () => {
             await saveSettings({ showDocScanButton: showDocScanButtonToggle.checked });
+        });
+    }
+    
+    // 扫描质量选择
+    const scanQualitySelect = document.getElementById('scanQualitySelect');
+    const scanQualitySelected = document.getElementById('scanQualitySelected');
+    if (scanQualitySelect && scanQualitySelected) {
+        scanQualitySelected.addEventListener('click', () => {
+            scanQualitySelect.classList.toggle('open');
+        });
+        
+        document.addEventListener('click', (e) => {
+            if (!scanQualitySelect.contains(e.target)) {
+                scanQualitySelect.classList.remove('open');
+            }
+        });
+        
+        scanQualitySelect.addEventListener('click', async (e) => {
+            const option = e.target.closest('.select-option');
+            if (!option) return;
+            
+            const value = option.dataset.value;
+            scanQualitySelected.textContent = option.textContent;
+            
+            const scanQualityOptions = scanQualitySelect.querySelectorAll('.select-option');
+            scanQualityOptions.forEach(opt => opt.classList.remove('selected'));
+            option.classList.add('selected');
+            
+            scanQualitySelect.classList.remove('open');
+            
+            await saveSettings({ scanQuality: value });
+        });
+    }
+    
+    // 扫描模式选择
+    const scanModeSelect = document.getElementById('scanModeSelect');
+    const scanModeSelected = document.getElementById('scanModeSelected');
+    if (scanModeSelect && scanModeSelected) {
+        scanModeSelected.addEventListener('click', () => {
+            scanModeSelect.classList.toggle('open');
+        });
+        
+        document.addEventListener('click', (e) => {
+            if (!scanModeSelect.contains(e.target)) {
+                scanModeSelect.classList.remove('open');
+            }
+        });
+        
+        scanModeSelect.addEventListener('click', async (e) => {
+            const option = e.target.closest('.select-option');
+            if (!option) return;
+            
+            const value = option.dataset.value;
+            scanModeSelected.textContent = option.textContent;
+            
+            const scanModeOptions = scanModeSelect.querySelectorAll('.select-option');
+            scanModeOptions.forEach(opt => opt.classList.remove('selected'));
+            option.classList.add('selected');
+            
+            scanModeSelect.classList.remove('open');
+            
+            await saveSettings({ scanMode: value });
+        });
+    }
+    
+    // 增强模式选择
+    const enhanceModeSelect = document.getElementById('enhanceModeSelect');
+    const enhanceModeSelected = document.getElementById('enhanceModeSelected');
+    if (enhanceModeSelect && enhanceModeSelected) {
+        enhanceModeSelected.addEventListener('click', () => {
+            enhanceModeSelect.classList.toggle('open');
+        });
+        
+        document.addEventListener('click', (e) => {
+            if (!enhanceModeSelect.contains(e.target)) {
+                enhanceModeSelect.classList.remove('open');
+            }
+        });
+        
+        enhanceModeSelect.addEventListener('click', async (e) => {
+            const option = e.target.closest('.select-option');
+            if (!option) return;
+            
+            const value = option.dataset.value;
+            enhanceModeSelected.textContent = option.textContent;
+            
+            const enhanceModeOptions = enhanceModeSelect.querySelectorAll('.select-option');
+            enhanceModeOptions.forEach(opt => opt.classList.remove('selected'));
+            option.classList.add('selected');
+            
+            enhanceModeSelect.classList.remove('open');
+            
+            await saveSettings({ enhanceMode: value });
         });
     }
     

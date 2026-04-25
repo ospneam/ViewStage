@@ -328,66 +328,116 @@
                 </div>
                 
                 <div class="page" id="pageResources">
-                    <h2 class="page-title" data-i18n="settings.docScanModels">文档扫描模型</h2>
+                    <h2 class="page-title" data-i18n="settings.docScan">文档扫描</h2>
                     
-                    <div class="setting-item">
-                        <span class="setting-label" data-i18n="settings.showDocScanButton">显示文档扫描按钮</span>
-                        <label class="toggle-switch">
-                            <input type="checkbox" id="showDocScanButtonToggle" checked>
-                            <span class="toggle-slider"></span>
-                        </label>
-                    </div>
-                    
-                    <div class="setting-item">
-                        <span class="setting-label">DBNet 文本检测模型</span>
-                        <div style="display: flex; flex-direction: column; gap: 10px; width: 100%;">
-                            <div style="display: flex; align-items: center; gap: 10px;">
-                                <span id="dbnetModelStatus" style="color: #888; font-size: 12px;">检查中...</span>
-                                <button class="btn-action" id="btnDownloadDbnetModel" style="display: none;">下载</button>
-                                <button class="btn-action" id="btnDeleteDbnetModel" style="display: none; background: #e74c3c;">删除</button>
-                            </div>
-                            <div id="downloadProgress" style="display: none; width: 100%;">
-                                <div style="background: #ecf0f1; border-radius: 4px; height: 20px; overflow: hidden;">
-                                    <div id="downloadProgressBar" style="background: #3498db; height: 100%; width: 0%; transition: width 0.3s;"></div>
+                    <div class="setting-section">
+                        <h3 class="section-title" data-i18n="settings.docScanBasic">基本设置</h3>
+                        
+                        <div class="setting-item">
+                            <span class="setting-label" data-i18n="settings.showDocScanButton">显示文档扫描按钮</span>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="showDocScanButtonToggle" checked>
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        
+                        <div class="setting-item">
+                            <span class="setting-label" data-i18n="settings.scanQuality">扫描质量</span>
+                            <div class="custom-select" id="scanQualitySelect">
+                                <div class="select-selected" id="scanQualitySelected">标准</div>
+                                <div class="select-options" id="scanQualityOptions">
+                                    <div class="select-option" data-value="standard" data-i18n="settings.scanQualityStandard">标准</div>
+                                    <div class="select-option" data-value="high" data-i18n="settings.scanQualityHigh">高质量</div>
+                                    <div class="select-option" data-value="ultra" data-i18n="settings.scanQualityUltra">超高质量</div>
                                 </div>
-                                <div id="downloadProgressText" style="color: #888; font-size: 12px; margin-top: 5px;">0%</div>
                             </div>
-                            <div style="color: #888; font-size: 12px; margin-top: 5px;">
-                                DBNet 文本检测模型（约54MB），用于文档扫描功能。相比EAST模型，体积更小、速度更快、精度更高。支持中英文文本检测。
+                        </div>
+                        
+                        <div class="setting-item">
+                            <span class="setting-label" data-i18n="settings.scanMode">扫描模式</span>
+                            <div class="custom-select" id="scanModeSelect">
+                                <div class="select-selected" id="scanModeSelected">自动</div>
+                                <div class="select-options" id="scanModeOptions">
+                                    <div class="select-option" data-value="auto" data-i18n="settings.scanModeAuto">自动</div>
+                                    <div class="select-option" data-value="manual" data-i18n="settings.scanModeManual">手动</div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="setting-item">
+                            <span class="setting-label" data-i18n="settings.enhanceMode">增强模式</span>
+                            <div class="custom-select" id="enhanceModeSelect">
+                                <div class="select-selected" id="enhanceModeSelected">自动</div>
+                                <div class="select-options" id="enhanceModeOptions">
+                                    <div class="select-option" data-value="auto" data-i18n="settings.enhanceModeAuto">自动</div>
+                                    <div class="select-option" data-value="text" data-i18n="settings.enhanceModeText">文本增强</div>
+                                    <div class="select-option" data-value="photo" data-i18n="settings.enhanceModePhoto">照片增强</div>
+                                    <div class="select-option" data-value="none" data-i18n="settings.enhanceModeNone">无增强</div>
+                                </div>
                             </div>
                         </div>
                     </div>
                     
-                    <div class="setting-item">
-                        <span class="setting-label">DexiNed 文档边界检测模型</span>
-                        <div style="display: flex; flex-direction: column; gap: 10px; width: 100%;">
-                            <div style="display: flex; align-items: center; gap: 10px;">
-                                <span id="dexinedModelStatus" style="color: #888; font-size: 12px;">检查中...</span>
-                                <button class="btn-action" id="btnImportDexinedModel" style="display: none;">导入</button>
-                                <button class="btn-action" id="btnDeleteDexinedModel" style="display: none; background: #e74c3c;">删除</button>
+                    <div class="setting-section">
+                        <h3 class="section-title" data-i18n="settings.docScanModels">模型管理</h3>
+                        
+                        <div class="model-card">
+                            <div class="model-header">
+                                <span class="model-name">DBNet 文本检测模型</span>
+                                <span class="model-status" id="dbnetModelStatus">检查中...</span>
                             </div>
-                            <div style="color: #888; font-size: 12px; margin-top: 5px;">
-                                DexiNed 边缘检测模型（ONNX格式），用于检测文档边界并进行透视矫正。安装后文档扫描将优先使用此模型。点击"导入"选择 <code>dexined_mbv4.onnx</code> 文件。
+                            <div class="model-content">
+                                <div class="model-actions">
+                                    <button class="btn-action" id="btnDownloadDbnetModel" style="display: none;">下载</button>
+                                    <button class="btn-action delete" id="btnDeleteDbnetModel" style="display: none;">删除</button>
+                                </div>
+                                <div class="model-progress" id="downloadProgress" style="display: none;">
+                                    <div class="progress-bar">
+                                        <div class="progress-fill" id="downloadProgressBar"></div>
+                                    </div>
+                                    <div class="progress-text" id="downloadProgressText">0%</div>
+                                </div>
+                                <div class="model-description">
+                                    DBNet 文本检测模型（约54MB），用于文档扫描功能。相比EAST模型，体积更小、速度更快、精度更高。支持中英文文本检测。
+                                </div>
                             </div>
                         </div>
-                    </div>
-                    
-                    <div class="setting-item">
-                        <span class="setting-label">UVDoc 文档矫正模型</span>
-                        <div style="display: flex; flex-direction: column; gap: 10px; width: 100%;">
-                            <div style="display: flex; align-items: center; gap: 10px;">
-                                <span id="uvdocModelStatus" style="color: #888; font-size: 12px;">检查中...</span>
-                                <button class="btn-action" id="btnDownloadUvdocModel" style="display: none;">下载</button>
-                                <button class="btn-action" id="btnDeleteUvdocModel" style="display: none; background: #e74c3c;">删除</button>
+                        
+                        <div class="model-card">
+                            <div class="model-header">
+                                <span class="model-name">DexiNed 文档边界检测模型</span>
+                                <span class="model-status" id="dexinedModelStatus">检查中...</span>
                             </div>
-                            <div id="uvdocDownloadProgress" style="display: none; width: 100%;">
-                                <div style="background: #ecf0f1; border-radius: 4px; height: 20px; overflow: hidden;">
-                                    <div id="uvdocDownloadProgressBar" style="background: #3498db; height: 100%; width: 0%; transition: width 0.3s;"></div>
+                            <div class="model-content">
+                                <div class="model-actions">
+                                    <button class="btn-action" id="btnImportDexinedModel" style="display: none;">导入</button>
+                                    <button class="btn-action delete" id="btnDeleteDexinedModel" style="display: none;">删除</button>
                                 </div>
-                                <div id="uvdocDownloadProgressText" style="color: #888; font-size: 12px; margin-top: 5px;">0%</div>
+                                <div class="model-description">
+                                    DexiNed 边缘检测模型（ONNX格式），用于检测文档边界并进行透视矫正。安装后文档扫描将优先使用此模型。点击"导入"选择 <code>dexined_mbv4.onnx</code> 文件。
+                                </div>
                             </div>
-                            <div style="color: #888; font-size: 12px; margin-top: 5px;">
-                                UVDoc 文档扭曲矫正模型（约30MB），用于矫正弯曲、折叠的文档图像。
+                        </div>
+                        
+                        <div class="model-card">
+                            <div class="model-header">
+                                <span class="model-name">UVDoc 文档矫正模型</span>
+                                <span class="model-status" id="uvdocModelStatus">检查中...</span>
+                            </div>
+                            <div class="model-content">
+                                <div class="model-actions">
+                                    <button class="btn-action" id="btnDownloadUvdocModel" style="display: none;">下载</button>
+                                    <button class="btn-action delete" id="btnDeleteUvdocModel" style="display: none;">删除</button>
+                                </div>
+                                <div class="model-progress" id="uvdocDownloadProgress" style="display: none;">
+                                    <div class="progress-bar">
+                                        <div class="progress-fill" id="uvdocDownloadProgressBar"></div>
+                                    </div>
+                                    <div class="progress-text" id="uvdocDownloadProgressText">0%</div>
+                                </div>
+                                <div class="model-description">
+                                    UVDoc 文档扭曲矫正模型（约30MB），用于矫正弯曲、折叠的文档图像。
+                                </div>
                             </div>
                         </div>
                     </div>

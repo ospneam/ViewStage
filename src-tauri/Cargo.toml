@@ -42,5 +42,4 @@ ort = { version = "2.0.0-rc.10", features = ["ndarray", "directml"] }
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.52"
-opencv = { version = "0.98", features = ["dnn", "imgproc", "photo"], default-features = false }
 

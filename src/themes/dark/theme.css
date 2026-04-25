@@ -148,8 +148,8 @@
     flex: none;
     transition: background 0.3s ease;
     width: 180px;
-    height: 87vh;
-    max-height: 87vh;
+    height: calc(100vh - 120px);
+    max-height: calc(100vh - 120px);
     overflow-y: auto;
     position: absolute;
     right: 10px;
