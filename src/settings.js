@@ -1811,11 +1811,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     });
 
-    const btnCheckUpdate = document.getElementById('btnCheckUpdate');
-    if (btnCheckUpdate) {
-        btnCheckUpdate.addEventListener('click', () => {
+    const btnUpdate = document.getElementById('btnUpdate');
+    if (btnUpdate) {
+        btnUpdate.addEventListener('click', () => {
             showPage('pageUpdate');
-            checkForUpdate();
+            loadUpdatePage();
         });
     }
 
@@ -1828,82 +1828,157 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     }
 
-    async function checkForUpdate() {
-        const updateStatus = document.getElementById('updateStatus');
-        const updateInfo = document.getElementById('updateInfo');
-        const updateIcon = document.querySelector('.update-icon');
-        const latestVersionEl = document.getElementById('latestVersion');
-        
-        if (updateIcon) {
-            updateIcon.style.animation = 'spin 2s linear infinite';
+    // 更新页面元素
+    const updateCurrentVersion = document.getElementById('updateCurrentVersion');
+    const updateReleaseNotesContent = document.getElementById('updateReleaseNotesContent');
+    const updateDownloadProgress = document.getElementById('updateDownloadProgress');
+    const updateProgressBar = document.getElementById('updateProgressBar');
+    const updateProgressText = document.getElementById('updateProgressText');
+    const btnCheckUpdate = document.getElementById('btnCheckUpdate');
+    const btnUpdateDownload = document.getElementById('btnUpdateDownload');
+    const updateStatus = document.getElementById('updateStatus');
+    const useMirrorToggle = document.getElementById('useMirrorToggle');
+
+    let latestReleaseData = null;
+    let useMirror = false;
+
+    if (useMirrorToggle) {
+        const savedMirror = localStorage.getItem('useMirror');
+        if (savedMirror === 'true') {
+            useMirror = true;
+            useMirrorToggle.checked = true;
         }
-        
-        if (updateStatus) {
-            updateStatus.textContent = window.i18n?.t('settings.checkingUpdate') || '正在检查更新...';
-        }
-        
-        if (updateInfo) {
-            updateInfo.style.display = 'none';
-        }
-        
+
+        useMirrorToggle.addEventListener('change', () => {
+            useMirror = useMirrorToggle.checked;
+            localStorage.setItem('useMirror', useMirror.toString());
+        });
+    }
+
+    async function loadUpdatePage() {
+        if (!window.__TAURI__) return;
+
+        const { invoke } = window.__TAURI__.core;
+        const currentVersion = await invoke('get_app_version');
+        updateCurrentVersion.textContent = currentVersion;
+
+        updateReleaseNotesContent.textContent = i18n.t('settings.checkingForUpdates') || '正在检查更新...';
+        btnCheckUpdate.disabled = true;
+        btnUpdateDownload.style.display = 'none';
+        updateStatus.textContent = '';
+
         try {
-            if (window.__TAURI__) {
-                const { invoke } = window.__TAURI__.core;
-                
-                const release = await invoke('check_update');
-                const currentVersion = await invoke('get_app_version');
-                
-                const latestVersion = release.tag_name.replace(/^v/, '');
-                
-                if (latestVersionEl) {
-                    latestVersionEl.textContent = latestVersion;
-                }
-                
-                if (updateIcon) {
-                    updateIcon.style.animation = 'none';
-                }
-                
-                if (currentVersion === latestVersion) {
-                    if (updateStatus) {
-                        updateStatus.textContent = window.i18n?.t('settings.latestVersion') || '已是最新版本';
-                    }
-                } else {
-                    if (updateStatus) {
-                        const newText = window.i18n?.t('settings.newVersionFound') || '发现新版本';
-                        updateStatus.innerHTML = `${newText} <a href="#" id="downloadLink" style="color: #3498db; cursor: pointer;">${latestVersion}</a>`;
-                        
-                        const downloadLink = document.getElementById('downloadLink');
-                        if (downloadLink && release.html_url) {
-                            downloadLink.addEventListener('click', (e) => {
-                                e.preventDefault();
-                                window.__TAURI__.opener.openUrl(release.html_url);
-                            });
-                        }
-                    }
-                }
-                
-                if (updateInfo) {
-                    updateInfo.style.display = 'block';
-                }
-            } else {
-                if (updateIcon) {
-                    updateIcon.style.animation = 'none';
-                }
-                if (updateStatus) {
-                    updateStatus.textContent = '请在应用中检查更新';
-                }
+            const result = await invoke('check_update');
+            const release = result.release;
+            const currentRelease = result.current_release;
+
+            btnCheckUpdate.disabled = false;
+
+            let releaseNotes = '';
+
+            if (currentRelease) {
+                const currentNotes = currentRelease.body || `版本 ${currentVersion}`;
+                releaseNotes += `【当前版本: v${currentVersion}】\n${currentNotes}\n\n`;
             }
+
+            if (!release) {
+                releaseNotes += i18n.t('settings.alreadyLatest') || '当前已是最新版本';
+                updateStatus.textContent = i18n.t('settings.alreadyLatest') || '当前已是最新版本';
+                updateStatus.className = 'update-status status-latest';
+                latestReleaseData = null;
+            } else {
+                latestReleaseData = release;
+                
+                const latestNotes = release.body || '暂无更新日志';
+                releaseNotes += `【最新版本: v${latestReleaseData.tag_name.replace(/^v/, '')}】\n${latestNotes}`;
+
+                const size = release.assets && release.assets.length > 0 ? release.assets[0].size : 0;
+                const sizeText = size > 0 ? formatFileSize(size) : '';
+                if (sizeText) {
+                    releaseNotes += `\n\n${i18n.t('settings.fileSize') || '文件大小'}: ${sizeText}`;
+                }
+
+                updateStatus.textContent = i18n.t('settings.updateAvailable') || '发现新版本';
+                updateStatus.className = 'update-status status-available';
+                btnUpdateDownload.style.display = 'inline-block';
+            }
+
+            updateReleaseNotesContent.textContent = releaseNotes;
         } catch (error) {
             console.error('检查更新失败:', error);
-            
-            if (updateIcon) {
-                updateIcon.style.animation = 'none';
-            }
-            
-            if (updateStatus) {
-                    updateStatus.textContent = window.i18n?.t('settings.updateCheckFailed') || '检查更新失败';
-                }
+            updateReleaseNotesContent.textContent = i18n.t('settings.updateCheckFailedDetail') || '检查更新失败，请稍后重试';
+            updateStatus.textContent = i18n.t('settings.updateCheckFailedDetail') || '检查更新失败，请稍后重试';
+            updateStatus.className = 'update-status status-error';
+            btnCheckUpdate.disabled = false;
+            latestReleaseData = null;
         }
+    }
+
+    function formatFileSize(bytes) {
+        if (bytes === 0) return '0 B';
+        const k = 1024;
+        const sizes = ['B', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    }
+
+    if (btnCheckUpdate) {
+        btnCheckUpdate.addEventListener('click', async () => {
+            await loadUpdatePage();
+        });
+    }
+
+    if (btnUpdateDownload) {
+        btnUpdateDownload.addEventListener('click', async () => {
+            if (!latestReleaseData || !latestReleaseData.assets || latestReleaseData.assets.length === 0) return;
+
+            const { invoke } = window.__TAURI__.core;
+            const { getCurrentWindow } = window.__TAURI__.window;
+
+            const asset = latestReleaseData.assets[0];
+            const downloadUrl = asset.browser_download_url;
+            const fileName = asset.name;
+
+            btnUpdateDownload.disabled = true;
+            btnUpdateDownload.textContent = i18n.t('settings.downloading') || '正在下载...';
+            updateDownloadProgress.style.display = 'block';
+            updateProgressBar.style.width = '0%';
+            updateProgressText.textContent = '0%';
+
+            try {
+                const currentWindow = getCurrentWindow();
+
+                const unlisten = await currentWindow.listen('update-download-progress', (event) => {
+                    const progress = event.payload;
+                    updateProgressBar.style.width = progress + '%';
+                    updateProgressText.textContent = i18n.t('settings.downloadingUpdate', { percent: Math.round(progress) }) || `正在下载 ${Math.round(progress)}%`;
+                });
+
+                const downloadPath = await invoke('download_update', { url: downloadUrl, fileName: fileName, useMirror: useMirror });
+
+                unlisten();
+
+                updateDownloadProgress.style.display = 'none';
+                btnUpdateDownload.style.display = 'none';
+                updateStatus.textContent = i18n.t('settings.downloadComplete') || '下载完成';
+                updateStatus.className = 'update-status status-success';
+
+                const restartModal = document.getElementById('restartModal');
+                const restartModalMessage = restartModal?.querySelector('.modal-message');
+                if (restartModalMessage) {
+                    restartModalMessage.textContent = i18n.t('settings.restartToUpdate') || '更新包已下载完成，请重启应用以完成更新。';
+                }
+                if (restartModal) {
+                    restartModal.classList.add('active');
+                }
+            } catch (error) {
+                console.error('下载更新失败:', error);
+                updateDownloadProgress.style.display = 'none';
+                btnUpdateDownload.disabled = false;
+                btnUpdateDownload.textContent = i18n.t('settings.downloadUpdate') || '下载更新';
+                showSettingsDialog(i18n.t('settings.downloadFailed') || '下载失败', String(error), 'error');
+            }
+        });
     }
 
     const linkGithub = document.getElementById('linkGithub');

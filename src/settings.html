@@ -464,9 +464,9 @@
                             <span class="link-icon">📄</span>
                             <span data-i18n="settings.openSource">开源许可</span>
                         </a>
-                        <button class="link-item" id="btnCheckUpdate">
+                        <button class="link-item" id="btnUpdate">
                             <span class="link-icon">↻</span>
-                            <span data-i18n="settings.checkUpdate">检查更新</span>
+                            <span data-i18n="settings.update">更新</span>
                         </button>
                     </div>
                     <div class="about-copyright">
@@ -475,15 +475,39 @@
                 </div>
                 
                 <div class="page" id="pageUpdate">
+                    <div class="update-header">
+                        <button class="btn-back" id="btnBackToAbout" title="返回">←</button>
+                    </div>
                     <div class="update-container">
-                        <div class="update-icon">↻</div>
-                        <h2 class="update-title" data-i18n="settings.checkUpdate">检查更新</h2>
-                        <p class="update-status" id="updateStatus" data-i18n="settings.checkingUpdate">正在检查更新...</p>
-                        <div class="update-info" id="updateInfo" style="display: none;">
-                            <p data-i18n="settings.version">当前版本: <span id="currentVersion">...</span></p>
-                            <p data-i18n="settings.version">最新版本: <span id="latestVersion">...</span></p>
+                        <div class="update-settings">
+                            <div class="setting-item">
+                                <span class="setting-label" data-i18n="settings.useMirror">使用国内镜像下载</span>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="useMirrorToggle">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </div>
                         </div>
-                        <button class="btn-back" id="btnBackToAbout" data-i18n="common.back">返回</button>
+                        <div class="update-version-info">
+                            <span class="version-label" data-i18n="settings.currentVersion">当前版本</span>
+                            <span class="version-value" id="updateCurrentVersion">...</span>
+                        </div>
+                        <div class="update-release-notes" id="updateReleaseNotes">
+                            <div class="release-notes-content" id="updateReleaseNotesContent">
+                                点击"检查更新"查看更新内容...
+                            </div>
+                        </div>
+                        <div class="update-download-progress" id="updateDownloadProgress" style="display: none;">
+                            <div class="progress-bar">
+                                <div class="progress-fill" id="updateProgressBar"></div>
+                            </div>
+                            <div class="progress-text" id="updateProgressText">0%</div>
+                        </div>
+                        <div class="update-actions">
+                            <button class="btn-action btn-update" id="btnCheckUpdate" data-i18n="settings.checkUpdate">检查更新</button>
+                            <button class="btn-action btn-update-download" id="btnUpdateDownload" style="display: none;" data-i18n="settings.downloadUpdate">下载更新</button>
+                        </div>
+                        <div class="update-status" id="updateStatus"></div>
                     </div>
                 </div>
             </div>

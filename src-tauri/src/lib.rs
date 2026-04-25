@@ -988,10 +988,19 @@ fn get_app_version() -> String {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+struct GitHubAsset {
+    name: String,
+    browser_download_url: String,
+    size: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct GitHubRelease {
     tag_name: String,
     name: Option<String>,
     html_url: String,
+    body: Option<String>,
+    assets: Vec<GitHubAsset>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1000,6 +1009,7 @@ struct UpdateCheckResult {
     current_version: String,
     latest_version: String,
     release: Option<GitHubRelease>,
+    current_release: Option<GitHubRelease>,
 }
 
 fn parse_version(version: &str) -> Option<(u32, u32, u32)> {
@@ -1026,6 +1036,17 @@ fn is_newer_version(current: &str, latest: &str) -> bool {
 }
 
 fn validate_github_url(url: &str) -> Result<(), String> {
+    if url.starts_with("https://gh-proxy.com/") {
+        let original_url = url.strip_prefix("https://gh-proxy.com/").unwrap_or(url);
+        let parsed = url::Url::parse(original_url).map_err(|e| format!("Invalid URL: {}", e))?;
+        let host = parsed.host_str().unwrap_or("");
+        let valid_domains = ["github.com", "www.github.com", "api.github.com"];
+        if !valid_domains.contains(&host) {
+            return Err(format!("Invalid GitHub URL: unexpected domain {}", host));
+        }
+        return Ok(());
+    }
+
     let parsed = url::Url::parse(url).map_err(|e| format!("Invalid URL: {}", e))?;
     
     let valid_domains = ["github.com", "www.github.com", "api.github.com"];
@@ -1073,11 +1094,29 @@ async fn check_update() -> Result<UpdateCheckResult, String> {
     let latest_version = release.tag_name.trim_start_matches('v');
     let has_update = is_newer_version(current_version, latest_version);
     
+    let current_tag = format!("v{}", current_version);
+    let current_release_response = client
+        .get(&format!("https://api.github.com/repos/ospneam/ViewStage/releases/tags/{}", current_tag))
+        .send()
+        .await;
+    
+    let current_release = if current_release_response.is_ok() {
+        let resp = current_release_response.unwrap();
+        if resp.status().is_success() {
+            resp.json::<GitHubRelease>().await.ok()
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+    
     Ok(UpdateCheckResult {
         has_update,
         current_version: current_version.to_string(),
         latest_version: latest_version.to_string(),
         release: if has_update { Some(release) } else { None },
+        current_release,
     })
 }
 
@@ -1295,6 +1334,120 @@ async fn restart_app(app: tauri::AppHandle) -> Result<(), String> {
     restart_application(&app);
     
     Ok(())
+}
+
+use std::io::Write;
+
+#[tauri::command]
+async fn download_update(
+    app: tauri::AppHandle,
+    url: String,
+    file_name: String,
+    use_mirror: Option<bool>,
+) -> Result<String, String> {
+    let use_mirror = use_mirror.unwrap_or(false);
+    log::info!("开始下载更新，文件: {}, 镜像: {}", file_name, use_mirror);
+
+    validate_github_url(&url)?;
+
+    let download_url = if use_mirror {
+        let proxy_url = format!("https://gh-proxy.com/{}", url);
+        log::info!("使用镜像下载: {}", proxy_url);
+        proxy_url
+    } else {
+        log::info!("使用原始地址下载: {}", url);
+        url
+    };
+
+    let client = reqwest::Client::builder()
+        .user_agent("ViewStage")
+        .timeout(std::time::Duration::from_secs(300))
+        .build()
+        .map_err(|e| {
+            log::error!("创建 HTTP 客户端失败: {}", e);
+            e.to_string()
+        })?;
+
+    log::info!("正在发起下载请求...");
+    let response = client
+        .get(&download_url)
+        .send()
+        .await
+        .map_err(|e| {
+            log::error!("下载请求失败: {}", e);
+            format!("Network error: {}", e)
+        })?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        log::error!("下载请求失败，HTTP 状态码: {}", status);
+        return Err(format!("Download error: {}", status));
+    }
+
+    let total_size = response.content_length().unwrap_or(0);
+    log::info!("文件大小: {} bytes ({:.2} MB)", total_size, total_size as f64 / 1024.0 / 1024.0);
+
+    let app_data_dir = app.path().app_data_dir()
+        .map_err(|e| {
+            log::error!("获取应用数据目录失败: {}", e);
+            format!("Failed to get app data dir: {}", e)
+        })?;
+    
+    let updates_dir = app_data_dir.join("updates");
+    std::fs::create_dir_all(&updates_dir)
+        .map_err(|e| {
+            log::error!("创建更新目录失败: {}", e);
+            format!("Failed to create updates dir: {}", e)
+        })?;
+
+    let file_path = updates_dir.join(&file_name);
+    log::info!("保存路径: {:?}", file_path);
+
+    let mut file = std::fs::File::create(&file_path)
+        .map_err(|e| {
+            log::error!("创建文件失败: {}", e);
+            format!("Failed to create file: {}", e)
+        })?;
+
+    let mut downloaded: u64 = 0;
+    let mut stream = response.bytes_stream();
+    use futures::stream::StreamExt;
+
+    log::info!("开始接收数据...");
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|e| {
+            log::error!("读取数据块失败: {}", e);
+            format!("Failed to read chunk: {}", e)
+        })?;
+        file.write_all(&chunk)
+            .map_err(|e| {
+                log::error!("写入文件失败: {}", e);
+                format!("Failed to write file: {}", e)
+            })?;
+        
+        downloaded += chunk.len() as u64;
+        
+        if total_size > 0 {
+            let progress = (downloaded as f64 / total_size as f64) * 100.0;
+            let progress_rounded = (progress * 100.0).round() / 100.0;
+            
+            if (progress_rounded as u64) % 10 == 0 && progress_rounded > 0.01 {
+                log::debug!("下载进度: {:.1}%", progress_rounded);
+            }
+            
+            app.emit("update-download-progress", progress_rounded)
+                .unwrap_or(());
+        }
+    }
+
+    file.flush().map_err(|e| {
+        log::error!("刷新文件失败: {}", e);
+        format!("Failed to flush file: {}", e)
+    })?;
+
+    log::info!("下载完成，已保存到: {:?}", file_path);
+
+    Ok(file_path.to_string_lossy().to_string())
 }
 
 #[tauri::command]
@@ -3609,6 +3762,7 @@ pub fn run() {
             switch_camera,
             get_app_version,
             check_update,
+            download_update,
             get_settings,
             save_settings,
             reset_settings,
