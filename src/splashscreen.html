@@ -55,27 +55,36 @@
             animation: fadeIn 0.4s ease 0.1s forwards;
         }
 
-        .loading-indicator {
+        .loading-section {
             display: flex;
-            gap: 6px;
+            flex-direction: column;
+            align-items: center;
+            gap: 12px;
             opacity: 0;
             animation: fadeIn 0.4s ease 0.2s forwards;
         }
 
-        .loading-dot {
-            width: 6px;
-            height: 6px;
-            background: rgba(255, 255, 255, 0.3);
-            border-radius: 50%;
-            animation: pulse 1.2s ease-in-out infinite;
+        .loading-bar-container {
+            width: 180px;
+            height: 3px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 2px;
+            overflow: hidden;
         }
 
-        .loading-dot:nth-child(2) {
-            animation-delay: 0.15s;
+        .loading-bar {
+            width: 0%;
+            height: 100%;
+            background: rgba(255, 255, 255, 0.6);
+            border-radius: 2px;
+            transition: width 0.3s ease;
         }
 
-        .loading-dot:nth-child(3) {
-            animation-delay: 0.3s;
+        .loading-text {
+            font-size: 12px;
+            color: rgba(255, 255, 255, 0.4);
+            letter-spacing: 0.5px;
+            min-height: 16px;
         }
 
         @keyframes fadeIn {
@@ -88,17 +97,6 @@
                 transform: translateY(0);
             }
         }
-
-        @keyframes pulse {
-            0%, 100% {
-                background: rgba(255, 255, 255, 0.3);
-                transform: scale(1);
-            }
-            50% {
-                background: rgba(255, 255, 255, 0.8);
-                transform: scale(1.2);
-            }
-        }
     </style>
 </head>
 <body>
@@ -107,11 +105,61 @@
             <img src="assets/Square1024x1024Logo.png" alt="ViewStage">
         </div>
         <div class="app-name">ViewStage</div>
-        <div class="loading-indicator">
-            <div class="loading-dot"></div>
-            <div class="loading-dot"></div>
-            <div class="loading-dot"></div>
+        <div class="loading-section">
+            <div class="loading-bar-container">
+                <div class="loading-bar" id="loadingBar"></div>
+            </div>
+            <div class="loading-text" id="loadingText"></div>
         </div>
     </div>
+
+    <script>
+        const loadingBar = document.getElementById('loadingBar');
+        const loadingText = document.getElementById('loadingText');
+        
+        const { listen } = window.__TAURI__?.event || {};
+        const { invoke } = window.__TAURI__?.core || {};
+        
+        const loadingSteps = [
+            { key: 'init', text: '正在初始化...', progress: 10 },
+            { key: 'settings', text: '正在加载设置...', progress: 30 },
+            { key: 'theme', text: '正在加载主题...', progress: 50 },
+            { key: 'camera', text: '正在初始化摄像头...', progress: 70 },
+            { key: 'finalize', text: '正在完成...', progress: 90 },
+            { key: 'done', text: '', progress: 100 }
+        ];
+        
+        let currentStep = 0;
+        
+        function updateProgress(step) {
+            const stepData = loadingSteps[step];
+            if (stepData) {
+                loadingBar.style.width = stepData.progress + '%';
+                loadingText.textContent = stepData.text;
+            }
+        }
+        
+        updateProgress(0);
+        
+        if (listen) {
+            listen('splash-progress', (event) => {
+                const { step, message } = event.payload || {};
+                
+                if (step !== undefined) {
+                    updateProgress(step);
+                }
+                
+                if (message) {
+                    loadingText.textContent = message;
+                }
+            });
+        }
+        
+        setTimeout(() => {
+            if (currentStep === 0) {
+                updateProgress(1);
+            }
+        }, 300);
+    </script>
 </body>
 </html>

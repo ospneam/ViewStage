@@ -518,8 +518,17 @@ function getCachedCanvasRect() {
 // ==================== 初始化 ====================
 // 应用启动入口：DOM初始化、画布初始化、事件绑定、配置加载
 
+function emitSplashProgress(step, message) {
+    if (window.__TAURI__) {
+        const { emit } = window.__TAURI__.event;
+        emit('splash-progress', { step, message }).catch(() => {});
+    }
+}
+
 window.addEventListener('DOMContentLoaded', async () => {
     try {
+        emitSplashProgress(0, '正在初始化...');
+        
         if (window.i18n) {
             await window.i18n.init();
         }
@@ -542,9 +551,9 @@ window.addEventListener('DOMContentLoaded', async () => {
         
         window.addEventListener('resize', handleResize);
         
+        emitSplashProgress(1, '正在加载设置...');
         await initCacheDir();
         
-        // 检查并执行自动清除缓存
         try {
             const { invoke } = window.__TAURI__.core;
             const cleared = await invoke('check_auto_clear_cache');
@@ -557,7 +566,8 @@ window.addEventListener('DOMContentLoaded', async () => {
         
         await loadCameraSetting();
         
-        // 检测摄像头是否存在
+        emitSplashProgress(2, '正在加载主题...');
+        
         let hasCamera = false;
         try {
             const devices = await navigator.mediaDevices.enumerateDevices();
@@ -565,6 +575,8 @@ window.addEventListener('DOMContentLoaded', async () => {
         } catch (e) {
             console.log('无法枚举设备:', e.name);
         }
+        
+        emitSplashProgress(3, '正在初始化摄像头...');
         
         if (hasCamera) {
             try {
@@ -585,10 +597,16 @@ window.addEventListener('DOMContentLoaded', async () => {
         
         console.log('画布初始化完成');
         
-        const startupOverlay = document.getElementById('startupOverlay');
-        if (startupOverlay) {
-            startupOverlay.classList.add('hidden');
-            setTimeout(() => startupOverlay.remove(), 300);
+        emitSplashProgress(4, '正在完成...');
+        
+        emitSplashProgress(5, '');
+        
+        if (window.__TAURI__) {
+            try {
+                await invoke('close_splashscreen');
+            } catch (e) {
+                console.log('关闭启动界面失败:', e);
+            }
         }
     } catch (error) {
         console.error('初始化失败:', error);

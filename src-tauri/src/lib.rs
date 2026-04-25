@@ -1334,6 +1334,7 @@ async fn close_splashscreen(app: tauri::AppHandle) -> Result<(), String> {
     }
     if let Some(main_window) = app.get_webview_window("main") {
         let _ = main_window.show();
+        let _ = main_window.set_focus();
     }
     Ok(())
 }
@@ -3580,18 +3581,6 @@ pub fn run() {
                 }
                 
                 println!("应用已启动，等待文件打开事件...");
-                
-                let app_handle = app.handle().clone();
-                std::thread::spawn(move || {
-                    std::thread::sleep(std::time::Duration::from_millis(1000));
-                    if let Some(splashscreen) = app_handle.get_webview_window("splashscreen") {
-                        let _ = splashscreen.close();
-                    }
-                    if let Some(main_window) = app_handle.get_webview_window("main") {
-                        let _ = main_window.show();
-                        let _ = main_window.set_focus();
-                    }
-                });
             }
             
             Ok(())
