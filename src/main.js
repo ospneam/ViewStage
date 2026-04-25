@@ -831,6 +831,21 @@ function listenForPdfFileOpen() {
             console.log('文档扫描按钮显示已更改:', settings.showDocScanButton);
         }
         
+        if (settings.theme !== undefined) {
+            ThemeManager.setTheme(settings.theme).then(() => {
+                const canvasBgColor = ThemeManager.getCanvasBgColor();
+                DRAW_CONFIG.canvasBgColor = canvasBgColor;
+                updateCanvasBgColor(canvasBgColor);
+                
+                const noCameraMsg = document.getElementById('noCameraMessage');
+                if (noCameraMsg) {
+                    noCameraMsg.style.background = canvasBgColor;
+                }
+                
+                console.log('主题已更改:', settings.theme);
+            });
+        }
+        
         if (needRestartCamera && state.isCameraOpen) {
             console.log('摄像头设置已更改，重新初始化摄像头...');
             setCameraState(false).then(() => {
@@ -4980,12 +4995,14 @@ function showNoCameraMessage(message) {
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            background: rgba(30, 30, 30, 0.9);
             z-index: 10;
             pointer-events: none;
         `;
         dom.canvasContainer.appendChild(msgElement);
     }
+    
+    const bgColor = ThemeManager.getCanvasBgColor() || '#1e1e1e';
+    msgElement.style.background = bgColor;
     
     msgElement.innerHTML = `
         <div style="font-size: 2.5vw; color: #fff; margin-bottom: 2vh;">( $ _ $ )</div>

@@ -15,7 +15,7 @@
 //! - 使用 image 库进行图像处理
 
 use tauri::{Manager, Emitter};
-use image::{DynamicImage, ImageBuffer, Rgba, RgbaImage, GrayImage, Luma, Rgb, GenericImageView};
+use image::{DynamicImage, ImageBuffer, Rgba, RgbaImage, GrayImage, Luma, GenericImageView};
 use imageproc::filter::gaussian_blur_f32;
 use base64::{Engine as _, engine::general_purpose};
 
@@ -2438,7 +2438,6 @@ fn enhance_document_rust(img: &DynamicImage, grayscale: bool) -> Result<DynamicI
     // 2. 简化实现：直接使用灰度图像
     // 注意：完整的图像增强需要更复杂的实现
     let (width, height) = gray.dimensions();
-    let equalized = gray.clone();
     let binary = gray.clone();
     let sharpened = gray;
     let mut result_img = ImageBuffer::new(width, height);
