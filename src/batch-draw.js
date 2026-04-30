@@ -90,14 +90,15 @@ class RealtimeBatchDrawManager {
                 currentColor = cmd.color;
                 currentLineWidth = cmd.lineWidth;
 
+                const scale = window.getSafeScale ? window.getSafeScale() : 1;
+                
                 if (cmd.type === 'erase') {
                     ctx.globalCompositeOperation = 'destination-out';
                     ctx.strokeStyle = 'rgba(0,0,0,1)';
-                    ctx.lineWidth = cmd.lineWidth;
+                    ctx.lineWidth = cmd.lineWidth / scale;
                 } else {
                     ctx.globalCompositeOperation = 'source-over';
                     ctx.strokeStyle = cmd.color || '#3498db';
-                    const scale = window.getSafeScale ? window.getSafeScale() : 1;
                     ctx.lineWidth = cmd.lineWidth / scale;
                 }
             }
@@ -120,6 +121,7 @@ class RealtimeBatchDrawManager {
 
     _resetState() {
         this.pendingCount = 0;
+        this.pendingCommands.length = 0;
         if (this.drawRafId !== null) {
             cancelAnimationFrame(this.drawRafId);
             this.drawRafId = null;
@@ -131,6 +133,7 @@ class RealtimeBatchDrawManager {
 
     startDrawing() {
         this.pendingCount = 0;
+        this.pendingCommands.length = 0;
         this.lastDrawTime = performance.now();
         
         const ctx = this.getCtx();

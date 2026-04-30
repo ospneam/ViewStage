@@ -13,6 +13,21 @@
 
 import './batch-draw.js';
 import ThemeManager from './themes/theme.js';
+import {
+    initHistoryManager,
+    executeCommand,
+    DrawCommand,
+    EraseCommand,
+    ClearCommand,
+    SnapshotCommand,
+    canUndo,
+    undo as historyUndo,
+    clearHistory,
+    shouldCompact,
+    getCommandsToCompact,
+    compactHistory,
+    MAX_HISTORY_STEPS
+} from './history.js';
 
 // ==================== 全局变量 ====================
 let lastCanvasTransform = { x: null, y: null, scale: null };
@@ -169,11 +184,12 @@ function cloneStrokes(strokes) {
     if (!strokes || strokes.length === 0) return [];
     return strokes.map(stroke => ({
         type: stroke.type,
-        points: stroke.points ? [...stroke.points] : [],
+        points: stroke.points ? stroke.points.map(p => ({ ...p })) : [],
         color: stroke.color,
         lineWidth: stroke.lineWidth,
         eraserSize: stroke.eraserSize,
         bounds: stroke.bounds ? { ...stroke.bounds } : undefined,
+        variableWidths: stroke.variableWidths ? [...stroke.variableWidths] : null,
         savedStrokeHistory: stroke.savedStrokeHistory ? cloneStrokes(stroke.savedStrokeHistory) : undefined,
         savedBaseImageURL: stroke.savedBaseImageURL
     }));
@@ -331,8 +347,6 @@ let state = {
     baseImageObj: null,            // 基础图片 Image 对象
     baseImageLoadId: 0,            // 用于跟踪 baseImageObj 加载状态
     currentStroke: null,           // 当前正在绘制的笔画
-    MAX_UNDO_STEPS: 10,            // 最大可撤销步数
-    STROKE_COMPACT_THRESHOLD: 30,  // 触发压缩的笔画阈值
     
     // 移动边界
     moveBound: {
@@ -372,6 +386,8 @@ let state = {
     lastLineWidth: 0               // 上一个点的线宽
 };
 
+const MAX_PDF_CACHE = 10;
+
 // ==================== 源ID管理系统 ====================
 // 统一管理所有源（摄像头、图片、文档）的缩放和批注数据
 
@@ -387,6 +403,8 @@ let currentSourceId = null;
 // 统一存储结构
 let sourceDataStore = {};
 
+const MAX_SOURCE_CACHE = 50;
+
 // 生成源ID
 function generateSourceId(type, pageIndex = null) {
     if (type === 'cam') {
@@ -395,23 +413,48 @@ function generateSourceId(type, pageIndex = null) {
         sourceIdCounters.pic++;
         return `pic-${sourceIdCounters.pic}`;
     } else if (type === 'doc') {
-        if (pageIndex !== null) {
+        if (pageIndex !== null && pageIndex !== undefined) {
             return `doc-${sourceIdCounters.doc}-${pageIndex}`;
+        } else {
+            console.error('[错误] generateSourceId: 文档类型必须提供pageIndex参数');
+            sourceIdCounters.doc++;
+            return `doc-${sourceIdCounters.doc}-unknown`;
         }
     }
-    return null;
+    
+    console.error(`[错误] generateSourceId: 未知的类型参数: ${type}`);
+    return `unknown-${Date.now()}`;
 }
 
 // 保存当前源数据
 function saveCurrentSourceData() {
     if (!currentSourceId) return;
     
+    const keys = Object.keys(sourceDataStore);
+    if (keys.length >= MAX_SOURCE_CACHE && !sourceDataStore[currentSourceId]) {
+        let oldestKey = null;
+        let oldestTime = Infinity;
+        
+        for (const key of keys) {
+            if (sourceDataStore[key].timestamp < oldestTime) {
+                oldestTime = sourceDataStore[key].timestamp;
+                oldestKey = key;
+            }
+        }
+        
+        if (oldestKey) {
+            delete sourceDataStore[oldestKey];
+            console.log(`[源管理] 缓存已满,移除最旧的源: ${oldestKey}`);
+        }
+    }
+    
     sourceDataStore[currentSourceId] = {
         scale: state.scale,
         canvasX: state.canvasX,
         canvasY: state.canvasY,
         strokeHistory: cloneStrokes(state.strokeHistory),
-        baseImageURL: state.baseImageURL
+        baseImageURL: state.baseImageURL,
+        timestamp: Date.now()
     };
     
     console.log(`[源管理] 保存数据: ${currentSourceId}, 缩放: ${state.scale.toFixed(2)}, 笔画: ${state.strokeHistory.length}`);
@@ -419,16 +462,21 @@ function saveCurrentSourceData() {
 
 // 加载指定源数据
 function loadSourceData(sourceId) {
-    if (!sourceId) return;
+    if (!sourceId) {
+        console.warn('[源管理] loadSourceData: sourceId为空,跳过加载');
+        return;
+    }
     
     const data = sourceDataStore[sourceId];
     if (data) {
-        state.scale = data.scale;
-        state.canvasX = data.canvasX;
-        state.canvasY = data.canvasY;
+        state.scale = data.scale || 1;
+        state.canvasX = data.canvasX || -(DRAW_CONFIG.canvasW - DRAW_CONFIG.screenW) / 2;
+        state.canvasY = data.canvasY || -(DRAW_CONFIG.canvasH - DRAW_CONFIG.screenH) / 2;
         state.strokeHistory = cloneStrokes(data.strokeHistory || []);
-        state.baseImageURL = data.baseImageURL;
+        state.baseImageURL = data.baseImageURL || null;
         state.baseImageObj = null;
+        
+        data.timestamp = Date.now();
         
         console.log(`[源管理] 加载数据: ${sourceId}, 缩放: ${state.scale.toFixed(2)}, 笔画: ${state.strokeHistory.length}`);
     } else {
@@ -439,6 +487,7 @@ function loadSourceData(sourceId) {
         state.strokeHistory = [];
         state.baseImageURL = null;
         state.baseImageObj = null;
+        clearHistory();
         
         console.log(`[源管理] 新源初始化: ${sourceId}`);
     }
@@ -464,7 +513,7 @@ async function switchToSource(newSourceId) {
     updateMoveBound();
     clampCanvasPosition();
     updateCanvasTransform();
-    updateUndoBtnStatus();
+    updateHistoryBtnStatus();
 }
 
 let dom = {};  // DOM 元素引用缓存
@@ -546,6 +595,11 @@ window.addEventListener('DOMContentLoaded', async () => {
             throw new Error('DOM 初始化失败');
         }
         initCanvas();
+        initHistoryManager({
+            onStateChange: () => {
+                updateHistoryBtnStatus();
+            }
+        });
         bindAllEvents();
         saveSnapshot();
         
@@ -615,6 +669,12 @@ window.addEventListener('DOMContentLoaded', async () => {
             window.i18n?.t('errors.initFailedDesc') || '应用初始化失败，请刷新页面重试'
         );
     }
+});
+
+window.addEventListener('beforeunload', () => {
+    cleanupImageBlobUrls();
+    cleanupAllPdfBlobUrls();
+    console.log('页面卸载,已清理所有 Blob URL');
 });
 
 async function loadCameraSetting() {
@@ -909,13 +969,6 @@ async function processPdfPagesLazy(pdf, totalPages, initialPages = 3, docNumber 
             fullBlob: fullBlob,
             thumbnail: fullUrl,
             pageNum: pageNum,
-            strokeHistory: [],
-            baseImageURL: null,
-            viewState: {
-                scale: 1,
-                canvasX: -(DRAW_CONFIG.canvasW - DRAW_CONFIG.screenW) / 2,
-                canvasY: -(DRAW_CONFIG.canvasH - DRAW_CONFIG.screenH) / 2
-            },
             sourceId: sourceId,
             loaded: true
         };
@@ -939,13 +992,6 @@ async function processPdfPagesLazy(pdf, totalPages, initialPages = 3, docNumber 
             fullBlob: null,
             thumbnail: null,
             pageNum: i,
-            strokeHistory: [],
-            baseImageURL: null,
-            viewState: {
-                scale: 1,
-                canvasX: -(DRAW_CONFIG.canvasW - DRAW_CONFIG.screenW) / 2,
-                canvasY: -(DRAW_CONFIG.canvasH - DRAW_CONFIG.screenH) / 2
-            },
             sourceId: sourceId,
             loaded: false
         });
@@ -1029,13 +1075,6 @@ async function processPdfPagesParallel(pdf, totalPages, batchSize = 4, docNumber
             fullBlob: fullBlob,
             thumbnail: fullUrl,
             pageNum: pageNum,
-            strokeHistory: [],
-            baseImageURL: null,
-            viewState: {
-                scale: 1,
-                canvasX: -(DRAW_CONFIG.canvasW - DRAW_CONFIG.screenW) / 2,
-                canvasY: -(DRAW_CONFIG.canvasH - DRAW_CONFIG.screenH) / 2
-            },
             sourceId: sourceId
         };
     }
@@ -1057,9 +1096,10 @@ async function processPdfPagesParallel(pdf, totalPages, batchSize = 4, docNumber
 }
 
 async function loadPdfFromPath(filePath) {
-    // 先保存当前批注数据，再关闭摄像头
-    saveCurrentDrawData();
-    saveCurrentFolderPageDrawData();
+    // 保存当前批注数据
+    if (currentSourceId) {
+        saveCurrentSourceData();
+    }
     
     const wasCameraOpen = state.isCameraOpen;
     
@@ -1191,6 +1231,13 @@ async function loadPdfFromPath(filePath) {
             
             sourceIdCounters.doc++;
             const docNumber = sourceIdCounters.doc;
+            
+            if (state.pdfDocuments.size >= MAX_PDF_CACHE) {
+                const firstKey = state.pdfDocuments.keys().next().value;
+                cleanupPdfBlobUrls(firstKey);
+                state.pdfDocuments.delete(firstKey);
+                console.log(`[PDF缓存] 缓存已满,移除文档: ${firstKey}`);
+            }
             
             state.pdfDocuments.set(docNumber, pdf);
             
@@ -2046,7 +2093,8 @@ function setPenStyle() {
 
 function setEraserStyle() {
     const dc = dom.drawCtx;
-    dc.lineWidth = DRAW_CONFIG.eraserSize;
+    const scale = getSafeScale();
+    dc.lineWidth = DRAW_CONFIG.eraserSize / scale;
     dc.lineCap = 'round';
     dc.lineJoin = 'round';
     dc.miterLimit = 10;
@@ -2403,7 +2451,6 @@ async function handleMouseUp(e) {
     if (state.isDrawing) {
         state.isDrawing = false;
         endDrawingMode();
-        await batchDrawManager.endDrawing();
         await endStroke();
     }
 }
@@ -2417,7 +2464,6 @@ async function handleMouseLeave(e) {
     if (state.isDrawing) {
         state.isDrawing = false;
         endDrawingMode();
-        await batchDrawManager.endDrawing();
         await endStroke();
     }
 }
@@ -2735,14 +2781,16 @@ async function endStroke() {
         if (state.currentStroke.type === 'erase') {
             await processEraserStroke(state.currentStroke);
         } else {
-            // 钢笔模式：直接保存笔画，不需要复杂的点优化
-            state.strokeHistory.push(state.currentStroke);
+            const cmd = new DrawCommand({
+                stroke: state.currentStroke,
+                strokeHistoryRef: state.strokeHistory,
+                redrawFn: () => redrawAllStrokes()
+            });
+            await executeCommand(cmd);
             
-            if (state.strokeHistory.length > state.STROKE_COMPACT_THRESHOLD) {
-                compactStrokes();
+            if (shouldCompact()) {
+                scheduleCompact();
             }
-            
-            updateUndoBtnStatus();
         }
     }
     state.currentStroke = null;
@@ -2752,17 +2800,16 @@ async function endStroke() {
     batchDrawManager.clear();
 }
 
-/**
- * 处理橡皮擦笔画 - 只在实际擦除到内容时记录步骤
- */
 async function processEraserStroke(eraserStroke) {
-    // 检测橡皮擦路径是否与现有笔画相交
     const hasIntersection = checkEraserIntersection(eraserStroke);
     
-    // 只有实际擦除到内容时才记录撤销步骤
     if (hasIntersection) {
-        state.strokeHistory.push(eraserStroke);
-        updateUndoBtnStatus();
+        const cmd = new EraseCommand({
+            stroke: eraserStroke,
+            strokeHistoryRef: state.strokeHistory,
+            redrawFn: () => redrawAllStrokes()
+        });
+        await executeCommand(cmd);
         console.log('橡皮擦擦除了内容，记录撤销步骤');
     } else {
         console.log('橡皮擦未擦除到内容，不记录撤销步骤');
@@ -2773,6 +2820,11 @@ async function processEraserStroke(eraserStroke) {
  * 检测橡皮擦是否与现有笔画相交
  */
 function checkEraserIntersection(eraserStroke) {
+    // 如果有 baseImageObj，橡皮擦一定能擦除到内容
+    if (state.baseImageObj) {
+        return true;
+    }
+    
     if (state.strokeHistory.length === 0) {
         return false; // 没有任何笔画，肯定不相交
     }
@@ -2787,8 +2839,8 @@ function checkEraserIntersection(eraserStroke) {
     
     // 遍历所有现有笔画（不包括橡皮擦笔画）
     for (const stroke of state.strokeHistory) {
-        if (stroke.type === 'erase' || stroke.type === 'clear') {
-            continue; // 跳过橡皮擦和清空操作
+        if (stroke.type === 'erase') {
+            continue; // 跳过橡皮擦笔画
         }
         
         const points = stroke.points;
@@ -2901,127 +2953,143 @@ async function redrawAllStrokes(dirtyRect = null) {
     // 进一步过滤：只保留可见区域内的笔画
     strokesToRedraw = strokesToRedraw.filter(stroke => isStrokeVisible(stroke, visibleRect));
     
-    const eraseStrokes = [];
-    const variableWidthStrokes = [];
-    const fixedWidthStrokes = new Map();
-    
-    for (const stroke of strokesToRedraw) {
-        if (stroke.type === 'erase') {
-            eraseStrokes.push(stroke);
-        } else if (stroke.type === 'draw' || stroke.type === 'comment') {
-            // 检查是否有可变线宽数据
-            if (stroke.variableWidths && stroke.variableWidths.length > 0) {
-                variableWidthStrokes.push(stroke);
-            } else {
-                const stateKey = `${stroke.color || DRAW_CONFIG.penColor}-${stroke.lineWidth || DRAW_CONFIG.penWidth}`;
-                if (!fixedWidthStrokes.has(stateKey)) {
-                    fixedWidthStrokes.set(stateKey, {
-                        color: stroke.color || DRAW_CONFIG.penColor,
-                        lineWidth: stroke.lineWidth || DRAW_CONFIG.penWidth,
-                        strokes: []
-                    });
-                }
-                fixedWidthStrokes.get(stateKey).strokes.push(stroke);
-            }
-        }
-    }
+    // 检查是否有橡皮擦笔画
+    const hasEraseStrokes = strokesToRedraw.some(stroke => stroke.type === 'erase');
     
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
     
-    ctx.globalCompositeOperation = 'destination-out';
-    ctx.strokeStyle = 'rgba(0, 0, 0, 1)';
-    
-    const erasePath = new Path2D();
-    for (const stroke of eraseStrokes) {
-        const eraserSize = stroke.eraserSize || DRAW_CONFIG.eraserSize;
-        ctx.lineWidth = eraserSize;
-        
-        if (stroke.points && stroke.points.length >= 1) {
-            const firstPoint = stroke.points[0];
-            if (firstPoint.x !== undefined) {
-                erasePath.moveTo(firstPoint.x, firstPoint.y);
-                for (let i = 1; i < stroke.points.length; i++) {
-                    erasePath.lineTo(stroke.points[i].x, stroke.points[i].y);
-                }
-            } else {
-                erasePath.moveTo(firstPoint.fromX, firstPoint.fromY);
-                erasePath.lineTo(firstPoint.toX, firstPoint.toY);
-                for (let i = 1; i < stroke.points.length; i++) {
-                    erasePath.moveTo(stroke.points[i].fromX, stroke.points[i].fromY);
-                    erasePath.lineTo(stroke.points[i].toX, stroke.points[i].toY);
-                }
-            }
-        }
-        ctx.stroke(erasePath);
-    }
-    
-    ctx.globalCompositeOperation = 'source-over';
-    
-    // 绘制可变线宽笔画 - 优化：合并路径减少 GPU 调用
-    for (const stroke of variableWidthStrokes) {
-        if (!stroke.points || stroke.points.length === 0) continue;
-        
-        ctx.fillStyle = stroke.color || DRAW_CONFIG.penColor;
-        
-        const polygonPath = new Path2D();
-        const circlePath = new Path2D();
-        
-        for (let i = 0; i < stroke.points.length && i < stroke.variableWidths.length; i++) {
-            const point = stroke.points[i];
-            const widthInfo = stroke.variableWidths[i];
-            
-            const x1 = point.fromX, y1 = point.fromY;
-            const x2 = point.toX, y2 = point.toY;
-            const w1 = widthInfo.fromWidth / scale, w2 = widthInfo.toWidth / scale;
-            
-            const angle = Math.atan2(y2 - y1, x2 - x1);
-            const perpAngle = angle + Math.PI / 2;
-            const hw1 = w1 / 2, hw2 = w2 / 2;
-            const cos = Math.cos(perpAngle), sin = Math.sin(perpAngle);
-            
-            polygonPath.moveTo(x1 + cos * hw1, y1 + sin * hw1);
-            polygonPath.lineTo(x2 + cos * hw2, y2 + sin * hw2);
-            polygonPath.lineTo(x2 - cos * hw2, y2 - sin * hw2);
-            polygonPath.lineTo(x1 - cos * hw1, y1 - sin * hw1);
-            polygonPath.closePath();
-            
-            circlePath.moveTo(x1 + hw1, y1);
-            circlePath.arc(x1, y1, hw1, 0, Math.PI * 2);
-            circlePath.moveTo(x2 + hw2, y2);
-            circlePath.arc(x2, y2, hw2, 0, Math.PI * 2);
-        }
-        
-        ctx.fill(polygonPath);
-        ctx.fill(circlePath);
-    }
-    
-    // 批量绘制固定线宽笔画
-    for (const [stateKey, group] of fixedWidthStrokes) {
-        ctx.strokeStyle = group.color;
-        ctx.lineWidth = group.lineWidth / scale;
-        
-        const drawPath = new Path2D();
-        for (const stroke of group.strokes) {
+    if (hasEraseStrokes) {
+        // 有橡皮擦笔画，必须按原始顺序逐个绘制
+        for (const stroke of strokesToRedraw) {
             if (!stroke.points || stroke.points.length < 1) continue;
             
+            if (stroke.type === 'erase') {
+                ctx.globalCompositeOperation = 'destination-out';
+                ctx.strokeStyle = 'rgba(0, 0, 0, 1)';
+                ctx.lineWidth = (stroke.eraserSize || DRAW_CONFIG.eraserSize) / scale;
+            } else if (stroke.type === 'draw' || stroke.type === 'comment') {
+                ctx.globalCompositeOperation = 'source-over';
+                ctx.strokeStyle = stroke.color || DRAW_CONFIG.penColor;
+                ctx.lineWidth = (stroke.lineWidth || DRAW_CONFIG.penWidth) / scale;
+            } else {
+                continue;
+            }
+            
+            const path = new Path2D();
             const firstPoint = stroke.points[0];
+            
             if (firstPoint.x !== undefined) {
-                drawPath.moveTo(firstPoint.x, firstPoint.y);
+                path.moveTo(firstPoint.x, firstPoint.y);
                 for (let i = 1; i < stroke.points.length; i++) {
-                    drawPath.lineTo(stroke.points[i].x, stroke.points[i].y);
+                    path.lineTo(stroke.points[i].x, stroke.points[i].y);
                 }
             } else {
-                drawPath.moveTo(firstPoint.fromX, firstPoint.fromY);
-                drawPath.lineTo(firstPoint.toX, firstPoint.toY);
+                path.moveTo(firstPoint.fromX, firstPoint.fromY);
+                path.lineTo(firstPoint.toX, firstPoint.toY);
                 for (let i = 1; i < stroke.points.length; i++) {
-                    drawPath.moveTo(stroke.points[i].fromX, stroke.points[i].fromY);
-                    drawPath.lineTo(stroke.points[i].toX, stroke.points[i].toY);
+                    path.moveTo(stroke.points[i].fromX, stroke.points[i].fromY);
+                    path.lineTo(stroke.points[i].toX, stroke.points[i].toY);
+                }
+            }
+            
+            ctx.stroke(path);
+        }
+    } else {
+        // 没有橡皮擦笔画，可以批量绘制优化性能
+        const variableWidthStrokes = [];
+        const fixedWidthStrokes = new Map();
+        
+        for (const stroke of strokesToRedraw) {
+            if (stroke.type === 'draw' || stroke.type === 'comment') {
+                if (stroke.variableWidths && stroke.variableWidths.length > 0) {
+                    variableWidthStrokes.push(stroke);
+                } else {
+                    const stateKey = `${stroke.color || DRAW_CONFIG.penColor}-${stroke.lineWidth || DRAW_CONFIG.penWidth}`;
+                    if (!fixedWidthStrokes.has(stateKey)) {
+                        fixedWidthStrokes.set(stateKey, {
+                            color: stroke.color || DRAW_CONFIG.penColor,
+                            lineWidth: stroke.lineWidth || DRAW_CONFIG.penWidth,
+                            strokes: []
+                        });
+                    }
+                    fixedWidthStrokes.get(stateKey).strokes.push(stroke);
                 }
             }
         }
-        ctx.stroke(drawPath);
+        
+        ctx.globalCompositeOperation = 'source-over';
+        
+        // 绘制可变线宽笔画
+        for (const stroke of variableWidthStrokes) {
+            if (!stroke.points || stroke.points.length === 0) continue;
+            
+            ctx.fillStyle = stroke.color || DRAW_CONFIG.penColor;
+            
+            const polygonPath = new Path2D();
+            const circlePath = new Path2D();
+            
+            for (let i = 0; i < stroke.points.length && i < stroke.variableWidths.length; i++) {
+                const point = stroke.points[i];
+                const widthInfo = stroke.variableWidths[i];
+                
+                const x1 = point.fromX, y1 = point.fromY;
+                const x2 = point.toX, y2 = point.toY;
+                const w1 = widthInfo.fromWidth / scale, w2 = widthInfo.toWidth / scale;
+                
+                const angle = Math.atan2(y2 - y1, x2 - x1);
+                const perpAngle = angle + Math.PI / 2;
+                const hw1 = w1 / 2, hw2 = w2 / 2;
+                const cos = Math.cos(perpAngle), sin = Math.sin(perpAngle);
+                
+                polygonPath.moveTo(x1 + cos * hw1, y1 + sin * hw1);
+                polygonPath.lineTo(x2 + cos * hw2, y2 + sin * hw2);
+                polygonPath.lineTo(x2 - cos * hw2, y2 - sin * hw2);
+                polygonPath.lineTo(x1 - cos * hw1, y1 - sin * hw1);
+                polygonPath.closePath();
+                
+                circlePath.moveTo(x1 + hw1, y1);
+                circlePath.arc(x1, y1, hw1, 0, Math.PI * 2);
+                circlePath.moveTo(x2 + hw2, y2);
+                circlePath.arc(x2, y2, hw2, 0, Math.PI * 2);
+            }
+            
+            ctx.fill(polygonPath);
+            ctx.fill(circlePath);
+        }
+        
+        // 批量绘制固定线宽笔画
+        for (const [stateKey, group] of fixedWidthStrokes) {
+            ctx.strokeStyle = group.color;
+            ctx.lineWidth = group.lineWidth / scale;
+            
+            const drawPath = new Path2D();
+            for (const stroke of group.strokes) {
+                if (!stroke.points || stroke.points.length < 1) continue;
+                
+                const firstPoint = stroke.points[0];
+                if (firstPoint.x !== undefined) {
+                    drawPath.moveTo(firstPoint.x, firstPoint.y);
+                    for (let i = 1; i < stroke.points.length; i++) {
+                        drawPath.lineTo(stroke.points[i].x, stroke.points[i].y);
+                    }
+                } else {
+                    drawPath.moveTo(firstPoint.fromX, firstPoint.fromY);
+                    drawPath.lineTo(firstPoint.toX, firstPoint.toY);
+                    for (let i = 1; i < stroke.points.length; i++) {
+                        drawPath.moveTo(stroke.points[i].fromX, stroke.points[i].fromY);
+                        drawPath.lineTo(stroke.points[i].toX, stroke.points[i].toY);
+                    }
+                }
+            }
+            ctx.stroke(drawPath);
+        }
     }
+    
+    // 重置 canvas 状态
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.strokeStyle = DRAW_CONFIG.penColor;
+    ctx.lineWidth = DRAW_CONFIG.penWidth / scale;
     
     if (dirtyRect) {
         ctx.restore();
@@ -3032,10 +3100,11 @@ async function drawEraserStroke(stroke) {
     if (!stroke.points || stroke.points.length < 1) return;
     
     const ctx = dom.drawCtx;
+    const scale = getSafeScale();
     setContextState(dom.drawCtx, {
         globalCompositeOperation: 'destination-out',
         strokeStyle: 'rgba(0, 0, 0, 1)',
-        lineWidth: stroke.eraserSize || DRAW_CONFIG.eraserSize,
+        lineWidth: (stroke.eraserSize || DRAW_CONFIG.eraserSize) / scale,
         lineCap: 'round',
         lineJoin: 'round'
     });
@@ -3263,106 +3332,53 @@ function setContextState(ctx, state) {
 async function drawStrokes(ctx, strokes) {
     if (strokes.length === 0) return;
     
-    const scale = getSafeScale();
-    
-    // 按状态分组，使用 Path2D 批量绘制
-    const eraseStrokes = new Map();
-    const drawStrokesMap = new Map();
-    
-    for (const stroke of strokes) {
-        if (stroke.type === 'erase') {
-            const sizeKey = stroke.eraserSize || DRAW_CONFIG.eraserSize;
-            if (!eraseStrokes.has(sizeKey)) {
-                eraseStrokes.set(sizeKey, []);
-            }
-            eraseStrokes.get(sizeKey).push(stroke);
-        } else if (stroke.type === 'draw' || stroke.type === 'comment') {
-            const stateKey = `${stroke.color || DRAW_CONFIG.penColor}-${stroke.lineWidth || DRAW_CONFIG.penWidth}`;
-            if (!drawStrokesMap.has(stateKey)) {
-                drawStrokesMap.set(stateKey, {
-                    color: stroke.color || DRAW_CONFIG.penColor,
-                    lineWidth: stroke.lineWidth || DRAW_CONFIG.penWidth,
-                    strokes: []
-                });
-            }
-            drawStrokesMap.get(stateKey).strokes.push(stroke);
-        }
-    }
-    
-    // 设置通用状态
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
     
-    // 批量绘制橡皮擦笔画
-    for (const [eraserSize, strokes] of eraseStrokes) {
-        ctx.globalCompositeOperation = 'destination-out';
-        ctx.strokeStyle = 'rgba(0, 0, 0, 1)';
-        ctx.lineWidth = eraserSize;
+    for (const stroke of strokes) {
+        if (!stroke.points || stroke.points.length < 1) continue;
+        
+        if (stroke.type === 'erase') {
+            ctx.globalCompositeOperation = 'destination-out';
+            ctx.strokeStyle = 'rgba(0, 0, 0, 1)';
+            ctx.lineWidth = stroke.eraserSize || DRAW_CONFIG.eraserSize;
+        } else {
+            ctx.globalCompositeOperation = 'source-over';
+            ctx.strokeStyle = stroke.color || DRAW_CONFIG.penColor;
+            ctx.lineWidth = stroke.lineWidth || DRAW_CONFIG.penWidth;
+        }
         
         const path = new Path2D();
-        for (const stroke of strokes) {
-            if (!stroke.points || stroke.points.length < 1) continue;
-            
-            const firstPoint = stroke.points[0];
-            if (firstPoint.x !== undefined) {
-                path.moveTo(firstPoint.x, firstPoint.y);
-                for (let i = 1; i < stroke.points.length; i++) {
-                    path.lineTo(stroke.points[i].x, stroke.points[i].y);
-                }
-            } else {
-                for (const point of stroke.points) {
-                    path.moveTo(point.fromX, point.fromY);
-                    path.lineTo(point.toX, point.toY);
-                }
+        const firstPoint = stroke.points[0];
+        
+        if (firstPoint.x !== undefined) {
+            path.moveTo(firstPoint.x, firstPoint.y);
+            for (let i = 1; i < stroke.points.length; i++) {
+                path.lineTo(stroke.points[i].x, stroke.points[i].y);
+            }
+        } else {
+            path.moveTo(firstPoint.fromX, firstPoint.fromY);
+            path.lineTo(firstPoint.toX, firstPoint.toY);
+            for (let i = 1; i < stroke.points.length; i++) {
+                path.moveTo(stroke.points[i].fromX, stroke.points[i].fromY);
+                path.lineTo(stroke.points[i].toX, stroke.points[i].toY);
             }
         }
+        
         ctx.stroke(path);
     }
     
-    // 批量绘制普通笔画
     ctx.globalCompositeOperation = 'source-over';
-    for (const [stateKey, group] of drawStrokesMap) {
-        ctx.strokeStyle = group.color;
-        ctx.lineWidth = group.lineWidth / scale;
-        
-        const path = new Path2D();
-        for (const stroke of group.strokes) {
-            if (!stroke.points || stroke.points.length < 1) continue;
-            
-            const firstPoint = stroke.points[0];
-            if (firstPoint.x !== undefined) {
-                path.moveTo(firstPoint.x, firstPoint.y);
-                for (let i = 1; i < stroke.points.length; i++) {
-                    path.lineTo(stroke.points[i].x, stroke.points[i].y);
-                }
-            } else {
-                for (const point of stroke.points) {
-                    path.moveTo(point.fromX, point.fromY);
-                    path.lineTo(point.toX, point.toY);
-                }
-            }
-        }
-        ctx.stroke(path);
-    }
 }
 
-/**
- * 调度笔画压缩 (空闲时执行)
- * 当笔画数超过阈值时，将旧笔画压缩为图片
- */
 function scheduleCompact() {
-    if (state.strokeHistory.length <= state.MAX_UNDO_STEPS) return;
+    if (!shouldCompact()) return;
     if (compactIdleId !== null) return;
     
-    const hasClearStroke = state.strokeHistory.some(stroke => stroke.type === 'clear');
-    if (hasClearStroke) {
-        console.log('检测到清空操作，跳过压缩以保留撤销能力');
-        return;
-    }
-    
-    const hasEraserStroke = state.strokeHistory.some(stroke => stroke.type === 'erase');
-    if (hasEraserStroke) {
-        console.log('检测到橡皮擦操作，跳过压缩以保留撤销能力');
+    const undoStack = getUndoStack();
+    const hasNonCompactible = undoStack.some(cmd => cmd.canCompact && !cmd.canCompact());
+    if (hasNonCompactible) {
+        console.log('检测到不可压缩的操作，跳过压缩');
         return;
     }
     
@@ -3372,37 +3388,40 @@ function scheduleCompact() {
     }, { timeout: 2000 });
 }
 
-/**
- * 执行笔画压缩
- * 优先使用Rust并行处理，失败时降级到前端Canvas
- */
 async function doCompactStrokes() {
-    if (state.strokeHistory.length <= state.MAX_UNDO_STEPS) return;
+    if (!shouldCompact()) return;
     
-    const hasClearStroke = state.strokeHistory.some(stroke => stroke.type === 'clear');
-    if (hasClearStroke) {
-        console.log('压缩执行前检测到清空操作，取消压缩');
+    const undoStack = getUndoStack();
+    const hasNonCompactible = undoStack.some(cmd => cmd.canCompact && !cmd.canCompact());
+    if (hasNonCompactible) {
+        console.log('压缩执行前检测到不可压缩的操作，取消压缩');
         return;
     }
     
-    const hasEraserStroke = state.strokeHistory.some(stroke => stroke.type === 'erase');
-    if (hasEraserStroke) {
-        console.log('压缩执行前检测到橡皮擦操作，取消压缩');
-        return;
-    }
-    
-    const strokesToCompact = state.strokeHistory.slice(0, state.strokeHistory.length - state.MAX_UNDO_STEPS);
-    
-    if (strokesToCompact.length === 0) return;
+    const commandsToCompact = getCommandsToCompact();
+    if (commandsToCompact.length === 0) return;
     
     const loadId = ++state.baseImageLoadId;
+    const compactSnapshotId = ++state.compactSnapshotId || (state.compactSnapshotId = 1);
+    
+    // 冻结当前状态快照，防止异步操作期间的并发修改
+    const frozenStrokes = cloneStrokes(state.strokeHistory);
+    const frozenImageURL = state.baseImageURL;
+    
+    // 收集要压缩的笔画
+    const strokesToCompact = [];
+    commandsToCompact.forEach(cmd => {
+        if (cmd.stroke) {
+            strokesToCompact.push(cmd.stroke);
+        }
+    });
     
     if (window.__TAURI__) {
         try {
             const { invoke } = window.__TAURI__.core;
             
             const request = {
-                baseImage: state.baseImageURL,
+                baseImage: frozenImageURL,
                 strokes: strokesToCompact,
                 canvasWidth: DRAW_CONFIG.canvasW,
                 canvasHeight: DRAW_CONFIG.canvasH
@@ -3412,9 +3431,48 @@ async function doCompactStrokes() {
             
             if (loadId !== state.baseImageLoadId) return;
             
-            state.strokeHistory = state.strokeHistory.slice(state.strokeHistory.length - state.MAX_UNDO_STEPS);
+            // 验证快照仍然有效
+            if (compactSnapshotId !== state.compactSnapshotId) {
+                console.log('压缩快照已过期,取消操作');
+                return;
+            }
             
-            state.baseImageURL = result;
+            const afterImageURL = result;
+            
+            // 使用冻结的快照进行操作，而非实时state
+            const currentStrokes = cloneStrokes(state.strokeHistory);
+            strokesToCompact.forEach(stroke => {
+                const idx = currentStrokes.findIndex(s => 
+                    s === stroke || (s.points && stroke.points && s.points.length === stroke.points.length)
+                );
+                if (idx > -1) {
+                    currentStrokes.splice(idx, 1);
+                }
+            });
+            
+            // 应用到实际状态
+            state.strokeHistory.length = 0;
+            currentStrokes.forEach(s => state.strokeHistory.push(s));
+            
+            // 保存压缩后的完整状态
+            const afterStrokes = cloneStrokes(state.strokeHistory);
+            const beforeStrokes = frozenStrokes;
+            
+            const snapshotCmd = new SnapshotCommand({
+                beforeImageURL: frozenImageURL,
+                afterImageURL,
+                beforeStrokes,
+                afterStrokes,
+                strokeHistoryRef: state.strokeHistory,
+                baseImageURLRef: { get value() { return state.baseImageURL; }, set value(v) { state.baseImageURL = v; } },
+                baseImageObjRef: { get value() { return state.baseImageObj; }, set value(v) { state.baseImageObj = v; } },
+                redrawFn: () => redrawAllStrokes(),
+                loadBaseImageFn: (url) => loadBaseImageFromURL(url)
+            });
+            
+            compactHistory(snapshotCmd);
+            
+            state.baseImageURL = afterImageURL;
             state.baseImageObj = null;
             const img = new Image();
             img.onload = () => {
@@ -3422,9 +3480,9 @@ async function doCompactStrokes() {
                     state.baseImageObj = img;
                 }
             };
-            img.src = result;
+            img.src = afterImageURL;
             
-            console.log('Rust 笔画已压缩，保留最近', state.strokeHistory.length, '笔可撤销');
+            console.log('Rust 笔画已压缩，保留最近', getUndoStack().length, '步可撤销');
             return;
         } catch (error) {
             console.error('Rust 笔画压缩失败，使用前端降级方案:', error);
@@ -3445,9 +3503,34 @@ async function doCompactStrokes() {
         return;
     }
     
-    state.strokeHistory = state.strokeHistory.slice(state.strokeHistory.length - state.MAX_UNDO_STEPS);
+    const afterImageURL = offscreen.canvas.toDataURL('image/png');
     
-    state.baseImageURL = offscreen.canvas.toDataURL('image/png');
+    // 从 strokeHistory 中移除被压缩的笔画
+    strokesToCompact.forEach(stroke => {
+        const idx = state.strokeHistory.indexOf(stroke);
+        if (idx > -1) {
+            state.strokeHistory.splice(idx, 1);
+        }
+    });
+    
+    // 保存压缩后的完整状态
+    const afterStrokes = cloneStrokes(state.strokeHistory);
+    
+    const snapshotCmd = new SnapshotCommand({
+        beforeImageURL,
+        afterImageURL,
+        beforeStrokes,
+        afterStrokes,
+        strokeHistoryRef: state.strokeHistory,
+        baseImageURLRef: { get value() { return state.baseImageURL; }, set value(v) { state.baseImageURL = v; } },
+        baseImageObjRef: { get value() { return state.baseImageObj; }, set value(v) { state.baseImageObj = v; } },
+        redrawFn: () => redrawAllStrokes(),
+        loadBaseImageFn: (url) => loadBaseImageFromURL(url)
+    });
+    
+    compactHistory(snapshotCmd);
+    
+    state.baseImageURL = afterImageURL;
     state.baseImageObj = null;
     const img = new Image();
     img.onload = () => {
@@ -3459,9 +3542,9 @@ async function doCompactStrokes() {
     img.onerror = () => {
         releaseOffscreenCanvas(offscreen);
     };
-    img.src = state.baseImageURL;
+    img.src = afterImageURL;
     
-    console.log('笔画已异步压缩，保留最近', state.strokeHistory.length, '笔可撤销');
+    console.log('笔画已异步压缩，保留最近', getUndoStack().length, '步可撤销');
 }
 
 function compactStrokes() {
@@ -3480,37 +3563,14 @@ async function undo() {
     }
     
     state.baseImageLoadId++;
+    state.compactSnapshotId = (state.compactSnapshotId || 0) + 1;
     
-    if (state.strokeHistory.length === 0) return;
-    
-    const lastStroke = state.strokeHistory[state.strokeHistory.length - 1];
-    
-    if (lastStroke.type === 'clear') {
-        state.strokeHistory = lastStroke.savedStrokeHistory || [];
-        state.baseImageURL = lastStroke.savedBaseImageURL;
-        state.baseImageObj = null;
-        
-        if (state.baseImageURL) {
-            const img = new Image();
-            img.onload = async () => {
-                state.baseImageObj = img;
-                await redrawAllStrokes();
-            };
-            img.src = state.baseImageURL;
-        } else {
-            await redrawAllStrokes();
-        }
-    } else {
-        state.strokeHistory.pop();
-        await redrawAllStrokes();
-    }
-    
-    updateUndoBtnStatus();
+    await historyUndo();
     console.log('撤销操作');
 }
 
-function updateUndoBtnStatus() {
-    dom.btnUndo.disabled = state.strokeHistory.length === 0;
+function updateHistoryBtnStatus() {
+    dom.btnUndo.disabled = !canUndo();
 }
 
 // 清空画布
@@ -3526,35 +3586,24 @@ function clearDrawCanvas() {
     });
 }
 
-function clearAllDrawings() {
+async function clearAllDrawings() {
     if (state.strokeHistory.length === 0 && !state.baseImageObj) return;
     
-    const clearStroke = {
-        type: 'clear',
+    const cmd = new ClearCommand({
         savedStrokeHistory: cloneStrokes(state.strokeHistory),
-        savedBaseImageURL: state.baseImageURL
-    };
-    
-    state.strokeHistory = [clearStroke];
+        savedBaseImageURL: state.baseImageURL,
+        strokeHistoryRef: state.strokeHistory,
+        baseImageURLRef: { get value() { return state.baseImageURL; }, set value(v) { state.baseImageURL = v; } },
+        baseImageObjRef: { get value() { return state.baseImageObj; }, set value(v) { state.baseImageObj = v; } },
+        redrawFn: () => redrawAllStrokes(),
+        loadBaseImageFn: (url) => loadBaseImageFromURL(url)
+    });
+    await executeCommand(cmd);
     
     clearDrawCanvas();
-    state.baseImageURL = null;
-    state.baseImageObj = null;
-    updateUndoBtnStatus();
     
-    if (state.currentImageIndex >= 0 && state.currentImageIndex < state.imageList.length) {
-        state.imageList[state.currentImageIndex].strokeHistory = [];
-        state.imageList[state.currentImageIndex].baseImageURL = null;
-    }
-    
-    if (state.currentFolderIndex >= 0 && state.currentFolderPageIndex >= 0) {
-        if (state.currentFolderIndex < state.fileList.length) {
-            const folder = state.fileList[state.currentFolderIndex];
-            if (state.currentFolderPageIndex < folder.pages.length) {
-                folder.pages[state.currentFolderPageIndex].strokeHistory = [];
-                folder.pages[state.currentFolderPageIndex].baseImageURL = null;
-            }
-        }
+    if (currentSourceId) {
+        saveCurrentSourceData();
     }
     
     if (state.drawMode === 'eraser') {
@@ -3564,6 +3613,18 @@ function clearAllDrawings() {
     console.log('清空所有批注');
 }
 
+function loadBaseImageFromURL(url) {
+    const loadId = ++state.baseImageLoadId;
+    const img = new Image();
+    img.onload = () => {
+        if (loadId === state.baseImageLoadId) {
+            state.baseImageObj = img;
+            redrawAllStrokes();
+        }
+    };
+    img.src = url;
+}
+
 // 拍照功能
 function takePhoto() {
     if (state.isCameraOpen) {
@@ -3571,14 +3632,21 @@ function takePhoto() {
     } else if (state.currentImageIndex >= 0 && state.imageList.length > 0) {
         (async () => {
             try {
-                saveCurrentDrawData();
-                saveCurrentFolderPageDrawData();
+                // 保存当前数据并重置状态
+                saveCurrentSourceData();
+                
                 state.currentImageIndex = -1;
                 state.currentImage = null;
+                currentSourceId = null;
                 clearImageLayer();
                 clearDrawCanvas();
                 
-                await openCamera();
+                await switchToSource('cam');
+                
+                if (!state.isCameraOpen) {
+                    await setCameraState(true);
+                }
+                
                 updateSidebarSelection();
                 updatePhotoButtonState();
                 console.log('返回摄像头');
@@ -3596,15 +3664,22 @@ function takePhoto() {
     } else if (state.currentFolderIndex >= 0 && state.currentFolderPageIndex >= 0) {
         (async () => {
             try {
-                saveCurrentDrawData();
-                saveCurrentFolderPageDrawData();
+                // 保存当前数据并重置状态
+                saveCurrentSourceData();
+                
                 state.currentFolderIndex = -1;
                 state.currentFolderPageIndex = -1;
                 state.currentImage = null;
+                currentSourceId = null;
                 clearImageLayer();
                 clearDrawCanvas();
                 
-                await openCamera();
+                await switchToSource('cam');
+                
+                if (!state.isCameraOpen) {
+                    await setCameraState(true);
+                }
+                
                 updateFolderPageSelection(-1, -1);
                 updatePhotoButtonState();
                 console.log('返回摄像头');
@@ -3887,10 +3962,11 @@ async function selectImage(index) {
     if (index === state.currentImageIndex && state.currentImage) {
         (async () => {
             try {
-                saveCurrentDrawData();
-                saveCurrentFolderPageDrawData();
+                saveCurrentSourceData();
+                
                 state.currentImageIndex = -1;
                 state.currentImage = null;
+                currentSourceId = null;
                 clearImageLayer();
                 clearDrawCanvas();
                 
@@ -3898,7 +3974,12 @@ async function selectImage(index) {
                     await setCameraState(false);
                 }
                 
-                await setCameraState(true);
+                await switchToSource('cam');
+                
+                if (!state.isCameraOpen) {
+                    await setCameraState(true);
+                }
+                
                 updateSidebarSelection();
                 updatePhotoButtonState();
                 console.log('返回摄像头');
@@ -3909,65 +3990,19 @@ async function selectImage(index) {
         return;
     }
     
-    // 先保存当前数据（使用旧索引）
-    saveCurrentDrawData();
-    saveCurrentFolderPageDrawData();
-    
     // 更新索引
     state.currentImageIndex = index;
     state.currentFolderIndex = -1;
     state.currentFolderPageIndex = -1;
     
-    // 使用源ID管理系统切换
+    // 使用源ID管理系统切换（内部会自动保存当前数据并加载新数据）
     const imgData = state.imageList[index];
-    if (imgData.sourceId) {
-        await switchToSource(imgData.sourceId);
-    } else {
-        // 兼容旧数据：为没有 sourceId 的图片分配新ID
+    
+    if (!imgData.sourceId) {
         imgData.sourceId = generateSourceId('pic');
-        
-        // 初始化数据（如果不存在）
-        if (!imgData.strokeHistory) {
-            imgData.strokeHistory = [];
-        }
-        if (!imgData.viewState) {
-            imgData.viewState = {
-                scale: 1,
-                canvasX: -(DRAW_CONFIG.canvasW - DRAW_CONFIG.screenW) / 2,
-                canvasY: -(DRAW_CONFIG.canvasH - DRAW_CONFIG.screenH) / 2
-            };
-        }
-        
-        // 保存当前摄像头数据
-        saveCurrentSourceData();
-        
-        // 切换到新源
-        currentSourceId = imgData.sourceId;
-        sourceDataStore[imgData.sourceId] = {
-            scale: imgData.viewState.scale,
-            canvasX: imgData.viewState.canvasX,
-            canvasY: imgData.viewState.canvasY,
-            strokeHistory: cloneStrokes(imgData.strokeHistory),
-            baseImageURL: imgData.baseImageURL
-        };
-        
-        // 加载数据
-        state.scale = imgData.viewState.scale;
-        state.canvasX = imgData.viewState.canvasX;
-        state.canvasY = imgData.viewState.canvasY;
-        state.strokeHistory = cloneStrokes(imgData.strokeHistory);
-        state.baseImageURL = imgData.baseImageURL;
-        state.baseImageObj = null;
-        
-        updateMoveBound();
-        updateCanvasTransform();
-        clearDrawCanvas();
-        
-        if (state.strokeHistory.length > 0) {
-            await redrawAllStrokes();
-        }
-        updateUndoBtnStatus();
     }
+    
+    await switchToSource(imgData.sourceId);
     
     const img = new Image();
     img.onload = async () => {
@@ -3992,50 +4027,20 @@ async function selectImage(index) {
 
 function saveCurrentDrawData() {
     if (state.currentImageIndex >= 0 && state.currentImageIndex < state.imageList.length) {
-        state.imageList[state.currentImageIndex].strokeHistory = cloneStrokes(state.strokeHistory);
-        state.imageList[state.currentImageIndex].baseImageURL = state.baseImageURL;
-        state.imageList[state.currentImageIndex].viewState = {
-            scale: state.scale,
-            canvasX: state.canvasX,
-            canvasY: state.canvasY
-        };
+        const imgData = state.imageList[state.currentImageIndex];
+        
+        if (imgData.sourceId) {
+            saveCurrentSourceData();
+        }
     }
 }
 
 async function restoreDrawData(index) {
     if (index >= 0 && index < state.imageList.length) {
         const imgData = state.imageList[index];
-        if (imgData.strokeHistory && imgData.strokeHistory.length > 0) {
-            state.strokeHistory = cloneStrokes(imgData.strokeHistory);
-        } else {
-            state.strokeHistory = [];
-        }
         
-        state.baseImageURL = imgData.baseImageURL || null;
-        state.baseImageObj = null;
-        
-        if (state.baseImageURL) {
-            await new Promise((resolve, reject) => {
-                const img = new Image();
-                img.onload = async () => {
-                    state.baseImageObj = img;
-                    await redrawAllStrokes();
-                    updateUndoBtnStatus();
-                    resolve();
-                };
-                img.onerror = () => {
-                    console.error('加载基础图片失败');
-                    reject(new Error('Failed to load base image'));
-                };
-                img.src = state.baseImageURL;
-            });
-        } else {
-            if (state.strokeHistory.length > 0) {
-                await redrawAllStrokes();
-            } else {
-                clearDrawCanvas();
-            }
-            updateUndoBtnStatus();
+        if (imgData.sourceId) {
+            await switchToSource(imgData.sourceId);
         }
     }
 }
@@ -4311,30 +4316,14 @@ function selectFolderPage(folderIndex, pageIndex) {
                 await setCameraState(false);
             }
             
-            saveCurrentDrawData();
-            saveCurrentFolderPageDrawData();
-            
             const page = folder.pages[pageIndex];
             
-            // 使用源ID管理系统切换
-            if (page.sourceId) {
-                await switchToSource(page.sourceId);
-            } else {
-                // 兼容旧数据
-                if (page.viewState) {
-                    state.scale = page.viewState.scale;
-                    state.canvasX = page.viewState.canvasX;
-                    state.canvasY = page.viewState.canvasY;
-                    updateMoveBound();
-                    updateCanvasTransform();
-                } else {
-                    state.scale = 1;
-                    state.canvasX = -(DRAW_CONFIG.canvasW - DRAW_CONFIG.screenW) / 2;
-                    state.canvasY = -(DRAW_CONFIG.canvasH - DRAW_CONFIG.screenH) / 2;
-                    updateMoveBound();
-                    updateCanvasTransform();
-                }
+            // 使用源ID管理系统切换（内部会自动保存当前数据并加载新数据）
+            if (!page.sourceId) {
+                page.sourceId = generateSourceId('doc', pageIndex);
             }
+            
+            await switchToSource(page.sourceId);
             
             const img = new Image();
             img.onload = async () => {
@@ -4344,12 +4333,7 @@ function selectFolderPage(folderIndex, pageIndex) {
                 state.currentFolderPageIndex = pageIndex;
                 drawImageToCenter(img);
                 
-                // 如果有源ID，数据已经通过 switchToSource 加载
-                if (!page.sourceId) {
-                    await restoreFolderPageDrawData(folderIndex, pageIndex);
-                } else {
-                    await redrawAllStrokes();
-                }
+                await redrawAllStrokes();
                 
                 updateFolderPageSelection(folderIndex, pageIndex);
                 updatePhotoButtonState();
@@ -4385,13 +4369,11 @@ function saveCurrentFolderPageDrawData() {
         if (state.currentFolderIndex < state.fileList.length) {
             const folder = state.fileList[state.currentFolderIndex];
             if (state.currentFolderPageIndex < folder.pages.length) {
-                folder.pages[state.currentFolderPageIndex].strokeHistory = cloneStrokes(state.strokeHistory);
-                folder.pages[state.currentFolderPageIndex].baseImageURL = state.baseImageURL;
-                folder.pages[state.currentFolderPageIndex].viewState = {
-                    scale: state.scale,
-                    canvasX: state.canvasX,
-                    canvasY: state.canvasY
-                };
+                const page = folder.pages[state.currentFolderPageIndex];
+                
+                if (page.sourceId) {
+                    saveCurrentSourceData();
+                }
             }
         }
     }
@@ -4402,37 +4384,9 @@ async function restoreFolderPageDrawData(folderIndex, pageIndex) {
         const folder = state.fileList[folderIndex];
         if (pageIndex >= 0 && pageIndex < folder.pages.length) {
             const page = folder.pages[pageIndex];
-            if (page.strokeHistory && page.strokeHistory.length > 0) {
-                state.strokeHistory = cloneStrokes(page.strokeHistory);
-            } else {
-                state.strokeHistory = [];
-            }
             
-            state.baseImageURL = page.baseImageURL || null;
-            state.baseImageObj = null;
-            
-            if (state.baseImageURL) {
-                await new Promise((resolve, reject) => {
-                    const img = new Image();
-                    img.onload = async () => {
-                        state.baseImageObj = img;
-                        await redrawAllStrokes();
-                        updateUndoBtnStatus();
-                        resolve();
-                    };
-                    img.onerror = () => {
-                        console.error('加载基础图片失败');
-                        reject(new Error('Failed to load base image'));
-                    };
-                    img.src = state.baseImageURL;
-                });
-            } else {
-                if (state.strokeHistory.length > 0) {
-                    await redrawAllStrokes();
-                } else {
-                    clearDrawCanvas();
-                }
-                updateUndoBtnStatus();
+            if (page.sourceId) {
+                await switchToSource(page.sourceId);
             }
         }
     }
@@ -4483,9 +4437,10 @@ function importPDF() {
         const file = e.target.files[0];
         if (!file) return;
         
-        // 先保存当前批注数据，再关闭摄像头
-        saveCurrentDrawData();
-        saveCurrentFolderPageDrawData();
+        // 保存当前批注数据
+        if (currentSourceId) {
+            saveCurrentSourceData();
+        }
         
         const wasCameraOpen = state.isCameraOpen;
         
@@ -4955,6 +4910,7 @@ async function setCameraState(open, options = {}) {
             clearImageLayer();
             clearDrawCanvas();
             state.strokeHistory = [];
+            clearHistory();
         }
         
         console.log('摄像头已关闭');
@@ -4966,9 +4922,6 @@ async function setCameraState(open, options = {}) {
  */
 async function openCamera() {
     if (state.isCameraOpen) {
-        // 关闭摄像头前保存批注数据
-        saveCurrentDrawData();
-        saveCurrentFolderPageDrawData();
         await setCameraState(false);
     } else {
         await setCameraState(true);
@@ -5269,8 +5222,10 @@ async function importImage() {
         const files = Array.from(e.target.files);
         if (files.length === 0) return;
         
-        saveCurrentDrawData();
-        saveCurrentFolderPageDrawData();
+        // 保存当前批注数据
+        if (currentSourceId) {
+            saveCurrentSourceData();
+        }
         
         if (state.isCameraOpen) {
             await setCameraState(false);
@@ -5343,12 +5298,13 @@ async function importImage() {
             state.strokeHistory = [];
             state.baseImageURL = null;
             state.baseImageObj = null;
+            clearHistory();
             state.scale = 1;
             state.canvasX = -(DRAW_CONFIG.canvasW - DRAW_CONFIG.screenW) / 2;
             state.canvasY = -(DRAW_CONFIG.canvasH - DRAW_CONFIG.screenH) / 2;
             updateMoveBound();
             updateCanvasTransform();
-            updateUndoBtnStatus();
+            updateHistoryBtnStatus();
             
             if (isLast) {
                 drawImageToCenter(img);
@@ -5378,13 +5334,6 @@ async function addImageToList(img, name, isLast = true) {
         name: name,
         width: img.width,
         height: img.height,
-        strokeHistory: [],
-        baseImageURL: null,
-        viewState: {
-            scale: 1,
-            canvasX: -(DRAW_CONFIG.canvasW - DRAW_CONFIG.screenW) / 2,
-            canvasY: -(DRAW_CONFIG.canvasH - DRAW_CONFIG.screenH) / 2
-        },
         sourceId: generateSourceId('pic')
     };
     
@@ -5394,19 +5343,7 @@ async function addImageToList(img, name, isLast = true) {
     state.currentFolderIndex = -1;
     state.currentFolderPageIndex = -1;
     
-    // 切换到新源ID
     await switchToSource(imgData.sourceId);
-    
-    clearDrawCanvas();
-    state.strokeHistory = [];
-    state.baseImageURL = null;
-    state.baseImageObj = null;
-    state.scale = 1;
-    state.canvasX = -(DRAW_CONFIG.canvasW - DRAW_CONFIG.screenW) / 2;
-    state.canvasY = -(DRAW_CONFIG.canvasH - DRAW_CONFIG.screenH) / 2;
-    updateMoveBound();
-    updateCanvasTransform();
-    updateUndoBtnStatus();
     
     if (isLast) {
         if (state.isCameraOpen) {
@@ -5430,13 +5367,6 @@ async function addImageToListNoHighlight(img, name) {
         name: name,
         width: img.width,
         height: img.height,
-        strokeHistory: [],
-        baseImageURL: null,
-        viewState: {
-            scale: 1,
-            canvasX: -(DRAW_CONFIG.canvasW - DRAW_CONFIG.screenW) / 2,
-            canvasY: -(DRAW_CONFIG.canvasH - DRAW_CONFIG.screenH) / 2
-        },
         sourceId: generateSourceId('pic')
     };
     
@@ -5489,4 +5419,42 @@ function clearImageLayer() {
     dom.imageElement.style.top = '0';
     dom.imageElement.style.width = DRAW_CONFIG.canvasW + 'px';
     dom.imageElement.style.height = DRAW_CONFIG.canvasH + 'px';
+}
+
+function cleanupImageBlobUrls() {
+    state.imageList.forEach(imgData => {
+        if (imgData.full && imgData.full.startsWith('blob:')) {
+            URL.revokeObjectURL(imgData.full);
+        }
+        if (imgData.thumbnail && imgData.thumbnail.startsWith('blob:') && imgData.thumbnail !== imgData.full) {
+            URL.revokeObjectURL(imgData.thumbnail);
+        }
+    });
+}
+
+function cleanupPdfBlobUrls(docNumber) {
+    const folder = state.fileList.find(f => f.docNumber === docNumber);
+    if (folder) {
+        folder.pages.forEach(page => {
+            if (page.full && page.full.startsWith('blob:')) {
+                URL.revokeObjectURL(page.full);
+            }
+            if (page.thumbnail && page.thumbnail.startsWith('blob:') && page.thumbnail !== page.full) {
+                URL.revokeObjectURL(page.thumbnail);
+            }
+        });
+    }
+}
+
+function cleanupAllPdfBlobUrls() {
+    state.fileList.forEach(folder => {
+        folder.pages.forEach(page => {
+            if (page.full && page.full.startsWith('blob:')) {
+                URL.revokeObjectURL(page.full);
+            }
+            if (page.thumbnail && page.thumbnail.startsWith('blob:') && page.thumbnail !== page.full) {
+                URL.revokeObjectURL(page.thumbnail);
+            }
+        });
+    });
 }
