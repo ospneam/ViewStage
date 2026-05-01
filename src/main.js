@@ -1422,8 +1422,7 @@ async function resizeCanvas(newScreenW, newScreenH) {
     }
     
     if (!state.isCameraOpen || hasStrokes || hasBaseImage) {
-        dom.drawCtx.imageSmoothingEnabled = true;
-        dom.drawCtx.imageSmoothingQuality = 'high';
+        dom.drawCtx.imageSmoothingEnabled = false;
         dom.drawCtx.lineCap = 'round';
         dom.drawCtx.lineJoin = 'round';
         dom.drawCtx.miterLimit = 10;
@@ -1546,8 +1545,7 @@ function initCanvas() {
     dom.drawCtx.scale(DRAW_CONFIG.dpr, DRAW_CONFIG.dpr);
     
     const dc = dom.drawCtx;
-    dc.imageSmoothingEnabled = true;
-    dc.imageSmoothingQuality = 'high';
+    dc.imageSmoothingEnabled = false;
     dc.lineCap = 'round';
     dc.lineJoin = 'round';
     dc.miterLimit = 10;
@@ -1969,9 +1967,18 @@ function initTriangleSlider(wrapper, thumb, valueLabel, minValue, maxValue, init
         valueLabel.textContent = `${currentValue}px`;
     }
     
+    function getPositionFromEvent(e) {
+        if (e.touches && e.touches.length > 0) {
+            return e.touches[0].clientY;
+        }
+        return e.clientY;
+    }
+    
     function onDrag(e) {
         if (!isDragging) return;
-        const mouseY = e.clientY - wrapper.getBoundingClientRect().top;
+        e.preventDefault();
+        const clientY = getPositionFromEvent(e);
+        const mouseY = clientY - wrapper.getBoundingClientRect().top;
         const clampedY = Math.max(0, Math.min(mouseY, validHeight));
         const ratio = 1 - (clampedY / validHeight);
         currentValue = Math.round(minValue + ratio * (maxValue - minValue));
@@ -1983,14 +1990,23 @@ function initTriangleSlider(wrapper, thumb, valueLabel, minValue, maxValue, init
         isDragging = false;
         document.removeEventListener('mousemove', onDrag);
         document.removeEventListener('mouseup', stopDrag);
+        document.removeEventListener('touchmove', onDrag);
+        document.removeEventListener('touchend', stopDrag);
+        document.removeEventListener('touchcancel', stopDrag);
     }
     
-    thumb.addEventListener('mousedown', (e) => {
+    function startDrag(e) {
         e.preventDefault();
         isDragging = true;
         document.addEventListener('mousemove', onDrag);
         document.addEventListener('mouseup', stopDrag);
-    });
+        document.addEventListener('touchmove', onDrag, { passive: false });
+        document.addEventListener('touchend', stopDrag);
+        document.addEventListener('touchcancel', stopDrag);
+    }
+    
+    thumb.addEventListener('mousedown', startDrag);
+    thumb.addEventListener('touchstart', startDrag, { passive: false });
     
     wrapper.addEventListener('click', (e) => {
         if (isDragging) return;
@@ -2000,6 +2016,16 @@ function initTriangleSlider(wrapper, thumb, valueLabel, minValue, maxValue, init
         updateThumbPosition();
         if (onChange) onChange(currentValue);
     });
+    
+    wrapper.addEventListener('touchstart', (e) => {
+        if (e.target === thumb) return;
+        const touch = e.touches[0];
+        const clickY = touch.clientY - wrapper.getBoundingClientRect().top;
+        const ratio = 1 - Math.max(0, Math.min(clickY / validHeight, 1));
+        currentValue = Math.round(minValue + ratio * (maxValue - minValue));
+        updateThumbPosition();
+        if (onChange) onChange(currentValue);
+    }, { passive: true });
     
     updateThumbPosition();
 }
@@ -2275,7 +2301,7 @@ function handlePointerMove(e) {
         const dy = y - state.lastY;
         const distSq = dx * dx + dy * dy;
         
-        if (distSq > 4) {
+        if (distSq > 1) {
             addStrokePoint(state.lastX, state.lastY, x, y, state.currentPressure);
             
             batchDrawManager.addCommand(
@@ -2396,7 +2422,7 @@ function handleMouseMove(e) {
         const dy = y - state.lastY;
         const distSq = dx * dx + dy * dy;
         
-        if (distSq > 0.09) {
+        if (distSq > 1) {
             addStrokePoint(state.lastX, state.lastY, x, y);
             
             batchDrawManager.addCommand(
@@ -2555,7 +2581,7 @@ function handleTouchMove(e) {
         const dy = y - state.lastY;
         const distSq = dx * dx + dy * dy;
         
-        if (distSq > 0.09) {
+        if (distSq > 1) {
             addStrokePoint(state.lastX, state.lastY, x, y, pressure);
             
             batchDrawManager.addCommand(
@@ -2732,21 +2758,6 @@ function addStrokePoint(fromX, fromY, toX, toY, pressure = 0.5) {
     }
     
     const points = stroke.points;
-    const len = points.length;
-    if (len > 0) {
-        const lastPoint = points[len - 1];
-        const dx = fromX - lastPoint.toX;
-        const dy = fromY - lastPoint.toY;
-        if (dx * dx + dy * dy > 2.25) {
-            points.push({
-                fromX: lastPoint.toX,
-                fromY: lastPoint.toY,
-                toX: fromX,
-                toY: fromY
-            });
-        }
-    }
-    
     points.push({ fromX, fromY, toX, toY });
 }
 
@@ -2878,6 +2889,8 @@ async function redrawAllStrokes(dirtyRect = null) {
     const ctx = dom.drawCtx;
     const scale = getSafeScale();
     
+    ctx.imageSmoothingEnabled = false;
+    
     const visibleRect = getVisibleRect();
     
     // 如果有脏区域，只清除和重绘该区域
@@ -2963,8 +2976,9 @@ async function redrawAllStrokes(dirtyRect = null) {
                 path.moveTo(firstPoint.fromX, firstPoint.fromY);
                 path.lineTo(firstPoint.toX, firstPoint.toY);
                 for (let i = 1; i < stroke.points.length; i++) {
-                    path.moveTo(stroke.points[i].fromX, stroke.points[i].fromY);
-                    path.lineTo(stroke.points[i].toX, stroke.points[i].toY);
+                    const pt = stroke.points[i];
+                    path.lineTo(pt.fromX, pt.fromY);
+                    path.lineTo(pt.toX, pt.toY);
                 }
             }
             
@@ -3055,8 +3069,9 @@ async function redrawAllStrokes(dirtyRect = null) {
                     drawPath.moveTo(firstPoint.fromX, firstPoint.fromY);
                     drawPath.lineTo(firstPoint.toX, firstPoint.toY);
                     for (let i = 1; i < stroke.points.length; i++) {
-                        drawPath.moveTo(stroke.points[i].fromX, stroke.points[i].fromY);
-                        drawPath.lineTo(stroke.points[i].toX, stroke.points[i].toY);
+                        const pt = stroke.points[i];
+                        drawPath.lineTo(pt.fromX, pt.fromY);
+                        drawPath.lineTo(pt.toX, pt.toY);
                     }
                 }
             }
@@ -3099,8 +3114,9 @@ async function drawEraserStroke(stroke) {
         path.moveTo(firstPoint.fromX, firstPoint.fromY);
         path.lineTo(firstPoint.toX, firstPoint.toY);
         for (let i = 1; i < stroke.points.length; i++) {
-            path.moveTo(stroke.points[i].fromX, stroke.points[i].fromY);
-            path.lineTo(stroke.points[i].toX, stroke.points[i].toY);
+            const pt = stroke.points[i];
+            path.lineTo(pt.fromX, pt.fromY);
+            path.lineTo(pt.toX, pt.toY);
         }
     }
     
@@ -3131,8 +3147,9 @@ async function drawStroke(stroke) {
         path.moveTo(firstPoint.fromX, firstPoint.fromY);
         path.lineTo(firstPoint.toX, firstPoint.toY);
         for (let i = 1; i < stroke.points.length; i++) {
-            path.moveTo(stroke.points[i].fromX, stroke.points[i].fromY);
-            path.lineTo(stroke.points[i].toX, stroke.points[i].toY);
+            const pt = stroke.points[i];
+            path.lineTo(pt.fromX, pt.fromY);
+            path.lineTo(pt.toX, pt.toY);
         }
     }
     

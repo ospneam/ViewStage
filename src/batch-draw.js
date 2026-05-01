@@ -138,8 +138,7 @@ class RealtimeBatchDrawManager {
         
         const ctx = this.getCtx();
         if (ctx) {
-            ctx.imageSmoothingEnabled = true;
-            ctx.imageSmoothingQuality = 'high';
+            ctx.imageSmoothingEnabled = false;
             ctx.lineCap = 'round';
             ctx.lineJoin = 'round';
         }

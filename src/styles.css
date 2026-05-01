@@ -98,6 +98,8 @@ body {
     transform-origin: 0 0;
     background-color: #3a3a3a;
     contain: layout style;
+    backface-visibility: hidden;
+    -webkit-backface-visibility: hidden;
 }
 
 .canvas-wrapper.dragging {
@@ -119,8 +121,7 @@ body {
     z-index: 3;
     background-color: transparent;
     cursor: grab;
-    image-rendering: -webkit-optimize-contrast;
-    image-rendering: crisp-edges;
+    will-change: transform;
 }
 
 .camera-video {
