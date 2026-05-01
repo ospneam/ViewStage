@@ -121,6 +121,18 @@ const ThemeManager = {
     return '#2a2a2a';
   },
 
+  getNoCameraMessageStyle() {
+    if (this.currentThemeModule && this.currentThemeModule.getNoCameraMessageStyle) {
+      return this.currentThemeModule.getNoCameraMessageStyle();
+    }
+    return {
+      textColor: '#ffffff',
+      secondaryTextColor: 'rgba(255,255,255,0.8)',
+      tertiaryTextColor: 'rgba(255,255,255,0.5)',
+      textShadow: '0 1px 3px rgba(0,0,0,0.5)'
+    };
+  },
+
   applyToolbarTextVisibility() {
     const toolbar = document.querySelector('.toolbar');
     if (toolbar) {

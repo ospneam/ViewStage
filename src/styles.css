@@ -89,8 +89,6 @@ body {
     touch-action: none;
     border: none;
     outline: none;
-    transform: translateZ(0);
-    -webkit-transform: translateZ(0);
 }
 
 .canvas-wrapper {
@@ -99,10 +97,6 @@ body {
     left: 0;
     transform-origin: 0 0;
     background-color: #3a3a3a;
-    backface-visibility: hidden;
-    -webkit-backface-visibility: hidden;
-    transform: translateZ(0);
-    -webkit-transform: translateZ(0);
     contain: layout style;
 }
 
@@ -125,6 +119,8 @@ body {
     z-index: 3;
     background-color: transparent;
     cursor: grab;
+    image-rendering: -webkit-optimize-contrast;
+    image-rendering: crisp-edges;
 }
 
 .camera-video {
@@ -133,11 +129,6 @@ body {
     display: none;
     pointer-events: none;
     object-fit: contain;
-    transform: translateZ(0);
-    -webkit-transform: translateZ(0);
-    backface-visibility: hidden;
-    -webkit-backface-visibility: hidden;
-    will-change: transform, opacity;
     contain: layout style paint;
 }
 

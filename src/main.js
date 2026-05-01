@@ -130,11 +130,10 @@ const DRAW_CONFIG = {
     screenH: 0,                    // 屏幕高度
     renderW: 1920,                 // 渲染分辨率宽度
     renderH: 1080,                 // 渲染分辨率高度
-    canvasScale: 2,                // 画布相对屏幕的缩放倍数
-    dpr: Math.min(window.devicePixelRatio || 1, 2),  // 设备像素比
+    dpr: window.devicePixelRatio || 1,  // 设备像素比
     pdfScale: 2,                   // PDF 渲染缩放比例
     imageSmoothingQuality: 'high', // 图像平滑质量
-    baseDpr: Math.min(window.devicePixelRatio || 1, 2), // 基础设备像素比
+    baseDpr: window.devicePixelRatio || 1, // 基础设备像素比
     canvasBgColor: '#2a2a2a',      // 画布背景颜色
     penColors: [                   // 画笔颜色列表
         '#3498db', '#2ecc71', '#e74c3c', '#f39c12', '#9b59b6',
@@ -622,31 +621,21 @@ window.addEventListener('DOMContentLoaded', async () => {
         
         emitSplashProgress(2, '正在加载主题...');
         
-        let hasCamera = false;
-        try {
-            const devices = await navigator.mediaDevices.enumerateDevices();
-            hasCamera = devices.some(device => device.kind === 'videoinput');
-        } catch (e) {
-            console.log('无法枚举设备:', e.name);
-        }
-        
         emitSplashProgress(3, '正在初始化摄像头...');
         
-        if (hasCamera) {
-            try {
-                await openCamera();
-            } catch (error) {
-                if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
-                    console.log('摄像头权限被拒绝，跳过摄像头初始化');
-                    showNoCameraMessage(window.i18n?.t('camera.noPermission') || '无摄像头权限');
-                } else {
-                    console.error('摄像头初始化失败:', error);
-                    showNoCameraMessage(window.i18n?.t('camera.initFailed') || '摄像头初始化失败');
-                }
+        try {
+            await openCamera();
+        } catch (error) {
+            if (error.name === 'NotFoundError' || error.name === 'DevicesNotFoundError') {
+                console.log('未检测到摄像头，使用无摄像头模式');
+                await initWithoutCamera(window.i18n?.t('camera.notDetected') || '未检测到摄像头');
+            } else if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
+                console.log('摄像头权限被拒绝，使用无摄像头模式');
+                await initWithoutCamera(window.i18n?.t('camera.noPermission') || '无摄像头权限');
+            } else {
+                console.error('摄像头初始化失败:', error);
+                await initWithoutCamera(window.i18n?.t('camera.initFailed') || '摄像头初始化失败');
             }
-        } else {
-            console.log('未检测到摄像头，跳过摄像头初始化');
-            showNoCameraMessage(window.i18n?.t('camera.notDetected') || '未检测到摄像头');
         }
         
         console.log('画布初始化完成');
@@ -706,12 +695,6 @@ async function loadCameraSetting() {
                 DRAW_CONFIG.renderW = settings.width;
                 DRAW_CONFIG.renderH = settings.height;
                 console.log('已加载渲染分辨率:', settings.width, 'x', settings.height);
-            }
-            
-            if (settings.dprLimit) {
-                DRAW_CONFIG.dpr = Math.min(window.devicePixelRatio || 1, settings.dprLimit);
-                DRAW_CONFIG.baseDpr = DRAW_CONFIG.dpr;
-                console.log('已加载设备像素比限制:', settings.dprLimit);
             }
             
             if (settings.pdfScale) {
@@ -864,12 +847,6 @@ function listenForPdfFileOpen() {
             needRestartCamera = true;
         }
         
-        if (settings.dprLimit !== undefined) {
-            DRAW_CONFIG.dpr = Math.min(window.devicePixelRatio || 1, settings.dprLimit);
-            DRAW_CONFIG.baseDpr = DRAW_CONFIG.dpr;
-            console.log('设备像素比限制已更改:', settings.dprLimit);
-        }
-        
         if (settings.pdfScale !== undefined) {
             DRAW_CONFIG.pdfScale = settings.pdfScale;
             console.log('PDF 输出分辨率已更改:', settings.pdfScale);
@@ -898,8 +875,13 @@ function listenForPdfFileOpen() {
                 updateCanvasBgColor(canvasBgColor);
                 
                 const noCameraMsg = document.getElementById('noCameraMessage');
-                if (noCameraMsg) {
-                    noCameraMsg.style.background = canvasBgColor;
+                if (noCameraMsg && noCameraMsg.style.display !== 'none') {
+                    const style = ThemeManager.getNoCameraMessageStyle();
+                    noCameraMsg.innerHTML = `
+                        <div style="font-size: 2.5vw; color: ${style.textColor}; margin-bottom: 2vh; text-shadow: ${style.textShadow};">( $ _ $ )</div>
+                        <div style="font-size: 1.2vw; color: ${style.secondaryTextColor}; margin-bottom: 1vh; text-shadow: ${style.textShadow};">${window.i18n?.t('camera.deviceNotFound') || '找不到展台设备'}</div>
+                        <div style="font-size: 0.9vw; color: ${style.tertiaryTextColor}; text-shadow: ${style.textShadow};">${noCameraMsg.dataset.message || ''}</div>
+                    `;
                 }
                 
                 console.log('主题已更改:', settings.theme);
@@ -1407,21 +1389,8 @@ async function resizeCanvas(newScreenW, newScreenH) {
     DRAW_CONFIG.screenW = newScreenW;
     DRAW_CONFIG.screenH = newScreenH;
     
-    // 动态调整画布缩放倍数，根据屏幕尺寸和性能状态
-    let adaptiveCanvasScale = DRAW_CONFIG.canvasScale;
-    if (newScreenW > 1920 || newScreenH > 1080) {
-        // 大屏幕，减少画布缩放
-        adaptiveCanvasScale = Math.max(1.5, DRAW_CONFIG.canvasScale * 0.8);
-    } else if (newScreenW > 1366 || newScreenH > 768) {
-        // 中等屏幕，保持默认缩放
-        adaptiveCanvasScale = DRAW_CONFIG.canvasScale;
-    } else {
-        // 小屏幕，适当增加缩放
-        adaptiveCanvasScale = Math.min(2.5, DRAW_CONFIG.canvasScale * 1.2);
-    }
-    
-    DRAW_CONFIG.canvasW = Math.floor(newScreenW * adaptiveCanvasScale);
-    DRAW_CONFIG.canvasH = Math.floor(newScreenH * adaptiveCanvasScale);
+    DRAW_CONFIG.canvasW = Math.floor(newScreenW * 2);
+    DRAW_CONFIG.canvasH = Math.floor(newScreenH * 2);
     
     // 使用固定的 DPR
     DRAW_CONFIG.dpr = DRAW_CONFIG.baseDpr;
@@ -1544,13 +1513,13 @@ function initCanvas() {
     
     DRAW_CONFIG.screenW = screenW;
     DRAW_CONFIG.screenH = screenH;
-    DRAW_CONFIG.canvasW = Math.floor(screenW * DRAW_CONFIG.canvasScale);
-    DRAW_CONFIG.canvasH = Math.floor(screenH * DRAW_CONFIG.canvasScale);
+    DRAW_CONFIG.canvasW = Math.floor(screenW * 2);
+    DRAW_CONFIG.canvasH = Math.floor(screenH * 2);
     
     updateMoveBound();
     
-    state.canvasX = -(DRAW_CONFIG.canvasW - screenW) / 2;
-    state.canvasY = -(DRAW_CONFIG.canvasH - screenH) / 2;
+    state.canvasX = -(DRAW_CONFIG.canvasW - DRAW_CONFIG.screenW) / 2;
+    state.canvasY = -(DRAW_CONFIG.canvasH - DRAW_CONFIG.screenH) / 2;
     
     // 初始化摄像头视图状态
     state.cameraViewState = {
@@ -1791,6 +1760,7 @@ function bindToolEvents() {
     dom.btnMinimize.addEventListener('click', minimizeWindow);
     dom.btnMenu.addEventListener('click', toggleMenu);
     dom.btnDocScan.addEventListener('click', openDocScanWindow);
+    dom.btnExpand.addEventListener('click', toggleSidebar);
 }
 
 // 打开文档扫描窗口
@@ -2717,6 +2687,7 @@ function startStroke(type) {
         color: DRAW_CONFIG.penColor,
         lineWidth: DRAW_CONFIG.penWidth,
         eraserSize: DRAW_CONFIG.eraserSize,
+        scale: state.scale,
         bounds: {
             minX: Infinity,
             minY: Infinity,
@@ -2964,14 +2935,15 @@ async function redrawAllStrokes(dirtyRect = null) {
         for (const stroke of strokesToRedraw) {
             if (!stroke.points || stroke.points.length < 1) continue;
             
+            const strokeScale = stroke.scale || 1;
             if (stroke.type === 'erase') {
                 ctx.globalCompositeOperation = 'destination-out';
                 ctx.strokeStyle = 'rgba(0, 0, 0, 1)';
-                ctx.lineWidth = (stroke.eraserSize || DRAW_CONFIG.eraserSize) / scale;
+                ctx.lineWidth = (stroke.eraserSize || DRAW_CONFIG.eraserSize) / strokeScale;
             } else if (stroke.type === 'draw' || stroke.type === 'comment') {
                 ctx.globalCompositeOperation = 'source-over';
                 ctx.strokeStyle = stroke.color || DRAW_CONFIG.penColor;
-                ctx.lineWidth = (stroke.lineWidth || DRAW_CONFIG.penWidth) / scale;
+                ctx.lineWidth = (stroke.lineWidth || DRAW_CONFIG.penWidth) / strokeScale;
             } else {
                 continue;
             }
@@ -3005,11 +2977,13 @@ async function redrawAllStrokes(dirtyRect = null) {
                 if (stroke.variableWidths && stroke.variableWidths.length > 0) {
                     variableWidthStrokes.push(stroke);
                 } else {
-                    const stateKey = `${stroke.color || DRAW_CONFIG.penColor}-${stroke.lineWidth || DRAW_CONFIG.penWidth}`;
+                    const strokeScale = stroke.scale || 1;
+                    const stateKey = `${stroke.color || DRAW_CONFIG.penColor}-${stroke.lineWidth || DRAW_CONFIG.penWidth}-${strokeScale}`;
                     if (!fixedWidthStrokes.has(stateKey)) {
                         fixedWidthStrokes.set(stateKey, {
                             color: stroke.color || DRAW_CONFIG.penColor,
                             lineWidth: stroke.lineWidth || DRAW_CONFIG.penWidth,
+                            scale: strokeScale,
                             strokes: []
                         });
                     }
@@ -3024,6 +2998,7 @@ async function redrawAllStrokes(dirtyRect = null) {
         for (const stroke of variableWidthStrokes) {
             if (!stroke.points || stroke.points.length === 0) continue;
             
+            const strokeScale = stroke.scale || 1;
             ctx.fillStyle = stroke.color || DRAW_CONFIG.penColor;
             
             const polygonPath = new Path2D();
@@ -3035,7 +3010,7 @@ async function redrawAllStrokes(dirtyRect = null) {
                 
                 const x1 = point.fromX, y1 = point.fromY;
                 const x2 = point.toX, y2 = point.toY;
-                const w1 = widthInfo.fromWidth / scale, w2 = widthInfo.toWidth / scale;
+                const w1 = widthInfo.fromWidth / strokeScale, w2 = widthInfo.toWidth / strokeScale;
                 
                 const angle = Math.atan2(y2 - y1, x2 - x1);
                 const perpAngle = angle + Math.PI / 2;
@@ -3061,7 +3036,7 @@ async function redrawAllStrokes(dirtyRect = null) {
         // 批量绘制固定线宽笔画
         for (const [stateKey, group] of fixedWidthStrokes) {
             ctx.strokeStyle = group.color;
-            ctx.lineWidth = group.lineWidth / scale;
+            ctx.lineWidth = group.lineWidth / group.scale;
             
             const drawPath = new Path2D();
             for (const stroke of group.strokes) {
@@ -3100,11 +3075,11 @@ async function drawEraserStroke(stroke) {
     if (!stroke.points || stroke.points.length < 1) return;
     
     const ctx = dom.drawCtx;
-    const scale = getSafeScale();
+    const strokeScale = stroke.scale || 1;
     setContextState(dom.drawCtx, {
         globalCompositeOperation: 'destination-out',
         strokeStyle: 'rgba(0, 0, 0, 1)',
-        lineWidth: (stroke.eraserSize || DRAW_CONFIG.eraserSize) / scale,
+        lineWidth: (stroke.eraserSize || DRAW_CONFIG.eraserSize) / strokeScale,
         lineCap: 'round',
         lineJoin: 'round'
     });
@@ -3132,10 +3107,10 @@ async function drawEraserStroke(stroke) {
 async function drawStroke(stroke) {
     if (!stroke.points || stroke.points.length < 1) return;
     
-    const scale = getSafeScale();
+    const strokeScale = stroke.scale || 1;
     setContextState(dom.drawCtx, {
         strokeStyle: stroke.color || DRAW_CONFIG.penColor,
-        lineWidth: (stroke.lineWidth || DRAW_CONFIG.penWidth) / scale,
+        lineWidth: (stroke.lineWidth || DRAW_CONFIG.penWidth) / strokeScale,
         lineCap: 'round',
         lineJoin: 'round',
         globalCompositeOperation: 'source-over'
@@ -4929,40 +4904,110 @@ async function openCamera() {
 }
 
 /**
+ * 无摄像头模式初始化
+ * 在摄像头不可用时调用，确保界面正常显示且功能可用
+ */
+async function initWithoutCamera(message) {
+    try {
+        state.isCameraOpen = false;
+        state.isCameraReady = false;
+        state.cameraStream = null;
+        
+        if (dom.cameraVideo) {
+            dom.cameraVideo.style.display = 'none';
+            dom.cameraVideo.srcObject = null;
+        }
+        
+        let bgColor = '#2a2a2a';
+        try {
+            const themeColor = ThemeManager.getCanvasBgColor();
+            if (themeColor && typeof themeColor === 'string' && themeColor.match(/^#[0-9a-fA-F]{6}$/)) {
+                bgColor = themeColor;
+            }
+        } catch (e) {
+            console.warn('获取主题背景色失败，使用默认值:', e);
+        }
+        updateCanvasBgColor(bgColor);
+        
+        await switchToSource('cam');
+        
+        updateCanvasTransform();
+        updateMoveBound();
+        clampCanvasPosition();
+        updatePhotoButtonState();
+        
+        showNoCameraMessage(message);
+        
+        console.log('无摄像头模式初始化完成');
+    } catch (error) {
+        console.error('无摄像头模式初始化失败:', error);
+        
+        let fallbackBgColor = '#2a2a2a';
+        try {
+            const themeColor = ThemeManager.getCanvasBgColor();
+            if (themeColor && typeof themeColor === 'string') {
+                fallbackBgColor = themeColor;
+            }
+        } catch (e) {}
+        updateCanvasBgColor(fallbackBgColor);
+        
+        showNoCameraMessage(message || '摄像头不可用');
+    }
+}
+
+/**
  * 显示无摄像头提示信息
  */
 function showNoCameraMessage(message) {
-    if (!dom.canvasContainer) return;
+    if (!dom.canvasWrapper) {
+        console.error('showNoCameraMessage: canvasWrapper 不存在');
+        return;
+    }
     
     let msgElement = document.getElementById('noCameraMessage');
     if (!msgElement) {
         msgElement = document.createElement('div');
         msgElement.id = 'noCameraMessage';
-        msgElement.style.cssText = `
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            z-index: 10;
-            pointer-events: none;
-        `;
-        dom.canvasContainer.appendChild(msgElement);
+        dom.canvasWrapper.appendChild(msgElement);
     }
     
-    const bgColor = ThemeManager.getCanvasBgColor() || '#1e1e1e';
-    msgElement.style.background = bgColor;
+    let style = {
+        textColor: '#ffffff',
+        secondaryTextColor: 'rgba(255,255,255,0.8)',
+        tertiaryTextColor: 'rgba(255,255,255,0.5)',
+        textShadow: '0 1px 3px rgba(0,0,0,0.5)'
+    };
+    
+    try {
+        const themeStyle = ThemeManager.getNoCameraMessageStyle();
+        if (themeStyle) {
+            style = themeStyle;
+        }
+    } catch (e) {
+        console.warn('获取主题样式失败，使用默认值:', e);
+    }
+    
+    msgElement.style.cssText = `
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: ${DRAW_CONFIG.canvasW}px;
+        height: ${DRAW_CONFIG.canvasH}px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        z-index: 1;
+        pointer-events: none;
+    `;
+    
+    msgElement.dataset.message = message || '';
     
     msgElement.innerHTML = `
-        <div style="font-size: 2.5vw; color: #fff; margin-bottom: 2vh;">( $ _ $ )</div>
-        <div style="font-size: 1.2vw; color: rgba(255,255,255,0.8); margin-bottom: 1vh;">${window.i18n?.t('camera.deviceNotFound') || '找不到展台设备'}</div>
-        <div style="font-size: 0.9vw; color: rgba(255,255,255,0.5);">${message}</div>
+        <div style="font-size: 4vw; color: ${style.textColor}; margin-bottom: 3vh; text-shadow: ${style.textShadow};">( $ _ $ )</div>
+        <div style="font-size: 1.8vw; color: ${style.secondaryTextColor}; margin-bottom: 1.5vh; text-shadow: ${style.textShadow};">${window.i18n?.t('camera.deviceNotFound') || '找不到展台设备'}</div>
+        <div style="font-size: 1.2vw; color: ${style.tertiaryTextColor}; text-shadow: ${style.textShadow};">${message}</div>
     `;
-    msgElement.style.display = 'flex';
 }
 
 /**

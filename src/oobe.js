@@ -43,8 +43,6 @@ const defaultConfig = {
     cameraWidth: 1280,
     cameraHeight: 720,
     pdfScale: 2,
-    canvasScale: 2,
-    dprLimit: 2,
     penColors: [
         {"r": 52, "g": 152, "b": 219},
         {"r": 46, "g": 204, "b": 113},

@@ -3,6 +3,12 @@
   "displayName": "深色主题",
   "showToolbarText": true,
   "canvasBgColor": "#2a2a2a",
+  "noCameraMessage": {
+    "textColor": "#ffffff",
+    "secondaryTextColor": "rgba(255,255,255,0.8)",
+    "tertiaryTextColor": "rgba(255,255,255,0.5)",
+    "textShadow": "0 1px 3px rgba(0,0,0,0.5)"
+  },
   "icons": {
     "menu": "justify",
     "minimize": "box-arrow-in-down-left",

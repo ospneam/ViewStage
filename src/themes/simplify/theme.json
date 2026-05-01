@@ -3,6 +3,12 @@
   "displayName": "简化主题",
   "showToolbarText": false,
   "canvasBgColor": "#ffffff",
+  "noCameraMessage": {
+    "textColor": "#1a1a1a",
+    "secondaryTextColor": "rgba(0,0,0,0.6)",
+    "tertiaryTextColor": "rgba(0,0,0,0.4)",
+    "textShadow": "0 1px 3px rgba(255,255,255,0.5)"
+  },
   "icons": {
     "menu": "justify",
     "minimize": "box-arrow-in-down-left",

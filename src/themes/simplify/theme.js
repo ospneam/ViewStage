@@ -31,6 +31,15 @@ const SimplifyTheme = {
   
   getCanvasBgColor() {
     return this.config?.canvasBgColor || '#ffffff';
+  },
+  
+  getNoCameraMessageStyle() {
+    return this.config?.noCameraMessage || {
+      textColor: '#1a1a1a',
+      secondaryTextColor: 'rgba(0,0,0,0.6)',
+      tertiaryTextColor: 'rgba(0,0,0,0.4)',
+      textShadow: '0 1px 3px rgba(255,255,255,0.5)'
+    };
   }
 };
 

@@ -354,31 +354,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                     });
                 }
                 
-                // Canvas 参数设置
-                const canvasScaleSlider = document.getElementById('canvasScaleSlider');
-                const canvasScaleValue = document.getElementById('canvasScaleValue');
-                const dprSelected = document.getElementById('dprSelected');
-                const dprOptionsContainer = document.getElementById('dprOptions');
-                
-                if (canvasScaleSlider && canvasScaleValue) {
-                    const savedCanvasScale = settings.canvasScale || 2;
-                    canvasScaleSlider.value = savedCanvasScale;
-                    canvasScaleValue.textContent = `${savedCanvasScale}x`;
-                }
-                
-                if (dprSelected && dprOptionsContainer) {
-                    const savedDpr = settings.dprLimit || 2;
-                    const dprOptions = dprOptionsContainer.querySelectorAll('.select-option');
-                    dprOptions.forEach(option => {
-                        if (parseFloat(option.dataset.value) === savedDpr) {
-                            dprSelected.textContent = option.textContent;
-                            option.classList.add('selected');
-                        } else {
-                            option.classList.remove('selected');
-                        }
-                    });
-                }
-                
                 // 画笔颜色设置
                 const defaultColors = [
                     '#3498db', '#2ecc71', '#e74c3c', '#f39c12', '#9b59b6',
@@ -801,52 +776,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             pdfScaleSelect.classList.remove('open');
             
             await saveSettings({ pdfScale: value });
-        });
-    }
-    
-    // Canvas 参数设置 - 画布缩放倍数
-    const canvasScaleSlider = document.getElementById('canvasScaleSlider');
-    const canvasScaleValue = document.getElementById('canvasScaleValue');
-    
-    if (canvasScaleSlider && canvasScaleValue) {
-        canvasScaleSlider.addEventListener('input', () => {
-            canvasScaleValue.textContent = `${canvasScaleSlider.value}x`;
-        });
-        
-        canvasScaleSlider.addEventListener('change', async () => {
-            await saveSettings({ canvasScale: parseFloat(canvasScaleSlider.value) });
-        });
-    }
-    
-    // Canvas 参数设置 - 设备像素比限制
-    const dprSelect = document.getElementById('dprSelect');
-    const dprSelected = document.getElementById('dprSelected');
-    
-    if (dprSelect && dprSelected) {
-        dprSelected.addEventListener('click', () => {
-            dprSelect.classList.toggle('open');
-        });
-        
-        document.addEventListener('click', (e) => {
-            if (!dprSelect.contains(e.target)) {
-                dprSelect.classList.remove('open');
-            }
-        });
-        
-        dprSelect.addEventListener('click', async (e) => {
-            const option = e.target.closest('.select-option');
-            if (!option) return;
-            
-            const value = parseFloat(option.dataset.value);
-            dprSelected.textContent = option.textContent;
-            
-            const dprOptions = dprSelect.querySelectorAll('.select-option');
-            dprOptions.forEach(opt => opt.classList.remove('selected'));
-            option.classList.add('selected');
-            
-            dprSelect.classList.remove('open');
-            
-            await saveSettings({ dprLimit: value });
         });
     }
     
