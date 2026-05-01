@@ -525,6 +525,19 @@
     outline-offset: -5px;
 }
 
+.pen-color-btn.dark-color {
+    border: 1px solid #555;
+}
+
+.pen-color-btn.light-color {
+    border: 1px solid #555;
+}
+
+.pen-color-btn.dark-color.active,
+.pen-color-btn.light-color.active {
+    border: 3px solid #333;
+}
+
 .settings-panel {
     position: absolute;
     z-index: 100;

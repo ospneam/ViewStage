@@ -1317,13 +1317,42 @@ document.addEventListener('DOMContentLoaded', async () => {
     const assocPdf = document.getElementById('assocPdf');
     if (assocPdf) {
         assocPdf.addEventListener('change', async () => {
-            await saveSettings({ fileAssociations: assocPdf.checked });
+            const { invoke } = window.__TAURI__.core;
+            
             if (assocPdf.checked) {
                 try {
-                    const { invoke } = window.__TAURI__.core;
                     await invoke('set_file_type_icons');
+                    await saveSettings({ fileAssociations: true });
+                    showSettingsDialog(
+                        window.i18n?.t('common.success') || '成功',
+                        window.i18n?.t('settings.pdfDefaultSetSuccess') || 'PDF 已设置为默认打开方式',
+                        'success'
+                    );
                 } catch (e) {
-                    console.log('设置文件图标失败:', e);
+                    console.error('设置 PDF 默认打开方式失败:', e);
+                    assocPdf.checked = false;
+                    showSettingsDialog(
+                        window.i18n?.t('common.error') || '错误',
+                        window.i18n?.t('settings.pdfDefaultSetFailed') || '设置 PDF 默认打开方式失败，请手动在系统设置中设置',
+                        'error'
+                    );
+                }
+            } else {
+                try {
+                    await invoke('remove_file_type_icons');
+                    await saveSettings({ fileAssociations: false });
+                    showSettingsDialog(
+                        window.i18n?.t('common.success') || '成功',
+                        window.i18n?.t('settings.pdfDefaultRemoved') || '已取消 PDF 默认打开方式设置',
+                        'success'
+                    );
+                } catch (e) {
+                    console.error('取消 PDF 默认打开方式失败:', e);
+                    showSettingsDialog(
+                        window.i18n?.t('common.error') || '错误',
+                        String(e),
+                        'error'
+                    );
                 }
             }
         });
@@ -1332,13 +1361,42 @@ document.addEventListener('DOMContentLoaded', async () => {
     const assocWord = document.getElementById('assocWord');
     if (assocWord) {
         assocWord.addEventListener('change', async () => {
-            await saveSettings({ wordAssociations: assocWord.checked });
+            const { invoke } = window.__TAURI__.core;
+            
             if (assocWord.checked) {
                 try {
-                    const { invoke } = window.__TAURI__.core;
                     await invoke('set_file_type_icons');
+                    await saveSettings({ wordAssociations: true });
+                    showSettingsDialog(
+                        window.i18n?.t('common.success') || '成功',
+                        window.i18n?.t('settings.wordDefaultSetSuccess') || 'Word 文档已设置为默认打开方式',
+                        'success'
+                    );
                 } catch (e) {
-                    console.log('设置文件图标失败:', e);
+                    console.error('设置 Word 默认打开方式失败:', e);
+                    assocWord.checked = false;
+                    showSettingsDialog(
+                        window.i18n?.t('common.error') || '错误',
+                        window.i18n?.t('settings.wordDefaultSetFailed') || '设置 Word 默认打开方式失败，请手动在系统设置中设置',
+                        'error'
+                    );
+                }
+            } else {
+                try {
+                    await invoke('remove_file_type_icons');
+                    await saveSettings({ wordAssociations: false });
+                    showSettingsDialog(
+                        window.i18n?.t('common.success') || '成功',
+                        window.i18n?.t('settings.wordDefaultRemoved') || '已取消 Word 文档默认打开方式设置',
+                        'success'
+                    );
+                } catch (e) {
+                    console.error('取消 Word 默认打开方式失败:', e);
+                    showSettingsDialog(
+                        window.i18n?.t('common.error') || '错误',
+                        String(e),
+                        'error'
+                    );
                 }
             }
         });

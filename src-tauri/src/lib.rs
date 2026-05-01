@@ -1928,6 +1928,8 @@ async fn convert_docx_to_pdf(_docx_path: String, _app: tauri::AppHandle) -> Resu
 #[tauri::command]
 async fn set_file_type_icons(app: tauri::AppHandle) -> Result<(), String> {
     use std::process::Command;
+    use winreg::RegKey;
+    use winreg::enums::*;
     
     let resource_dir = app.path().resource_dir()
         .map_err(|e| format!("获取资源目录失败: {}", e))?;
@@ -1935,61 +1937,249 @@ async fn set_file_type_icons(app: tauri::AppHandle) -> Result<(), String> {
     let pdf_icon = resource_dir.join("icons").join("pdf.ico").to_string_lossy().to_string();
     let word_icon = resource_dir.join("icons").join("word.ico").to_string_lossy().to_string();
     
+    let exe_path = std::env::current_exe()
+        .map_err(|e| format!("获取可执行文件路径失败: {}", e))?;
+    let exe_path_str = exe_path.to_string_lossy().to_string();
+    
     let app_id = "SECTL.ViewStage";
     
-    println!("PDF 图标路径: {}", pdf_icon);
-    println!("Word 图标路径: {}", word_icon);
+    log::info!("开始设置文件关联");
+    log::info!("可执行文件: {}", exe_path_str);
+    log::info!("PDF 图标: {}", pdf_icon);
+    log::info!("Word 图标: {}", word_icon);
     
-    let ps_script = format!(r#"
-        $ErrorActionPreference = 'SilentlyContinue'
+    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+    let classes_key = hkcu.create_subkey("Software\\Classes")
+        .map_err(|e| format!("创建 Classes 键失败: {}", e))?.0;
+    
+    fn setup_progid(
+        classes_key: &RegKey,
+        prog_id: &str,
+        icon_path: &str,
+        exe_path: &str,
+        friendly_name: &str,
+    ) -> Result<(), String> {
+        let (prog_key, _) = classes_key
+            .create_subkey(prog_id)
+            .map_err(|e| format!("创建 {} 键失败: {}", prog_id, e))?;
         
-        # 设置 PDF 文件图标
-        $pdfKey = 'HKCU:\Software\Classes\{app_id}.pdf'
-        New-Item -Path $pdfKey -Force | Out-Null
-        New-Item -Path "$pdfKey\DefaultIcon" -Force | Out-Null
-        Set-ItemProperty -Path "$pdfKey\DefaultIcon" -Name '(Default)' -Value '{pdf_icon}'
+        prog_key
+            .set_value("", &friendly_name)
+            .map_err(|e| format!("设置 {} 友好名称失败: {}", prog_id, e))?;
         
-        # 设置 DOCX 文件图标
-        $docxKey = 'HKCU:\Software\Classes\{app_id}.docx'
-        New-Item -Path $docxKey -Force | Out-Null
-        New-Item -Path "$docxKey\DefaultIcon" -Force | Out-Null
-        Set-ItemProperty -Path "$docxKey\DefaultIcon" -Name '(Default)' -Value '{word_icon}'
+        let (icon_key, _) = prog_key
+            .create_subkey("DefaultIcon")
+            .map_err(|e| format!("创建 {}\\DefaultIcon 键失败: {}", prog_id, e))?;
+        icon_key
+            .set_value("", &icon_path)
+            .map_err(|e| format!("设置 {} 图标失败: {}", prog_id, e))?;
         
-        # 设置 DOC 文件图标
-        $docKey = 'HKCU:\Software\Classes\{app_id}.doc'
-        New-Item -Path $docKey -Force | Out-Null
-        New-Item -Path "$docKey\DefaultIcon" -Force | Out-Null
-        Set-ItemProperty -Path "$docKey\DefaultIcon" -Name '(Default)' -Value '{word_icon}'
+        let (command_key, _) = prog_key
+            .create_subkey("shell\\open\\command")
+            .map_err(|e| format!("创建 {}\\shell\\open\\command 键失败: {}", prog_id, e))?;
+        let command = format!("\"{}\" \"%1\"", exe_path);
+        command_key
+            .set_value("", &command)
+            .map_err(|e| format!("设置 {} 命令失败: {}", prog_id, e))?;
         
-        # 刷新图标缓存
+        log::info!("ProgID {} 设置完成", prog_id);
+        Ok(())
+    }
+    
+    setup_progid(&classes_key, &format!("{}.pdf", app_id), &pdf_icon, &exe_path_str, "ViewStage PDF Document")?;
+    setup_progid(&classes_key, &format!("{}.docx", app_id), &word_icon, &exe_path_str, "ViewStage Word Document")?;
+    setup_progid(&classes_key, &format!("{}.doc", app_id), &word_icon, &exe_path_str, "ViewStage Word 97-2003 Document")?;
+    
+    fn associate_extension(classes_key: &RegKey, ext: &str, prog_id: &str) -> Result<(), String> {
+        let (ext_key, _) = classes_key
+            .create_subkey(ext)
+            .map_err(|e| format!("创建 {} 键失败: {}", ext, e))?;
+        
+        let (openwith_key, _) = ext_key
+            .create_subkey("OpenWithProgids")
+            .map_err(|e| format!("创建 {}\\OpenWithProgids 键失败: {}", ext, e))?;
+        
+        openwith_key
+            .set_value(prog_id, &"")
+            .map_err(|e| format!("关联 {} 到 {} 失败: {}", ext, prog_id, e))?;
+        
+        log::info!("文件扩展名 {} 已关联到 {}", ext, prog_id);
+        Ok(())
+    }
+    
+    associate_extension(&classes_key, ".pdf", &format!("{}.pdf", app_id))?;
+    associate_extension(&classes_key, ".docx", &format!("{}.docx", app_id))?;
+    associate_extension(&classes_key, ".doc", &format!("{}.doc", app_id))?;
+    
+    fn set_default_program(hkcu: &RegKey, ext: &str, prog_id: &str) -> Result<(), String> {
+        let user_choice_path = format!(
+            "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\FileExts\\{}\\UserChoice",
+            ext
+        );
+        
+        let result = hkcu.create_subkey(&user_choice_path);
+        
+        match result {
+            Ok((user_choice_key, _)) => {
+                match user_choice_key.set_value("ProgId", &prog_id) {
+                    Ok(_) => {
+                        log::info!("成功设置 {} 为 {} 的默认程序", prog_id, ext);
+                        Ok(())
+                    }
+                    Err(e) => {
+                        log::warn!("设置 UserChoice 失败（可能需要管理员权限）: {}", e);
+                        Err(format!("设置默认程序失败，请手动在系统设置中设置: {}", e))
+                    }
+                }
+            }
+            Err(e) => {
+                log::warn!("创建 UserChoice 键失败: {}", e);
+                Err(format!("无法设置默认程序，请手动在系统设置中设置: {}", e))
+            }
+        }
+    }
+    
+    let mut errors = Vec::new();
+    
+    if let Err(e) = set_default_program(&hkcu, ".pdf", &format!("{}.pdf", app_id)) {
+        errors.push(e);
+    }
+    
+    if let Err(e) = set_default_program(&hkcu, ".docx", &format!("{}.docx", app_id)) {
+        errors.push(e);
+    }
+    
+    if let Err(e) = set_default_program(&hkcu, ".doc", &format!("{}.doc", app_id)) {
+        errors.push(e);
+    }
+    
+    let ps_script = r#"
         $code = @'
         [DllImport("shell32.dll")]
         public static extern void SHChangeNotify(int wEventId, uint uFlags, IntPtr dwItem1, IntPtr dwItem2);
 '@
         Add-Type -MemberDefinition $code -Name Shell -Namespace WinAPI
         [WinAPI.Shell]::SHChangeNotify(0x8000000, 0x1000, [IntPtr]::Zero, [IntPtr]::Zero)
-        
-        Write-Host "文件类型图标已设置"
-    "#, app_id = app_id, pdf_icon = pdf_icon, word_icon = word_icon);
+        Write-Host "图标缓存已刷新"
+    "#;
     
     let output = Command::new("powershell")
-        .args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", &ps_script])
+        .args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", ps_script])
         .creation_flags(CREATE_NO_WINDOW)
         .output()
-        .map_err(|e| format!("设置图标失败: {}", e))?;
+        .map_err(|e| format!("刷新图标缓存失败: {}", e))?;
     
-    if output.status.success() {
-        println!("文件类型图标设置成功");
+    if !output.status.success() {
+        log::warn!("刷新图标缓存失败");
+    }
+    
+    if errors.is_empty() {
+        log::info!("文件关联设置完成，已设置为默认程序");
         Ok(())
     } else {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        Err(format!("设置图标失败: {}", stderr))
+        let error_msg = errors.join("\n");
+        log::warn!("部分设置失败:\n{}", error_msg);
+        Err(error_msg)
     }
 }
 
 #[cfg(not(target_os = "windows"))]
 #[tauri::command]
 async fn set_file_type_icons() -> Result<(), String> {
+    Err("此功能仅支持 Windows 系统".to_string())
+}
+
+#[cfg(target_os = "windows")]
+#[tauri::command]
+async fn remove_file_type_icons() -> Result<(), String> {
+    use std::process::Command;
+    use winreg::RegKey;
+    use winreg::enums::*;
+    
+    let app_id = "SECTL.ViewStage";
+    
+    log::info!("开始移除文件关联");
+    
+    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+    
+    fn remove_progid(hkcu: &RegKey, prog_id: &str) -> Result<(), String> {
+        let classes_path = format!("Software\\Classes\\{}", prog_id);
+        
+        if let Ok(_) = hkcu.delete_subkey_all(&classes_path) {
+            log::info!("已删除 ProgID: {}", prog_id);
+        } else {
+            log::info!("ProgID {} 不存在或已删除", prog_id);
+        }
+        
+        Ok(())
+    }
+    
+    remove_progid(&hkcu, &format!("{}.pdf", app_id))?;
+    remove_progid(&hkcu, &format!("{}.docx", app_id))?;
+    remove_progid(&hkcu, &format!("{}.doc", app_id))?;
+    
+    fn remove_association(hkcu: &RegKey, ext: &str, prog_id: &str) -> Result<(), String> {
+        let openwith_path = format!("Software\\Classes\\{}\\OpenWithProgids", ext);
+        
+        if let Ok(openwith_key) = hkcu.open_subkey(&openwith_path) {
+            if let Ok(_) = openwith_key.delete_value(prog_id) {
+                log::info!("已移除 {} 的 {} 关联", ext, prog_id);
+            }
+        }
+        
+        Ok(())
+    }
+    
+    remove_association(&hkcu, ".pdf", &format!("{}.pdf", app_id))?;
+    remove_association(&hkcu, ".docx", &format!("{}.docx", app_id))?;
+    remove_association(&hkcu, ".doc", &format!("{}.doc", app_id))?;
+    
+    fn remove_user_choice(hkcu: &RegKey, ext: &str) -> Result<(), String> {
+        let user_choice_path = format!(
+            "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\FileExts\\{}\\UserChoice",
+            ext
+        );
+        
+        if let Ok(_) = hkcu.delete_subkey_all(&user_choice_path) {
+            log::info!("已移除 {} 的 UserChoice 设置", ext);
+        } else {
+            log::info!("{} 的 UserChoice 不存在或已删除", ext);
+        }
+        
+        Ok(())
+    }
+    
+    remove_user_choice(&hkcu, ".pdf")?;
+    remove_user_choice(&hkcu, ".docx")?;
+    remove_user_choice(&hkcu, ".doc")?;
+    
+    let ps_script = r#"
+        $code = @'
+        [DllImport("shell32.dll")]
+        public static extern void SHChangeNotify(int wEventId, uint uFlags, IntPtr dwItem1, IntPtr dwItem2);
+'@
+        Add-Type -MemberDefinition $code -Name Shell -Namespace WinAPI
+        [WinAPI.Shell]::SHChangeNotify(0x8000000, 0x1000, [IntPtr]::Zero, [IntPtr]::Zero)
+        Write-Host "图标缓存已刷新"
+    "#;
+    
+    let output = Command::new("powershell")
+        .args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", ps_script])
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()
+        .map_err(|e| format!("刷新图标缓存失败: {}", e))?;
+    
+    if !output.status.success() {
+        log::warn!("刷新图标缓存失败");
+    }
+    
+    log::info!("文件关联移除完成");
+    Ok(())
+}
+
+#[cfg(not(target_os = "windows"))]
+#[tauri::command]
+async fn remove_file_type_icons() -> Result<(), String> {
     Err("此功能仅支持 Windows 系统".to_string())
 }
 
@@ -3777,6 +3967,7 @@ pub fn run() {
             convert_docx_to_pdf,
             convert_docx_to_pdf_from_bytes,
             set_file_type_icons,
+            remove_file_type_icons,
             scan_document,
             enhance_document_advanced,
             detect_text_dbnet,

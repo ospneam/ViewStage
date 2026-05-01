@@ -2056,12 +2056,16 @@ function updateColorButtons() {
             btn.style.backgroundColor = DRAW_CONFIG.penColors[index];
             btn.title = window.i18n?.t('settings.colorN', { n: index + 1 }) || `颜色${index + 1}`;
             
-            // 为黑色和白色添加边框
-            if (DRAW_CONFIG.penColors[index].toLowerCase() === '#000000' || 
-                DRAW_CONFIG.penColors[index].toLowerCase() === '#ffffff') {
-                btn.style.border = '1px solid #555';
+            if (DRAW_CONFIG.penColors[index].toLowerCase() === '#000000') {
+                btn.classList.add('dark-color');
             } else {
-                btn.style.border = 'none';
+                btn.classList.remove('dark-color');
+            }
+            
+            if (DRAW_CONFIG.penColors[index].toLowerCase() === '#ffffff') {
+                btn.classList.add('light-color');
+            } else {
+                btn.classList.remove('light-color');
             }
         }
     });
