@@ -8,15 +8,22 @@ const SimplifyTheme = {
     return '../'.repeat(depth);
   },
   
-  async load() {
+  async load(isSettingsPage = false) {
     const base = this.getBasePath();
     const response = await fetch(`${base}themes/simplify/theme.json`);
     this.config = await response.json();
     
-    const link = document.createElement('link');
-    link.rel = 'stylesheet';
-    link.href = `${base}themes/simplify/theme.css`;
-    document.head.appendChild(link);
+    if (isSettingsPage) {
+      const link = document.createElement('link');
+      link.rel = 'stylesheet';
+      link.href = `${base}themes/simplify/settings.css`;
+      document.head.appendChild(link);
+    } else {
+      const link = document.createElement('link');
+      link.rel = 'stylesheet';
+      link.href = `${base}themes/simplify/theme.css`;
+      document.head.appendChild(link);
+    }
   },
   
   getIconPath(iconName) {

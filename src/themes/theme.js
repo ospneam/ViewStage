@@ -2,11 +2,29 @@ const ThemeManager = {
   currentTheme: null,
   currentThemeModule: null,
   userThemePath: null,
-  loadCss: true,
+  isSettingsPage: false,
 
-  async init(themeName = 'simplify') {
-    this.loadCss = !window.location.pathname.includes('settings.html');
+  async init(themeName = null) {
+    this.isSettingsPage = window.location.pathname.includes('settings.html');
+    
+    if (!themeName) {
+      themeName = await this.getSavedTheme();
+    }
+    
     await this.setTheme(themeName);
+  },
+
+  async getSavedTheme() {
+    if (window.__TAURI__) {
+      try {
+        const { invoke } = window.__TAURI__.core;
+        const settings = await invoke('get_settings');
+        return settings?.theme || 'simplify';
+      } catch (e) {
+        console.warn('无法获取保存的主题设置:', e);
+      }
+    }
+    return 'simplify';
   },
 
   async setTheme(themeName) {
@@ -41,8 +59,8 @@ const ThemeManager = {
       this.currentThemeModule = themeModule;
       this.currentTheme = themeName;
       
-      if (this.loadCss && this.currentThemeModule.load) {
-        await this.currentThemeModule.load();
+      if (this.currentThemeModule.load) {
+        await this.currentThemeModule.load(this.isSettingsPage);
       }
       this.applyToolbarTextVisibility();
       this.loadIcons();

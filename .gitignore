@@ -33,3 +33,6 @@ src/wasm/
 DexiNed/
 cache/
 model/
+
+# Trae config
+.trae/

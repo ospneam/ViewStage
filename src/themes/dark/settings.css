@@ -1,0 +1,514 @@
+:root {
+    --color-canvas: #1a1a1a;
+    --color-canvas-gradient-start: #1a1a1a;
+    --color-canvas-gradient-end: #2a2a2a;
+    --color-primary: #ffffff;
+    --color-primary-active: #e5e5e5;
+    --color-brand-accent: #3498db;
+    --color-surface-soft: #2a2a2a;
+    --color-surface-card: #2a2a2a;
+    --color-surface-strong: #3a3a3a;
+    --color-surface-elevated: #3a3a3a;
+    --color-hairline: rgba(255, 255, 255, 0.1);
+    --color-hairline-soft: rgba(255, 255, 255, 0.05);
+    --color-ink: #ffffff;
+    --color-body: #ffffff;
+    --color-muted: rgba(255, 255, 255, 0.6);
+    --color-muted-soft: rgba(255, 255, 255, 0.5);
+    --color-on-primary: #111111;
+    --color-success: #10b981;
+    --color-warning: #f59e0b;
+    --color-error: #ef4444;
+    
+    --rounded-xs: 4px;
+    --rounded-sm: 6px;
+    --rounded-md: 8px;
+    --rounded-lg: 12px;
+    --rounded-xl: 16px;
+    --rounded-pill: 9999px;
+    
+    --spacing-xxs: 4px;
+    --spacing-xs: 8px;
+    --spacing-sm: 12px;
+    --spacing-md: 16px;
+    --spacing-lg: 24px;
+    --spacing-xl: 32px;
+    --spacing-xxl: 48px;
+    
+    --font-display: 'Microsoft YaHei', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    --font-body: 'Microsoft YaHei', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.1);
+    --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.2);
+    --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.3);
+    
+    --btn-height: 40px;
+    --btn-height-sm: 32px;
+    --btn-height-lg: 48px;
+    
+    --scrollbar-track: rgba(255, 255, 255, 0.05);
+    --scrollbar-thumb: rgba(255, 255, 255, 0.2);
+    --scrollbar-thumb-hover: rgba(255, 255, 255, 0.3);
+    
+    --icon-filter: invert(1);
+}
+
+body {
+    background-color: var(--color-canvas);
+    background-image: linear-gradient(135deg, var(--color-canvas-gradient-start) 0%, var(--color-canvas-gradient-end) 100%);
+}
+
+.btn-icon img {
+    filter: invert(1) !important;
+}
+
+.sidebar-btn .btn-icon img {
+    filter: invert(1) !important;
+}
+
+.topbar {
+    background: transparent;
+}
+
+.setting-title {
+    color: var(--color-ink);
+}
+
+.page-title {
+    color: var(--color-ink);
+    border-bottom-color: var(--color-hairline);
+}
+
+.section-title {
+    color: var(--color-ink);
+    border-bottom-color: var(--color-hairline);
+}
+
+.setting-label {
+    color: var(--color-body);
+}
+
+.setting-hint {
+    color: var(--color-muted);
+}
+
+.select-selected {
+    background: var(--color-surface-card);
+    border-color: var(--color-hairline);
+    color: var(--color-ink);
+}
+
+.select-selected:hover {
+    background: var(--color-surface-strong);
+}
+
+.select-selected::after {
+    border-color: var(--color-muted);
+}
+
+.toggle-slider {
+    background-color: var(--color-surface-strong);
+}
+
+.toggle-slider:before {
+    background-color: var(--color-ink);
+}
+
+.toggle-switch input:checked + .toggle-slider {
+    background-color: var(--color-brand-accent);
+}
+
+.switch .slider {
+    background-color: var(--color-surface-strong);
+}
+
+.switch .slider:before {
+    background-color: var(--color-ink);
+}
+
+.switch input:checked + .slider {
+    background-color: var(--color-brand-accent);
+}
+
+.slider {
+    background: var(--color-surface-strong);
+}
+
+.slider::-webkit-slider-thumb {
+    background: var(--color-brand-accent);
+}
+
+.slider::-moz-range-thumb {
+    background: var(--color-brand-accent);
+}
+
+.slider-value {
+    color: var(--color-brand-accent);
+}
+
+.version-label {
+    color: var(--color-muted);
+}
+
+.version-number {
+    color: var(--color-brand-accent);
+}
+
+.about-info p {
+    color: var(--color-muted);
+}
+
+.about-copyright {
+    color: var(--color-ink);
+}
+
+.model-name {
+    color: var(--color-ink);
+}
+
+.model-status {
+    background: var(--color-surface-card);
+    color: var(--color-muted);
+}
+
+.model-description {
+    color: var(--color-muted);
+}
+
+.model-description code {
+    background: var(--color-surface-card);
+    color: var(--color-brand-accent);
+}
+
+.progress-bar {
+    background: var(--color-surface-strong);
+}
+
+.progress-fill {
+    background: var(--color-brand-accent);
+}
+
+.progress-text {
+    color: var(--color-muted);
+}
+
+.update-version-info {
+    background: var(--color-surface-card);
+}
+
+.version-value {
+    color: var(--color-ink);
+}
+
+.release-notes-content {
+    background: rgba(0, 0, 0, 0.2);
+    color: var(--color-muted);
+}
+
+.release-notes-content h3,
+.release-notes-content h4,
+.release-notes-content h5 {
+    color: var(--color-ink);
+}
+
+.release-notes-content code {
+    background: var(--color-surface-card);
+    color: var(--color-brand-accent);
+}
+
+.status-latest {
+    color: var(--color-success);
+}
+
+.status-available {
+    color: var(--color-brand-accent);
+}
+
+.status-success {
+    color: var(--color-success);
+}
+
+.status-error {
+    color: var(--color-error);
+}
+
+.camera-unavailable-hint {
+    color: var(--color-error);
+    background: rgba(239, 68, 68, 0.1);
+}
+
+.settings-dialog-title {
+    color: var(--color-ink);
+}
+
+.settings-dialog-message {
+    color: var(--color-muted);
+}
+
+.settings-dialog-btn {
+    background: var(--color-surface-card);
+    border-color: var(--color-hairline);
+    color: var(--color-ink);
+}
+
+.settings-dialog-btn:hover {
+    background: var(--color-surface-strong);
+}
+
+.modal-title {
+    color: var(--color-ink);
+}
+
+.modal-message {
+    color: var(--color-muted);
+}
+
+.setting-group {
+    background: var(--color-surface-soft);
+}
+
+.setting-group-header:hover {
+    background: var(--color-surface-card);
+}
+
+.group-arrow {
+    color: var(--color-muted);
+}
+
+.checkbox-label {
+    color: var(--color-ink);
+}
+
+.color-picker-preset:hover {
+    border-color: var(--color-muted);
+}
+
+.color-picker-btns {
+    gap: 6px;
+}
+
+.btn-update {
+    background: rgba(59, 130, 246, 0.2);
+    border-color: rgba(59, 130, 246, 0.3);
+    color: var(--color-brand-accent);
+}
+
+.btn-update:hover:not(:disabled) {
+    background: rgba(59, 130, 246, 0.3);
+    border-color: rgba(59, 130, 246, 0.5);
+}
+
+.btn-update-download {
+    background: rgba(59, 130, 246, 0.3);
+    border-color: rgba(59, 130, 246, 0.4);
+    color: var(--color-brand-accent);
+}
+
+.btn-update-download:hover {
+    background: rgba(59, 130, 246, 0.4);
+    border-color: rgba(59, 130, 246, 0.6);
+}
+
+.btn-back {
+    background: var(--color-surface-card);
+    border-color: var(--color-hairline);
+    color: var(--color-muted);
+}
+
+.btn-back:hover {
+    background: var(--color-surface-strong);
+    color: var(--color-ink);
+}
+
+.btn-action {
+    background: rgba(59, 130, 246, 0.2);
+    border-color: rgba(59, 130, 246, 0.3);
+    color: var(--color-brand-accent);
+}
+
+.btn-action:hover {
+    background: rgba(59, 130, 246, 0.3);
+    border-color: rgba(59, 130, 246, 0.5);
+}
+
+.btn-action.delete {
+    background: rgba(231, 76, 60, 0.2);
+    border-color: rgba(231, 76, 60, 0.3);
+    color: var(--color-error);
+}
+
+.btn-action.delete:hover {
+    background: rgba(231, 76, 60, 0.3);
+    border-color: rgba(231, 76, 60, 0.5);
+}
+
+.btn-reset {
+    background: rgba(239, 68, 68, 0.2);
+    border-color: rgba(239, 68, 68, 0.4);
+    color: var(--color-error);
+}
+
+.btn-reset:hover {
+    background: rgba(239, 68, 68, 0.3);
+    border-color: rgba(239, 68, 68, 0.6);
+}
+
+.btn-clear-cache {
+    background: var(--color-surface-card);
+    border-color: var(--color-hairline);
+    color: var(--color-ink);
+}
+
+.btn-clear-cache:hover {
+    background: rgba(239, 68, 68, 0.2);
+    border-color: rgba(239, 68, 68, 0.4);
+    color: var(--color-error);
+}
+
+.link-item {
+    background: var(--color-surface-card);
+    border-color: transparent;
+    color: var(--color-body);
+}
+
+.link-item:hover {
+    background: var(--color-surface-strong);
+    color: var(--color-ink);
+}
+
+.modal-btn-cancel {
+    background: var(--color-surface-card);
+    border-color: var(--color-hairline);
+    color: var(--color-body);
+}
+
+.modal-btn-cancel:hover {
+    background: var(--color-surface-strong);
+}
+
+.modal-btn-confirm {
+    background: rgba(239, 68, 68, 0.3);
+    border-color: rgba(239, 68, 68, 0.4);
+    color: var(--color-error);
+}
+
+.modal-btn-confirm:hover {
+    background: rgba(239, 68, 68, 0.4);
+}
+
+.color-picker-btn {
+    background: var(--color-brand-accent);
+    color: var(--color-on-primary);
+}
+
+.color-picker-btn:hover {
+    opacity: 0.9;
+}
+
+.color-picker-btn-cancel {
+    background: var(--color-surface-card);
+    color: var(--color-ink);
+}
+
+.color-picker-btn-cancel:hover {
+    background: var(--color-surface-strong);
+}
+
+.model-progress .progress-bar {
+    background: var(--color-surface-strong);
+}
+
+.model-progress .progress-fill {
+    background: linear-gradient(90deg, var(--color-brand-accent), #6bb3ff);
+}
+
+.model-progress .progress-text {
+    color: var(--color-muted);
+}
+
+.sidebar {
+    background: rgba(60, 60, 60, 0.85);
+}
+
+.sidebar-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.sidebar-btn.active {
+    background: rgba(59, 130, 246, 0.2);
+    border-color: rgba(59, 130, 246, 0.3);
+}
+
+.select-options {
+    background: rgba(30, 30, 30, 0.95);
+    border-color: var(--color-hairline);
+}
+
+.select-option:hover {
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.select-option.selected {
+    background: rgba(59, 130, 246, 0.2);
+}
+
+.modal-dialog {
+    background: rgba(30, 30, 30, 0.95);
+    border-color: var(--color-hairline);
+}
+
+.settings-dialog {
+    background: rgba(40, 40, 40, 0.98);
+    border-color: var(--color-hairline);
+}
+
+.model-card {
+    background: var(--color-surface-card);
+    border-color: var(--color-hairline-soft);
+}
+
+.model-card:hover {
+    background: var(--color-surface-strong);
+    border-color: var(--color-hairline);
+}
+
+.setting-section {
+    background: var(--color-surface-soft);
+    border-color: var(--color-hairline-soft);
+}
+
+.checkbox-item {
+    background: var(--color-surface-card);
+    border-color: var(--color-hairline);
+}
+
+.checkbox-item:hover {
+    background: var(--color-surface-strong);
+}
+
+.color-edit-btn {
+    border-color: var(--color-hairline);
+}
+
+.color-edit-btn:hover {
+    border-color: var(--color-muted);
+}
+
+.color-picker-popup {
+    background: rgba(40, 40, 40, 0.98);
+    border-color: var(--color-hairline);
+}
+
+.color-picker-input {
+    background: var(--color-surface-card);
+    border-color: var(--color-hairline);
+    color: var(--color-ink);
+}
+
+.color-picker-input:focus {
+    border-color: var(--color-brand-accent);
+}
+
+.color-picker-preview {
+    border-color: var(--color-hairline);
+}

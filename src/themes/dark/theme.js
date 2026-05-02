@@ -2,14 +2,21 @@ const DarkTheme = {
   name: 'dark',
   config: null,
   
-  async load() {
+  async load(isSettingsPage = false) {
     const response = await fetch('themes/dark/theme.json');
     this.config = await response.json();
     
-    const link = document.createElement('link');
-    link.rel = 'stylesheet';
-    link.href = 'themes/dark/theme.css';
-    document.head.appendChild(link);
+    if (isSettingsPage) {
+      const link = document.createElement('link');
+      link.rel = 'stylesheet';
+      link.href = 'themes/dark/settings.css';
+      document.head.appendChild(link);
+    } else {
+      const link = document.createElement('link');
+      link.rel = 'stylesheet';
+      link.href = 'themes/dark/theme.css';
+      document.head.appendChild(link);
+    }
   },
   
   getIconPath(iconName) {
