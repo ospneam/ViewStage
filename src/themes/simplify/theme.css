@@ -674,8 +674,8 @@ body {
     flex: none;
     transition: all 0.2s ease;
     width: 180px;
-    height: calc(100vh - 120px);
-    max-height: calc(100vh - 120px);
+    height: calc(100vh - 80px);
+    max-height: calc(100vh - 80px);
     overflow-y: auto;
     position: absolute;
     right: 10px;

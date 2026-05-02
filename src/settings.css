@@ -48,6 +48,7 @@ button {
     gap: 6px;
     border: 1px solid transparent;
     border-radius: var(--rounded-md, 8px);
+    font-family: var(--font-body, 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif);
     font-size: 14px;
     font-weight: 600;
     cursor: pointer;
@@ -82,34 +83,34 @@ button {
 }
 
 .btn-primary {
-    background: var(--color-primary, #111111);
-    color: var(--color-on-primary, #ffffff);
-    border-color: var(--color-primary, #111111);
+    background: var(--color-primary, #ffffff);
+    color: var(--color-on-primary, #111111);
+    border-color: var(--color-primary, #ffffff);
 }
 
 .btn-primary:hover {
-    background: var(--color-primary-active, #242424);
-    border-color: var(--color-primary-active, #242424);
+    background: var(--color-primary-active, #e5e5e5);
+    border-color: var(--color-primary-active, #e5e5e5);
 }
 
 .btn-primary:active {
-    background: #000000;
-    border-color: #000000;
+    background: #d4d4d4;
+    border-color: #d4d4d4;
 }
 
 .btn-secondary {
-    background: var(--color-canvas, #ffffff);
-    color: var(--color-ink, #111111);
-    border-color: var(--color-hairline, #e5e7eb);
+    background: var(--color-canvas, #1a1a1a);
+    color: var(--color-ink, #ffffff);
+    border-color: var(--color-hairline, rgba(255, 255, 255, 0.1));
 }
 
 .btn-secondary:hover {
-    background: var(--color-surface-card, #f5f5f5);
-    border-color: var(--color-surface-strong, #e5e7eb);
+    background: var(--color-surface-card, #2a2a2a);
+    border-color: var(--color-hairline, rgba(255, 255, 255, 0.15));
 }
 
 .btn-secondary:active {
-    background: var(--color-surface-strong, #e5e7eb);
+    background: var(--color-surface-strong, #3a3a3a);
 }
 
 .btn-action {
@@ -174,21 +175,22 @@ button {
 
 .btn-danger:active {
     background: #b91c1c;
+    border-color: #b91c1c;
 }
 
 .btn-ghost {
     background: transparent;
-    color: var(--color-muted, #6b7280);
+    color: var(--color-muted, rgba(255, 255, 255, 0.6));
     border-color: transparent;
 }
 
 .btn-ghost:hover {
-    background: var(--color-surface-card, #f5f5f5);
-    color: var(--color-ink, #111111);
+    background: var(--color-surface-card, #2a2a2a);
+    color: var(--color-ink, #ffffff);
 }
 
 .btn-ghost:active {
-    background: var(--color-surface-strong, #e5e7eb);
+    background: var(--color-surface-strong, #3a3a3a);
 }
 
 .btn-icon-only {
@@ -196,6 +198,14 @@ button {
     height: 36px;
     padding: 0;
     border-radius: var(--rounded-full, 50%);
+    background: var(--color-canvas, #1a1a1a);
+    border: 1px solid var(--color-hairline, rgba(255, 255, 255, 0.1));
+    color: var(--color-ink, #ffffff);
+}
+
+.btn-icon-only:hover {
+    background: var(--color-surface-card, #2a2a2a);
+    border-color: var(--color-hairline, rgba(255, 255, 255, 0.15));
 }
 
 .btn-icon-only.btn-sm {
@@ -251,14 +261,14 @@ button {
 }
 
 .btn-close {
-    width: 32px;
-    height: 32px;
-    border: none;
-    background-color: transparent;
-    color: var(--color-muted, #888);
+    width: 36px;
+    height: 36px;
+    border: 1px solid var(--color-hairline, rgba(255, 255, 255, 0.1));
+    background-color: var(--color-canvas, #1a1a1a);
+    color: var(--color-muted, rgba(255, 255, 255, 0.6));
     font-size: 20px;
     cursor: pointer;
-    border-radius: var(--rounded-sm, 4px);
+    border-radius: var(--rounded-full, 50%);
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -268,9 +278,9 @@ button {
 }
 
 .btn-close:hover {
-    background-color: var(--color-error, #e74c3c);
+    background-color: var(--color-error, #ef4444);
+    border-color: var(--color-error, #ef4444);
     color: var(--color-on-primary, #ffffff);
-    border-radius: 50%;
 }
 
 .setting-title {
@@ -760,12 +770,13 @@ button {
     align-items: center;
     justify-content: center;
     gap: 6px;
-    background: var(--color-primary, #111111);
+    background: var(--color-primary, #ffffff);
     border: none;
     border-radius: var(--rounded-md, 8px);
     padding: var(--spacing-sm, 12px) 20px;
     height: var(--btn-height, 40px);
-    color: var(--color-on-primary, #ffffff);
+    color: var(--color-on-primary, #111111);
+    font-family: var(--font-body, 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif);
     font-size: 14px;
     font-weight: 600;
     cursor: pointer;
@@ -774,11 +785,11 @@ button {
 }
 
 .color-picker-btn:hover {
-    background: var(--color-primary-active, #242424);
+    background: var(--color-primary-active, #e5e5e5);
 }
 
 .color-picker-btn:active {
-    background: #000000;
+    background: #d4d4d4;
 }
 
 .color-picker-btn-cancel {
@@ -786,17 +797,17 @@ button {
     align-items: center;
     justify-content: center;
     gap: 6px;
-    background: var(--color-surface-card, rgba(255, 255, 255, 0.1));
-    border: 1px solid var(--color-hairline, rgba(255, 255, 255, 0.15));
-    color: var(--color-ink, #111111);
+    background: var(--color-surface-card, #2a2a2a);
+    border: 1px solid var(--color-hairline, rgba(255, 255, 255, 0.1));
+    color: var(--color-ink, #ffffff);
 }
 
 .color-picker-btn-cancel:hover {
-    background: var(--color-surface-strong, rgba(255, 255, 255, 0.2));
+    background: var(--color-surface-strong, #3a3a3a);
 }
 
 .color-picker-btn-cancel:active {
-    background: var(--color-surface-elevated, rgba(255, 255, 255, 0.25));
+    background: var(--color-surface-elevated, #3a3a3a);
 }
 
 .color-picker-overlay {
@@ -1010,6 +1021,7 @@ button {
     padding: var(--spacing-xs, 8px) var(--spacing-md, 16px);
     height: var(--btn-height-sm, 32px);
     border-radius: var(--rounded-md, 8px);
+    font-family: var(--font-body, 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif);
     font-size: 13px;
     font-weight: 500;
     cursor: pointer;
@@ -1018,17 +1030,18 @@ button {
 }
 
 .modal-btn-cancel {
-    background: var(--color-surface-card, rgba(255, 255, 255, 0.1));
-    color: var(--color-body, #374151);
-    border-color: var(--color-hairline, rgba(255, 255, 255, 0.15));
+    background: var(--color-surface-card, #2a2a2a);
+    color: var(--color-ink, #ffffff);
+    border-color: var(--color-hairline, rgba(255, 255, 255, 0.1));
 }
 
 .modal-btn-cancel:hover {
-    background: var(--color-surface-strong, rgba(255, 255, 255, 0.15));
+    background: var(--color-surface-strong, #3a3a3a);
+    border-color: var(--color-hairline, rgba(255, 255, 255, 0.15));
 }
 
 .modal-btn-cancel:active {
-    background: var(--color-surface-elevated, rgba(255, 255, 255, 0.2));
+    background: var(--color-surface-elevated, #3a3a3a);
 }
 
 .modal-btn-confirm {
@@ -1118,10 +1131,11 @@ button {
     gap: 6px;
     padding: var(--spacing-sm, 12px) 32px;
     height: var(--btn-height, 40px);
-    background: var(--color-surface-card, rgba(255, 255, 255, 0.1));
-    border: 1px solid var(--color-hairline, rgba(255, 255, 255, 0.2));
+    background: var(--color-primary, #ffffff);
+    border: 1px solid var(--color-primary, #ffffff);
     border-radius: var(--rounded-md, 8px);
-    color: var(--color-ink, #111111);
+    color: var(--color-on-primary, #111111);
+    font-family: var(--font-body, 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif);
     font-size: 14px;
     font-weight: 600;
     cursor: pointer;
@@ -1129,11 +1143,13 @@ button {
 }
 
 .settings-dialog-btn:hover {
-    background: var(--color-surface-strong, rgba(255, 255, 255, 0.2));
+    background: var(--color-primary-active, #e5e5e5);
+    border-color: var(--color-primary-active, #e5e5e5);
 }
 
 .settings-dialog-btn:active {
-    background: var(--color-surface-elevated, rgba(255, 255, 255, 0.25));
+    background: #d4d4d4;
+    border-color: #d4d4d4;
 }
 
 #pageUpdate.active {
@@ -1391,10 +1407,10 @@ button {
     width: 36px;
     height: 36px;
     padding: 0;
-    background: var(--color-surface-card, rgba(255, 255, 255, 0.08));
-    border: 1px solid var(--color-hairline, rgba(255, 255, 255, 0.15));
-    border-radius: var(--rounded-md, 8px);
-    color: var(--color-muted, #6b7280);
+    background: var(--color-canvas, #1a1a1a);
+    border: 1px solid var(--color-hairline, rgba(255, 255, 255, 0.1));
+    border-radius: var(--rounded-full, 50%);
+    color: var(--color-muted, rgba(255, 255, 255, 0.6));
     font-size: 18px;
     cursor: pointer;
     transition: all 0.15s ease;
@@ -1402,13 +1418,13 @@ button {
 }
 
 .btn-back:hover {
-    background: var(--color-surface-strong, rgba(255, 255, 255, 0.12));
-    border-color: var(--color-brand-accent, rgba(59, 130, 246, 0.3));
-    color: var(--color-ink, #111111);
+    background: var(--color-surface-card, #2a2a2a);
+    border-color: var(--color-hairline, rgba(255, 255, 255, 0.15));
+    color: var(--color-ink, #ffffff);
 }
 
 .btn-back:active {
-    background: var(--color-surface-elevated, rgba(255, 255, 255, 0.15));
+    background: var(--color-surface-strong, #3a3a3a);
 }
 
 .slider-container {

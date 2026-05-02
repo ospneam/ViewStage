@@ -1,11 +1,11 @@
 {
   "name": "dark",
   "displayName": "深色主题",
-  "showToolbarText": true,
-  "canvasBgColor": "#2a2a2a",
+  "showToolbarText": false,
+  "canvasBgColor": "#1a1a1a",
   "noCameraMessage": {
     "textColor": "#ffffff",
-    "secondaryTextColor": "rgba(255,255,255,0.8)",
+    "secondaryTextColor": "rgba(255,255,255,0.7)",
     "tertiaryTextColor": "rgba(255,255,255,0.5)",
     "textShadow": "0 1px 3px rgba(0,0,0,0.5)"
   },
@@ -27,6 +27,7 @@
     "collapse": "caret-down-fill",
     "addFile": "file-earmark",
     "word": "file-earmark-word-fill",
-    "pdf": "pdf"
+    "pdf": "pdf",
+    "scan": "scan"
   }
 }
