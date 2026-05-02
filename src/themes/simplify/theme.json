@@ -2,6 +2,7 @@
   "name": "simplify",
   "displayName": "简化主题",
   "showToolbarText": false,
+  "showAuroraEffect": false,
   "canvasBgColor": "#ffffff",
   "noCameraMessage": {
     "textColor": "#1a1a1a",

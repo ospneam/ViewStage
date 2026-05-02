@@ -2,6 +2,7 @@
   "name": "dark",
   "displayName": "深色主题",
   "showToolbarText": false,
+  "showAuroraEffect": false,
   "canvasBgColor": "#1a1a1a",
   "noCameraMessage": {
     "textColor": "#ffffff",

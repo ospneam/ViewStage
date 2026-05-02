@@ -135,10 +135,10 @@ const DRAW_CONFIG = {
     imageSmoothingQuality: 'high', // 图像平滑质量
     baseDpr: window.devicePixelRatio || 1, // 基础设备像素比
     canvasBgColor: '#2a2a2a',      // 画布背景颜色
-    penColors: [                   // 画笔颜色列表
-        '#3498db', '#2ecc71', '#e74c3c', '#f39c12', '#9b59b6',
-        '#1abc9c', '#34495e', '#e91e63', '#00bcd4', '#8bc34a',
-        '#ff5722', '#673ab7', '#795548', '#000000', '#ffffff'
+    penColors: [
+        '#ef4444', '#f97316', '#eab308', '#22c55e', '#06b6d4',
+        '#3b82f6', '#6366f1', '#a855f7', '#ec4899', '#f43f5e',
+        '#14b8a6', '#64748b', '#1e293b', '#000000', '#ffffff'
     ],
     // 钢笔效果配置
     penSmoothness: 0.8             // 钢笔平滑度 (0-1, 越高越平滑)

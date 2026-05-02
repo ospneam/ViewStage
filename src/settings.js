@@ -379,9 +379,9 @@ document.addEventListener('DOMContentLoaded', async () => {
                 
                 // 画笔颜色设置
                 const defaultColors = [
-                    '#3498db', '#2ecc71', '#e74c3c', '#f39c12', '#9b59b6',
-                    '#1abc9c', '#34495e', '#e91e63', '#00bcd4', '#8bc34a',
-                    '#ff5722', '#673ab7', '#795548', '#000000', '#ffffff'
+                    '#ef4444', '#f97316', '#eab308', '#22c55e', '#06b6d4',
+                    '#3b82f6', '#6366f1', '#a855f7', '#ec4899', '#f43f5e',
+                    '#14b8a6', '#64748b', '#1e293b', '#000000', '#ffffff'
                 ];
                 const savedColors = settings.penColors || defaultColors;
                 
@@ -2019,7 +2019,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
         
         if (auroraBg) {
-            if (pageId === 'pageAbout' || pageId === 'pageUpdate') {
+            const showAurora = window.ThemeManager?.getShowAuroraEffect?.() ?? true;
+            if ((pageId === 'pageAbout' || pageId === 'pageUpdate') && showAurora) {
                 startAurora();
                 auroraBg.classList.add('active');
             } else {

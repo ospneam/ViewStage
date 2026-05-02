@@ -47,6 +47,10 @@ const DarkTheme = {
       tertiaryTextColor: 'rgba(255,255,255,0.5)',
       textShadow: '0 1px 3px rgba(0,0,0,0.5)'
     };
+  },
+
+  getShowAuroraEffect() {
+    return this.config?.showAuroraEffect !== false;
   }
 };
 

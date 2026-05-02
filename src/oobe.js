@@ -25,14 +25,11 @@ function updateOOBEPageTexts() {
     document.title = window.i18n.t('oobe.welcome') || '欢迎使用 ViewStage';
 }
 
-let blobs = [];
-let animationId = null;
-let lastFrameTime = 0;
-const frameInterval = 33;
 let carouselInterval = null;
 let currentSlide = 0;
 let cachedSettings = {};
 let importedSettings = null;
+let cameraPreviewStream = null;
 
 const defaultConfig = {
     width: 1920,
@@ -44,19 +41,19 @@ const defaultConfig = {
     cameraHeight: 720,
     pdfScale: 2,
     penColors: [
-        {"r": 52, "g": 152, "b": 219},
-        {"r": 46, "g": 204, "b": 113},
-        {"r": 231, "g": 76, "b": 60},
-        {"r": 243, "g": 156, "b": 18},
-        {"r": 155, "g": 89, "b": 182},
-        {"r": 26, "g": 188, "b": 156},
-        {"r": 52, "g": 73, "b": 94},
-        {"r": 233, "g": 30, "b": 99},
-        {"r": 0, "g": 188, "b": 212},
-        {"r": 139, "g": 195, "b": 74},
-        {"r": 255, "g": 87, "b": 34},
-        {"r": 103, "g": 58, "b": 183},
-        {"r": 121, "g": 85, "b": 72},
+        {"r": 239, "g": 68, "b": 68},
+        {"r": 249, "g": 115, "b": 22},
+        {"r": 234, "g": 179, "b": 8},
+        {"r": 34, "g": 197, "b": 94},
+        {"r": 6, "g": 182, "b": 212},
+        {"r": 59, "g": 130, "b": 246},
+        {"r": 99, "g": 102, "b": 241},
+        {"r": 168, "g": 85, "b": 247},
+        {"r": 236, "g": 72, "b": 153},
+        {"r": 244, "g": 63, "b": 94},
+        {"r": 20, "g": 184, "b": 166},
+        {"r": 100, "g": 116, "b": 139},
+        {"r": 30, "g": 41, "b": 59},
         {"r": 0, "g": 0, "b": 0},
         {"r": 255, "g": 255, "b": 255}
     ]
@@ -315,6 +312,11 @@ function setupCustomSelects() {
                     await window.i18n.setLocale(newLocale);
                     updateOOBEPageTexts();
                 }
+                
+                if (select.id === 'cameraSelect' || select.id === 'cameraResolutionSelect') {
+                    stopCameraPreview();
+                    initCameraPreview();
+                }
             }
         });
     });
@@ -441,6 +443,8 @@ function showPage3FromPage4() {
     const page3 = document.getElementById('page3');
     const page4 = document.getElementById('page4');
     
+    stopCameraPreview();
+    
     page4.classList.remove('visible');
     
     setTimeout(() => {
@@ -492,6 +496,7 @@ async function initCameraSelect() {
         await initCameraResolutionSelect(track);
         
         setupCustomSelects();
+        initCameraPreview();
     } catch (error) {
         console.error('摄像头检测失败:', error.name);
         
@@ -527,6 +532,50 @@ function disableCameraSettings() {
             item.classList.add('disabled');
         }
     });
+}
+
+async function initCameraPreview() {
+    const video = document.getElementById('cameraPreview');
+    const placeholder = document.getElementById('cameraPreviewPlaceholder');
+    const placeholderText = placeholder.querySelector('.placeholder-text');
+    
+    try {
+        const cameraSelect = document.getElementById('cameraSelect');
+        const cameraResolutionSelect = document.getElementById('cameraResolutionSelect');
+        
+        const cameraOption = cameraSelect.querySelector('.select-option.selected');
+        const resolutionOption = cameraResolutionSelect.querySelector('.select-option.selected');
+        
+        const deviceId = cameraOption ? cameraOption.dataset.value : '';
+        const width = resolutionOption ? parseInt(resolutionOption.dataset.width) : 1280;
+        const height = resolutionOption ? parseInt(resolutionOption.dataset.height) : 720;
+        
+        const constraints = {
+            video: {
+                width: { ideal: width },
+                height: { ideal: height }
+            }
+        };
+        
+        if (deviceId) {
+            constraints.video.deviceId = { exact: deviceId };
+        }
+        
+        cameraPreviewStream = await navigator.mediaDevices.getUserMedia(constraints);
+        video.srcObject = cameraPreviewStream;
+        video.classList.add('active');
+        placeholder.classList.add('hidden');
+    } catch (error) {
+        console.error('摄像头预览初始化失败:', error);
+        placeholderText.textContent = window.i18n?.t('settings.noCameraDetected') || '未检测到摄像头';
+    }
+}
+
+function stopCameraPreview() {
+    if (cameraPreviewStream) {
+        cameraPreviewStream.getTracks().forEach(track => track.stop());
+        cameraPreviewStream = null;
+    }
 }
 
 async function initCameraResolutionSelect(track) {
@@ -611,6 +660,7 @@ function setupPage4Buttons() {
         
         const finalSettings = mergeSettings(cachedSettings);
         
+        stopCameraPreview();
         await invoke('save_settings', { settings: finalSettings });
         showPage5();
     });

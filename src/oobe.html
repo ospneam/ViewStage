@@ -4,13 +4,14 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title data-i18n="oobe.welcome">欢迎使用 ViewStage</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="oobe.css">
     <script src="i18n.js"></script>
     <script>document.addEventListener('contextmenu', e => e.preventDefault());</script>
 </head>
 <body>
-    <div class="aurora-bg" id="auroraBg"></div>
-    
     <div class="carousel-page" id="carouselPage">
         <div class="carousel-container" id="carouselContainer">
             <img class="carousel-image active" src="assets/Chinese.png" alt="Chinese">
@@ -37,16 +38,6 @@
                         <div class="select-option selected" data-value="zh-CN">简体中文</div>
                         <div class="select-option" data-value="zh-TW">繁體中文</div>
                         <div class="select-option" data-value="en-US">English</div>
-                    </div>
-                </div>
-            </div>
-            <div class="setting-item">
-                <span class="setting-label" data-i18n="settings.theme">主题</span>
-                <div class="custom-select" id="themeSelect">
-                    <div class="select-selected" id="themeSelected">简化</div>
-                    <div class="select-options" id="themeOptions">
-                        <div class="select-option" data-value="dark" data-i18n="settings.themeDark">深色</div>
-                        <div class="select-option selected" data-value="simplify" data-i18n="settings.themeSimplify">简化</div>
                     </div>
                 </div>
             </div>
@@ -86,11 +77,21 @@
         </div>
 
         <div class="settings-section">
-           <div class="setting-item">
+            <div class="setting-item">
                 <span class="setting-label" data-i18n="settings.resolution">分辨率</span>
                 <div class="custom-select" id="resolutionSelect">
                     <div class="select-selected" id="resolutionSelected" data-i18n="common.loading">加载中...</div>
                     <div class="select-options" id="resolutionOptions"></div>
+                </div>
+            </div>
+            <div class="setting-item">
+                <span class="setting-label" data-i18n="settings.theme">主题</span>
+                <div class="custom-select" id="themeSelect">
+                    <div class="select-selected" id="themeSelected">简化</div>
+                    <div class="select-options" id="themeOptions">
+                        <div class="select-option" data-value="dark" data-i18n="settings.themeDark">深色</div>
+                        <div class="select-option selected" data-value="simplify" data-i18n="settings.themeSimplify">简化</div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -102,6 +103,16 @@
     </div>
 
     <div class="oobe-container" id="page4" style="display: none;">
+        <div class="camera-preview-section">
+            <div class="camera-preview-container">
+                <video id="cameraPreview" class="camera-preview-video" autoplay playsinline muted></video>
+                <div class="camera-preview-placeholder" id="cameraPreviewPlaceholder">
+                    <span class="placeholder-icon">📷</span>
+                    <span class="placeholder-text" data-i18n="oobe.cameraPreviewLoading">正在加载摄像头...</span>
+                </div>
+            </div>
+        </div>
+
         <div class="settings-section">
             <div class="setting-item">
                 <span class="setting-label" data-i18n="settings.defaultCamera">默认摄像头</span>

@@ -117,6 +117,10 @@ const ThemeManager = {
       
       getCanvasBgColor() {
         return this.config?.canvasBgColor || '#2a2a2a';
+      },
+      
+      getShowAuroraEffect() {
+        return this.config?.showAuroraEffect !== false;
       }
     };
   },
@@ -149,6 +153,13 @@ const ThemeManager = {
       tertiaryTextColor: 'rgba(255,255,255,0.5)',
       textShadow: '0 1px 3px rgba(0,0,0,0.5)'
     };
+  },
+
+  getShowAuroraEffect() {
+    if (this.currentThemeModule && this.currentThemeModule.getShowAuroraEffect) {
+      return this.currentThemeModule.getShowAuroraEffect();
+    }
+    return true;
   },
 
   applyToolbarTextVisibility() {

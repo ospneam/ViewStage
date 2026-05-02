@@ -47,6 +47,10 @@ const SimplifyTheme = {
       tertiaryTextColor: 'rgba(0,0,0,0.4)',
       textShadow: '0 1px 3px rgba(255,255,255,0.5)'
     };
+  },
+
+  getShowAuroraEffect() {
+    return this.config?.showAuroraEffect !== false;
   }
 };
 
