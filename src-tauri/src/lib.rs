@@ -1120,8 +1120,131 @@ async fn check_update() -> Result<UpdateCheckResult, String> {
     })
 }
 
+const CURRENT_CONFIG_VERSION: u32 = 1;
+
+type MigrationFn = fn(&mut serde_json::Value) -> Result<(), String>;
+
+fn get_migrations() -> std::collections::HashMap<u32, MigrationFn> {
+    let mut migrations: std::collections::HashMap<u32, MigrationFn> = std::collections::HashMap::new();
+    
+    migrations.insert(0u32, migrate_v0_to_v1 as MigrationFn);
+    
+    migrations
+}
+
+fn migrate_v0_to_v1(config: &mut serde_json::Value) -> Result<(), String> {
+    log::info!("执行配置迁移: v0 -> v1");
+    
+    if let Some(obj) = config.as_object_mut() {
+        if !obj.contains_key("theme") {
+            obj.insert("theme".to_string(), serde_json::json!("simplify"));
+            log::info!("添加字段: theme = simplify");
+        }
+        
+        if !obj.contains_key("denoiseFrameCount") {
+            obj.insert("denoiseFrameCount".to_string(), serde_json::json!(3));
+            log::info!("添加字段: denoiseFrameCount = 3");
+        }
+        
+        if !obj.contains_key("denoiseStrength") {
+            obj.insert("denoiseStrength".to_string(), serde_json::json!("medium"));
+            log::info!("添加字段: denoiseStrength = medium");
+        }
+        
+        if !obj.contains_key("showDocScanButton") {
+            obj.insert("showDocScanButton".to_string(), serde_json::json!(true));
+            log::info!("添加字段: showDocScanButton = true");
+        }
+        
+        if !obj.contains_key("scanQuality") {
+            obj.insert("scanQuality".to_string(), serde_json::json!("standard"));
+            log::info!("添加字段: scanQuality = standard");
+        }
+        
+        if !obj.contains_key("scanMode") {
+            obj.insert("scanMode".to_string(), serde_json::json!("auto"));
+            log::info!("添加字段: scanMode = auto");
+        }
+        
+        if !obj.contains_key("enhanceMode") {
+            obj.insert("enhanceMode".to_string(), serde_json::json!("auto"));
+            log::info!("添加字段: enhanceMode = auto");
+        }
+        
+        obj.insert("config_version".to_string(), serde_json::json!(1));
+        log::info!("设置配置版本: config_version = 1");
+    }
+    
+    Ok(())
+}
+
+fn backup_config(config_path: &std::path::Path, version: u32) -> Result<std::path::PathBuf, String> {
+    let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
+    let backup_filename = format!("config.json.backup_v{}_{}", version, timestamp);
+    let backup_path = config_path.parent().unwrap().join(backup_filename);
+    
+    std::fs::copy(config_path, &backup_path)
+        .map_err(|e| format!("备份配置文件失败: {}", e))?;
+    
+    log::info!("配置已备份到: {:?}", backup_path);
+    Ok(backup_path)
+}
+
+fn cleanup_old_backups(config_dir: &std::path::Path, keep_count: usize) {
+    if let Ok(entries) = std::fs::read_dir(config_dir) {
+        let mut backups: Vec<std::path::PathBuf> = entries
+            .filter_map(|e| e.ok())
+            .filter(|e| {
+                let name = e.file_name().to_string_lossy().to_string();
+                name.starts_with("config.json.backup_v")
+            })
+            .map(|e| e.path())
+            .collect();
+        
+        backups.sort_by(|a, b| {
+            let a_time = std::fs::metadata(a).and_then(|m| m.modified()).unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+            let b_time = std::fs::metadata(b).and_then(|m| m.modified()).unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+            b_time.cmp(&a_time)
+        });
+        
+        for old_backup in backups.iter().skip(keep_count) {
+            if let Err(e) = std::fs::remove_file(old_backup) {
+                log::warn!("删除旧备份失败 {:?}: {}", old_backup, e);
+            } else {
+                log::info!("删除旧备份: {:?}", old_backup);
+            }
+        }
+    }
+}
+
+fn migrate_config(config: &mut serde_json::Value, migrations: &std::collections::HashMap<u32, MigrationFn>) -> Result<(), String> {
+    let current_version = config
+        .get("config_version")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0) as u32;
+    
+    if current_version >= CURRENT_CONFIG_VERSION {
+        log::info!("配置版本已是最新: v{}", current_version);
+        return Ok(());
+    }
+    
+    log::info!("开始配置迁移: v{} -> v{}", current_version, CURRENT_CONFIG_VERSION);
+    
+    let mut version = current_version;
+    while version < CURRENT_CONFIG_VERSION {
+        if let Some(migration_fn) = migrations.get(&version) {
+            migration_fn(config)?;
+        }
+        version += 1;
+    }
+    
+    log::info!("配置迁移完成: v{} -> v{}", current_version, CURRENT_CONFIG_VERSION);
+    Ok(())
+}
+
 fn get_default_config() -> serde_json::Value {
     serde_json::json!({
+        "config_version": CURRENT_CONFIG_VERSION,
         "width": 1920,
         "height": 1080,
         "language": "zh-CN",
@@ -1161,7 +1284,14 @@ fn get_default_config() -> serde_json::Value {
         "fileAssociations": false,
         "wordAssociations": false,
         "autoClearCacheDays": 15,
-        "lastCacheClearDate": ""
+        "lastCacheClearDate": "",
+        "theme": "simplify",
+        "denoiseFrameCount": 3,
+        "denoiseStrength": "medium",
+        "showDocScanButton": true,
+        "scanQuality": "standard",
+        "scanMode": "auto",
+        "enhanceMode": "auto"
     })
 }
 
@@ -1185,21 +1315,72 @@ async fn get_settings(app: tauri::AppHandle) -> Result<serde_json::Value, String
     let default_config = get_default_config();
     
     if !config_path.exists() {
+        log::info!("配置文件不存在，使用默认配置");
         return Ok(default_config);
     }
     
-    if let Ok(config_content) = std::fs::read_to_string(&config_path) {
-        if let Ok(existing_config) = serde_json::from_str::<serde_json::Value>(&config_content) {
-            let merged_config = merge_with_defaults(&existing_config, &default_config);
-            
-            let merged_str = serde_json::to_string_pretty(&merged_config).map_err(|e| e.to_string())?;
-            std::fs::write(&config_path, merged_str).map_err(|e| e.to_string())?;
-            
-            return Ok(merged_config);
-        }
-    }
+    let config_content = std::fs::read_to_string(&config_path)
+        .map_err(|e| format!("读取配置文件失败: {}", e))?;
     
-    Ok(default_config)
+    let mut existing_config = serde_json::from_str::<serde_json::Value>(&config_content)
+        .map_err(|e| format!("解析配置文件失败: {}", e))?;
+    
+    let current_version = existing_config
+        .get("config_version")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0) as u32;
+    
+    if current_version < CURRENT_CONFIG_VERSION {
+        log::info!("检测到配置版本过旧: v{} < v{}", current_version, CURRENT_CONFIG_VERSION);
+        
+        let backup_path = backup_config(&config_path, current_version)?;
+        
+        let migrations = get_migrations();
+        
+        match migrate_config(&mut existing_config, &migrations) {
+            Ok(_) => {
+                let merged_config = merge_with_defaults(&existing_config, &default_config);
+                
+                let merged_str = serde_json::to_string_pretty(&merged_config)
+                    .map_err(|e| format!("序列化配置失败: {}", e))?;
+                
+                std::fs::write(&config_path, merged_str)
+                    .map_err(|e| {
+                        log::error!("保存迁移后的配置失败，尝试回滚: {}", e);
+                        if let Err(rollback_err) = std::fs::copy(&backup_path, &config_path) {
+                            log::error!("回滚失败: {}", rollback_err);
+                        }
+                        format!("保存配置失败: {}", e)
+                    })?;
+                
+                cleanup_old_backups(&config_dir, 3);
+                
+                log::info!("配置迁移成功");
+                Ok(merged_config)
+            }
+            Err(e) => {
+                log::error!("配置迁移失败: {}", e);
+                
+                if let Err(rollback_err) = std::fs::copy(&backup_path, &config_path) {
+                    log::error!("回滚失败: {}", rollback_err);
+                    return Err(format!("配置迁移失败且回滚失败: {} (回滚错误: {})", e, rollback_err));
+                }
+                
+                log::info!("已回滚到迁移前的配置");
+                let merged_config = merge_with_defaults(&existing_config, &default_config);
+                Ok(merged_config)
+            }
+        }
+    } else {
+        let merged_config = merge_with_defaults(&existing_config, &default_config);
+        
+        let merged_str = serde_json::to_string_pretty(&merged_config)
+            .map_err(|e| format!("序列化配置失败: {}", e))?;
+        std::fs::write(&config_path, merged_str)
+            .map_err(|e| format!("保存配置失败: {}", e))?;
+        
+        Ok(merged_config)
+    }
 }
 
 #[tauri::command]
