@@ -29,7 +29,6 @@
 ## 运行条件
 
 - 推荐操作系统：Windows10以上系统
-
 - 1、在系统中必须安装有WebView2运行时，若未安装，请前往[Microsoft Edge WebView2 运行时](https://developer.microsoft.com/en-us/microsoft-edge/webview2/#download-section)下载并安装最新版
 
 ## 开发环境要求
@@ -45,7 +44,7 @@
 - ✅PDF、Word打开
 - ✅允许PDF/.docx/.doc格式的文档以ViewStage为默认打开程序
 - ✅允许从外部导入图片
-- ✅图标完善（采用icons.bootcss.com中的图标，在此表示感谢(*^\_^*)）
+- ✅图标完善（
 - ✅设置
 - ✅笔颜色（目前支持存储15中颜色）
 - ✅多语言
