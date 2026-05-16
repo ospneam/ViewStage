@@ -178,20 +178,36 @@ class RealPenManager {
 
 const realPenManager = new RealPenManager();
 
-// 浅拷贝笔画数组（替代 structuredClone 提升性能）
-function cloneStrokes(strokes) {
+function cloneStrokes(strokes, deep = false) {
     if (!strokes || strokes.length === 0) return [];
+    if (deep) {
+        return strokes.map(stroke => ({
+            type: stroke.type,
+            points: stroke.points ? stroke.points.map(p => ({ ...p })) : [],
+            color: stroke.color,
+            lineWidth: stroke.lineWidth,
+            eraserSize: stroke.eraserSize,
+            bounds: stroke.bounds ? { ...stroke.bounds } : undefined,
+            variableWidths: stroke.variableWidths ? [...stroke.variableWidths] : null,
+            savedStrokeHistory: stroke.savedStrokeHistory ? cloneStrokes(stroke.savedStrokeHistory, true) : undefined,
+            savedBaseImageURL: stroke.savedBaseImageURL
+        }));
+    }
     return strokes.map(stroke => ({
         type: stroke.type,
-        points: stroke.points ? stroke.points.map(p => ({ ...p })) : [],
+        points: stroke.points,
         color: stroke.color,
         lineWidth: stroke.lineWidth,
         eraserSize: stroke.eraserSize,
-        bounds: stroke.bounds ? { ...stroke.bounds } : undefined,
-        variableWidths: stroke.variableWidths ? [...stroke.variableWidths] : null,
-        savedStrokeHistory: stroke.savedStrokeHistory ? cloneStrokes(stroke.savedStrokeHistory) : undefined,
+        bounds: stroke.bounds,
+        variableWidths: stroke.variableWidths,
+        savedStrokeHistory: stroke.savedStrokeHistory,
         savedBaseImageURL: stroke.savedBaseImageURL
     }));
+}
+
+function cloneStrokesDeep(strokes) {
+    return cloneStrokes(strokes, true);
 }
 
 // 四叉树空间索引（用于快速查找与脏区域相交的笔画）
@@ -453,7 +469,7 @@ function saveCurrentSourceData() {
         scale: state.scale,
         canvasX: state.canvasX,
         canvasY: state.canvasY,
-        strokeHistory: cloneStrokes(state.strokeHistory),
+        strokeHistory: cloneStrokesDeep(state.strokeHistory),
         baseImageURL: state.baseImageURL,
         timestamp: Date.now()
     };
@@ -473,7 +489,7 @@ function loadSourceData(sourceId) {
         state.scale = data.scale || 1;
         state.canvasX = data.canvasX || -(DRAW_CONFIG.canvasW - DRAW_CONFIG.screenW) / 2;
         state.canvasY = data.canvasY || -(DRAW_CONFIG.canvasH - DRAW_CONFIG.screenH) / 2;
-        state.strokeHistory = cloneStrokes(data.strokeHistory || []);
+        state.strokeHistory = cloneStrokesDeep(data.strokeHistory || []);
         state.baseImageURL = data.baseImageURL || null;
         state.baseImageObj = null;
         
@@ -2763,7 +2779,7 @@ async function endStroke() {
                 strokeHistoryRef: state.strokeHistory,
                 redrawFn: () => redrawAllStrokes()
             });
-            await executeCommand(cmd);
+            await executeCommand(cmd, false);
             
             if (shouldCompact()) {
                 scheduleCompact();
@@ -2786,7 +2802,7 @@ async function processEraserStroke(eraserStroke) {
             strokeHistoryRef: state.strokeHistory,
             redrawFn: () => redrawAllStrokes()
         });
-        await executeCommand(cmd);
+        await executeCommand(cmd, false);
         console.log('橡皮擦擦除了内容，记录撤销步骤');
     } else {
         console.log('橡皮擦未擦除到内容，不记录撤销步骤');
@@ -3277,17 +3293,16 @@ async function doCompactStrokes() {
     const loadId = ++state.baseImageLoadId;
     const compactSnapshotId = ++state.compactSnapshotId || (state.compactSnapshotId = 1);
     
-    // 冻结当前状态快照，防止异步操作期间的并发修改
-    const frozenStrokes = cloneStrokes(state.strokeHistory);
+    const beforeStrokes = cloneStrokesDeep(state.strokeHistory);
     const frozenImageURL = state.baseImageURL;
     
-    // 收集要压缩的笔画
-    const strokesToCompact = [];
+    const strokesToCompactSet = new Set();
     commandsToCompact.forEach(cmd => {
         if (cmd.stroke) {
-            strokesToCompact.push(cmd.stroke);
+            strokesToCompactSet.add(cmd.stroke);
         }
     });
+    const strokesToCompact = Array.from(strokesToCompactSet);
     
     if (window.__TAURI__) {
         try {
@@ -3304,7 +3319,6 @@ async function doCompactStrokes() {
             
             if (loadId !== state.baseImageLoadId) return;
             
-            // 验证快照仍然有效
             if (compactSnapshotId !== state.compactSnapshotId) {
                 console.log('压缩快照已过期,取消操作');
                 return;
@@ -3312,24 +3326,18 @@ async function doCompactStrokes() {
             
             const afterImageURL = result;
             
-            // 使用冻结的快照进行操作，而非实时state
-            const currentStrokes = cloneStrokes(state.strokeHistory);
-            strokesToCompact.forEach(stroke => {
-                const idx = currentStrokes.findIndex(s => 
-                    s === stroke || (s.points && stroke.points && s.points.length === stroke.points.length)
-                );
-                if (idx > -1) {
-                    currentStrokes.splice(idx, 1);
+            const remainingStrokes = state.strokeHistory.filter(s => {
+                if (strokesToCompactSet.has(s)) return false;
+                for (const cs of strokesToCompact) {
+                    if (s.points && cs.points && s.points.length === cs.points.length) return false;
                 }
+                return true;
             });
             
-            // 应用到实际状态
             state.strokeHistory.length = 0;
-            currentStrokes.forEach(s => state.strokeHistory.push(s));
+            remainingStrokes.forEach(s => state.strokeHistory.push(s));
             
-            // 保存压缩后的完整状态
             const afterStrokes = cloneStrokes(state.strokeHistory);
-            const beforeStrokes = frozenStrokes;
             
             const snapshotCmd = new SnapshotCommand({
                 beforeImageURL: frozenImageURL,
@@ -3378,19 +3386,20 @@ async function doCompactStrokes() {
     
     const afterImageURL = offscreen.canvas.toDataURL('image/png');
     
-    // 从 strokeHistory 中移除被压缩的笔画
-    strokesToCompact.forEach(stroke => {
-        const idx = state.strokeHistory.indexOf(stroke);
-        if (idx > -1) {
-            state.strokeHistory.splice(idx, 1);
+    const remainingStrokes = state.strokeHistory.filter(s => {
+        if (strokesToCompactSet.has(s)) return false;
+        for (const cs of strokesToCompact) {
+            if (s.points && cs.points && s.points.length === cs.points.length) return false;
         }
+        return true;
     });
+    state.strokeHistory.length = 0;
+    remainingStrokes.forEach(s => state.strokeHistory.push(s));
     
-    // 保存压缩后的完整状态
     const afterStrokes = cloneStrokes(state.strokeHistory);
     
     const snapshotCmd = new SnapshotCommand({
-        beforeImageURL,
+        beforeImageURL: frozenImageURL,
         afterImageURL,
         beforeStrokes,
         afterStrokes,
@@ -3463,7 +3472,7 @@ async function clearAllDrawings() {
     if (state.strokeHistory.length === 0 && !state.baseImageObj) return;
     
     const cmd = new ClearCommand({
-        savedStrokeHistory: cloneStrokes(state.strokeHistory),
+        savedStrokeHistory: cloneStrokesDeep(state.strokeHistory),
         savedBaseImageURL: state.baseImageURL,
         strokeHistoryRef: state.strokeHistory,
         baseImageURLRef: { get value() { return state.baseImageURL; }, set value(v) { state.baseImageURL = v; } },

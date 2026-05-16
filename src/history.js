@@ -57,11 +57,11 @@ export class DrawCommand extends Command {
         this.redrawFn = options.redrawFn;
     }
 
-    async execute() {
+    async execute(needRedraw = true) {
         if (!this.strokeHistoryRef.includes(this.stroke)) {
             this.strokeHistoryRef.push(this.stroke);
         }
-        if (this.redrawFn) await this.redrawFn();
+        if (needRedraw && this.redrawFn) await this.redrawFn();
     }
 
     async undo() {
@@ -73,7 +73,7 @@ export class DrawCommand extends Command {
     }
 
     async redo() {
-        await this.execute();
+        await this.execute(true);
     }
 
     canCompact() {
@@ -89,11 +89,11 @@ export class EraseCommand extends Command {
         this.redrawFn = options.redrawFn;
     }
 
-    async execute() {
+    async execute(needRedraw = true) {
         if (!this.strokeHistoryRef.includes(this.stroke)) {
             this.strokeHistoryRef.push(this.stroke);
         }
-        if (this.redrawFn) await this.redrawFn();
+        if (needRedraw && this.redrawFn) await this.redrawFn();
     }
 
     async undo() {
@@ -200,16 +200,15 @@ export class SnapshotCommand extends Command {
     }
 }
 
-export async function executeCommand(command) {
+export async function executeCommand(command, needRedraw = true) {
     if (historyState.isExecuting) return;
     
     historyState.isExecuting = true;
     try {
-        await command.execute();
+        await command.execute(needRedraw);
         historyState.undoStack.push(command);
         historyState.redoStack = [];
         
-        // 硬性上限保护：防止压缩失败时栈无限增长
         const HARD_LIMIT = MAX_HISTORY_STEPS * 2;
         if (historyState.undoStack.length > HARD_LIMIT) {
             console.warn(`undoStack 超过硬性上限(${HARD_LIMIT}), 强制裁剪`);
