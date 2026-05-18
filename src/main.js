@@ -3917,6 +3917,50 @@ function main_update_image_rotation_fallback(img, direction) {
     return canvas.toDataURL('image/png');
 }
 
+const SIDEBAR_PLACEHOLDER = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="200" height="113"><rect fill="#2a2a2e" width="200" height="113"/></svg>');
+
+let sidebarObserver = null;
+
+function main_destroy_sidebar_lazy_loader() {
+    if (sidebarObserver) {
+        sidebarObserver.disconnect();
+        sidebarObserver = null;
+    }
+}
+
+function main_setup_sidebar_lazy_loader(sidebarContent) {
+    main_destroy_sidebar_lazy_loader();
+
+    sidebarObserver = new IntersectionObserver((entries) => {
+        for (const entry of entries) {
+            const item = entry.target;
+            const img = item.querySelector('.sidebar-thumbnail');
+            if (!img) continue;
+
+            if (entry.isIntersecting) {
+                if (img.src === SIDEBAR_PLACEHOLDER) {
+                    const index = parseInt(item.dataset.index);
+                    const imgData = state.imageList[index];
+                    if (imgData && imgData.thumbnail) {
+                        img.src = imgData.thumbnail;
+                    }
+                }
+            } else if (!item.classList.contains('active')) {
+                if (img.src !== SIDEBAR_PLACEHOLDER) {
+                    img.src = SIDEBAR_PLACEHOLDER;
+                }
+            }
+        }
+    }, {
+        root: sidebarContent,
+        rootMargin: '300px 0px'
+    });
+
+    sidebarContent.querySelectorAll('.sidebar-image-item').forEach(item => {
+        sidebarObserver.observe(item);
+    });
+}
+
 function main_handle_sidebar_toggle() {
     const existingSidebar = document.querySelector('.sidebar:not(.file-sidebar)');
     const existingFileSidebar = document.querySelector('.file-sidebar');
@@ -3949,9 +3993,10 @@ function main_show_sidebar() {
         state.imageList.forEach((imgData, index) => {
             const isActive = (state.currentImageIndex >= 0 && index === state.currentImageIndex) ? 'active' : '';
             const imageAlt = window.i18n?.format_translate('sidebar.imageAlt', { n: index + 1 }) || `图片${index + 1}`;
+            const src = isActive ? imgData.thumbnail : SIDEBAR_PLACEHOLDER;
             imageListHTML += `
                 <div class="sidebar-image-item ${isActive}" data-index="${index}">
-                    <img src="${imgData.thumbnail}" class="sidebar-thumbnail" alt="${imageAlt}">
+                    <img src="${src}" class="sidebar-thumbnail" alt="${imageAlt}" loading="lazy">
                     <div class="sidebar-image-actions">
                         <button class="sidebar-btn-delete" title="${deleteText}">✕</button>
                     </div>
@@ -3984,6 +4029,11 @@ function main_show_sidebar() {
         
         item.addEventListener('click', () => main_update_image_selection(index));
     });
+    
+    const sidebarContent = sidebarElement.querySelector('.sidebar-content');
+    if (sidebarContent && state.imageList.length > 0) {
+        main_setup_sidebar_lazy_loader(sidebarContent);
+    }
     
     const showText = ThemeManager.theme_fetch_toolbar_text();
     dom.btnExpand.innerHTML = `
@@ -4127,11 +4177,24 @@ function main_update_sidebar_selection() {
     const items = sidebarContent.querySelectorAll('.sidebar-image-item');
     
     if (lastSidebarSelection >= 0 && lastSidebarSelection < items.length) {
-        items[lastSidebarSelection].classList.remove('active');
+        const prevItem = items[lastSidebarSelection];
+        prevItem.classList.remove('active');
+        const prevImg = prevItem.querySelector('.sidebar-thumbnail');
+        if (prevImg && prevImg.src !== SIDEBAR_PLACEHOLDER) {
+            prevImg.src = SIDEBAR_PLACEHOLDER;
+        }
     }
     
     if (state.currentImageIndex >= 0 && state.currentImageIndex < items.length) {
-        items[state.currentImageIndex].classList.add('active');
+        const curItem = items[state.currentImageIndex];
+        curItem.classList.add('active');
+        const curImg = curItem.querySelector('.sidebar-thumbnail');
+        if (curImg && curImg.src === SIDEBAR_PLACEHOLDER) {
+            const imgData = state.imageList[state.currentImageIndex];
+            if (imgData && imgData.thumbnail) {
+                curImg.src = imgData.thumbnail;
+            }
+        }
     }
     
     lastSidebarSelection = state.currentImageIndex;
@@ -4142,7 +4205,7 @@ function main_update_sidebar_selection() {
 }
 
 function main_update_sidebar_content() {
-    const sidebarContent = document.querySelector('.sidebar-content');
+    const sidebarContent = document.querySelector('.sidebar:not(.file-sidebar) .sidebar-content');
     if (!sidebarContent) return;
     
     const noImagesText = window.i18n?.format_translate('common.noImages') || '暂无图片';
@@ -4155,9 +4218,10 @@ function main_update_sidebar_content() {
         state.imageList.forEach((imgData, index) => {
             const isActive = (state.currentImageIndex >= 0 && index === state.currentImageIndex) ? 'active' : '';
             const imageAlt = window.i18n?.format_translate('sidebar.imageAlt', { n: index + 1 }) || `图片${index + 1}`;
+            const src = isActive ? imgData.thumbnail : SIDEBAR_PLACEHOLDER;
             imageListHTML += `
                 <div class="sidebar-image-item ${isActive}" data-index="${index}">
-                    <img src="${imgData.thumbnail}" class="sidebar-thumbnail" alt="${imageAlt}">
+                    <img src="${src}" class="sidebar-thumbnail" alt="${imageAlt}" loading="lazy">
                     <div class="sidebar-image-actions">
                         <button class="sidebar-btn-delete" title="${deleteText}">✕</button>
                     </div>
@@ -4178,6 +4242,14 @@ function main_update_sidebar_content() {
         
         item.addEventListener('click', () => main_update_image_selection(index));
     });
+    
+    if (state.imageList.length > 0) {
+        main_setup_sidebar_lazy_loader(sidebarContent);
+        const activeItem = sidebarContent.querySelector('.sidebar-image-item.active');
+        if (activeItem) {
+            activeItem.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        }
+    }
 }
 
 function main_hide_sidebar() {
@@ -4188,6 +4260,8 @@ function main_hide_sidebar() {
             sidebar.remove();
         }, { once: true });
     }
+    
+    main_destroy_sidebar_lazy_loader();
     
     const imageText = window.i18n?.format_translate('toolbar.image') || '图片';
     const showText = ThemeManager.theme_fetch_toolbar_text();
@@ -5233,20 +5307,33 @@ async function main_save_camera_image() {
     main_save_current_source_data();
     
     const tempCanvas = document.createElement('canvas');
-    tempCanvas.width = videoW;
-    tempCanvas.height = videoH;
     const tempCtx = tempCanvas.getContext('2d');
     
+    const rotation = state.cameraRotation || 0;
+    
+    if (rotation % 180 === 0) {
+        tempCanvas.width = videoW;
+        tempCanvas.height = videoH;
+    } else {
+        tempCanvas.width = videoH;
+        tempCanvas.height = videoW;
+    }
+    
+    tempCtx.save();
+    
+    tempCtx.translate(tempCanvas.width / 2, tempCanvas.height / 2);
+    
+    if (rotation !== 0) {
+        tempCtx.rotate(rotation * Math.PI / 180);
+    }
+    
     if (state.isMirrored) {
-        tempCtx.translate(tempCanvas.width, 0);
         tempCtx.scale(-1, 1);
     }
     
-    tempCtx.drawImage(video, 0, 0);
+    tempCtx.drawImage(video, -videoW / 2, -videoH / 2);
     
-    if (state.isMirrored) {
-        tempCtx.setTransform(1, 0, 0, 1, 0, 0);
-    }
+    tempCtx.restore();
     
     let blob = await new Promise((resolve, reject) => {
         tempCanvas.toBlob(b => {

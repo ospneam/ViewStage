@@ -80,11 +80,29 @@ async function doc_scan_fetch_image_data() {
         const video = document.getElementById('cameraVideo');
         if (!video) throw new Error('摄像头未找到');
         
+        const videoW = video.videoWidth;
+        const videoH = video.videoHeight;
+        
         const tempCanvas = document.createElement('canvas');
-        tempCanvas.width = video.videoWidth;
-        tempCanvas.height = video.videoHeight;
         const ctx = tempCanvas.getContext('2d');
-        ctx.drawImage(video, 0, 0);
+        
+        const rotation = window.state?.cameraRotation || 0;
+        
+        if (rotation % 180 === 0) {
+            tempCanvas.width = videoW;
+            tempCanvas.height = videoH;
+        } else {
+            tempCanvas.width = videoH;
+            tempCanvas.height = videoW;
+        }
+        
+        ctx.save();
+        ctx.translate(tempCanvas.width / 2, tempCanvas.height / 2);
+        if (rotation !== 0) {
+            ctx.rotate(rotation * Math.PI / 180);
+        }
+        ctx.drawImage(video, -videoW / 2, -videoH / 2);
+        ctx.restore();
         
         return tempCanvas.toDataURL('image/png');
     }
