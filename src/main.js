@@ -1909,8 +1909,7 @@ function main_hide_drawing_mode() {
 
 // 橡皮提示框
 function main_update_eraser_hint_size() {
-    const size = DRAW_CONFIG.eraserSize;
-    // 橡皮擦大小基于 Canvas 坐标系，显示时需要考虑缩放
+    const size = DRAW_CONFIG.eraserSize / main_fetch_safe_scale();
     dom.eraserHint.style.width = `${size}px`;
     dom.eraserHint.style.height = `${size}px`;
 }
@@ -2528,12 +2527,13 @@ function main_update_canvas_transform_smooth(targetX, targetY, targetScale, dura
 
 // 撤销功能 - 混合方案：路径记录 + ImageData 压缩
 function main_start_stroke(type) {
+    const invScale = 1 / main_fetch_safe_scale();
     state.currentStroke = {
         type: type,
         points: [],
         color: DRAW_CONFIG.penColor,
-        lineWidth: DRAW_CONFIG.penWidth,
-        eraserSize: DRAW_CONFIG.eraserSize,
+        lineWidth: DRAW_CONFIG.penWidth * invScale,
+        eraserSize: DRAW_CONFIG.eraserSize * invScale,
         scale: state.scale,
         bounds: {
             minX: Infinity,
@@ -2545,12 +2545,12 @@ function main_start_stroke(type) {
     };
     
     state.currentPressure = 0.5;
-    state.currentLineWidth = DRAW_CONFIG.penWidth;
-    state.lastLineWidth = DRAW_CONFIG.penWidth;
+    state.currentLineWidth = DRAW_CONFIG.penWidth * invScale;
+    state.lastLineWidth = DRAW_CONFIG.penWidth * invScale;
     
     state.cachedDrawType = type;
     state.cachedDrawColor = type === 'draw' ? DRAW_CONFIG.penColor : '#000000';
-    state.cachedDrawLineWidth = type === 'draw' ? DRAW_CONFIG.penWidth : DRAW_CONFIG.eraserSize;
+    state.cachedDrawLineWidth = (type === 'draw' ? DRAW_CONFIG.penWidth : DRAW_CONFIG.eraserSize) * invScale;
     
     batchDrawManager.batch_draw_init_start();
 }
