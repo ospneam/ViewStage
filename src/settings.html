@@ -105,6 +105,20 @@
                             <button class="option-btn" data-value="full" data-i18n="settings.penEffectFull">完整</button>
                         </div>
                     </div>
+                    <div class="setting-item">
+                        <span class="setting-label" data-i18n="settings.dprLimit">画面精度</span>
+                        <div class="custom-select" id="dprLimitSelect">
+                            <div class="select-selected" id="dprLimitSelected">2x</div>
+                            <div class="select-options" id="dprLimitOptions">
+                                <div class="select-option" data-value="0"><span data-i18n="settings.dprAuto">自动</span></div>
+                                <div class="select-option" data-value="1">1x (<span data-i18n="settings.resolutionStandard">标准</span>)</div>
+                                <div class="select-option" data-value="1.5">1.5x</div>
+                                <div class="select-option" data-value="2">2x (<span data-i18n="settings.resolutionStandard">标准</span>)</div>
+                                <div class="select-option" data-value="3">3x (<span data-i18n="settings.resolutionVeryHigh">超高</span>)</div>
+                                <div class="select-option" data-value="4">4x (<span data-i18n="settings.resolutionMax">最高</span>)</div>
+                            </div>
+                        </div>
+                    </div>
                     <div class="setting-item flex-start">
                         <span class="setting-label" data-i18n="settings.penColors">画笔颜色</span>
                         <div class="color-editor" id="colorEditor">

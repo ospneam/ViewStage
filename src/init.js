@@ -164,6 +164,20 @@ async function settings_load_camera_config() {
                 DRAW_CONFIG.renderH = settings.height;
             }
 
+            if (settings.dprLimit !== undefined) {
+                const oldDprLimit = DRAW_CONFIG.dprLimit;
+                DRAW_CONFIG.dprLimit = settings.dprLimit;
+                if (oldDprLimit !== DRAW_CONFIG.dprLimit) {
+                    const dom = window.dom;
+                    DRAW_CONFIG.baseDpr = window.devicePixelRatio || 1;
+                    DRAW_CONFIG.dpr = window.main_calc_capped_dpr(DRAW_CONFIG.baseDpr, DRAW_CONFIG.dprLimit);
+                    dom.drawCanvas.width = DRAW_CONFIG.canvasW * DRAW_CONFIG.dpr;
+                    dom.drawCanvas.height = DRAW_CONFIG.canvasH * DRAW_CONFIG.dpr;
+                    dom.drawCtx.setTransform(1, 0, 0, 1, 0, 0);
+                    dom.drawCtx.scale(DRAW_CONFIG.dpr, DRAW_CONFIG.dpr);
+                }
+            }
+
             if (settings.pdfScale) {
                 DRAW_CONFIG.pdfScale = settings.pdfScale;
             }

@@ -296,6 +296,23 @@ document.addEventListener('DOMContentLoaded', async () => {
                     });
                 }
                 
+                // DPR 限制设置
+                const dprLimitSelected = document.getElementById('dprLimitSelected');
+                const dprLimitOptionsContainer = document.getElementById('dprLimitOptions');
+
+                if (dprLimitSelected && dprLimitOptionsContainer) {
+                    const savedDprLimit = settings.dprLimit !== undefined ? settings.dprLimit : 2;
+                    const dprLimitOptions = dprLimitOptionsContainer.querySelectorAll('.select-option');
+                    dprLimitOptions.forEach(option => {
+                        if (parseFloat(option.dataset.value) === savedDprLimit) {
+                            dprLimitSelected.textContent = option.textContent;
+                            option.classList.add('selected');
+                        } else {
+                            option.classList.remove('selected');
+                        }
+                    });
+                }
+
                 // 画笔颜色设置
                 const DEFAULT_COLORS = [
                     '#ef4444', '#f97316', '#eab308', '#22c55e', '#06b6d4',
@@ -892,6 +909,51 @@ document.addEventListener('DOMContentLoaded', async () => {
             pdfScaleSelect.classList.remove('open');
             
             await settings_save_all_local({ pdfScale: value });
+        });
+    }
+    
+    // DPR 限制选择
+    const dprLimitSelect = document.getElementById('dprLimitSelect');
+    const dprLimitSelected = document.getElementById('dprLimitSelected');
+    
+    if (dprLimitSelect && dprLimitSelected) {
+        dprLimitSelected.addEventListener('click', () => {
+            dprLimitSelect.classList.toggle('open');
+        });
+        
+        document.addEventListener('click', (e) => {
+            if (!dprLimitSelect.contains(e.target)) {
+                dprLimitSelect.classList.remove('open');
+            }
+        });
+        
+        dprLimitSelect.addEventListener('click', async (e) => {
+            const option = e.target.closest('.select-option');
+            if (!option) return;
+            
+            const value = parseFloat(option.dataset.value);
+            dprLimitSelected.textContent = option.textContent;
+            
+            const dprLimitOptions = dprLimitSelect.querySelectorAll('.select-option');
+            dprLimitOptions.forEach(opt => opt.classList.remove('selected'));
+            option.classList.add('selected');
+            
+            dprLimitSelect.classList.remove('open');
+            
+            const saved = await settings_save_all_local({ dprLimit: value });
+            
+            if (saved) {
+                const restartModal = document.getElementById('restartModal');
+                const modalMessage = restartModal?.querySelector('.modal-message');
+                if (modalMessage) {
+                    modalMessage.textContent = window.i18n?.format_translate('settings.dprChanged') || '画面精度已更改，建议重启应用以确保完全生效。';
+                }
+                if (restartModal) {
+                    restartModal.classList.add('active');
+                }
+            } else {
+                settings_show_dialog(window.i18n?.format_translate('settings.saveFailed') || '保存失败', window.i18n?.format_translate('settings.saveFailedRetry') || '保存设置失败，请重试', 'error');
+            }
         });
     }
     

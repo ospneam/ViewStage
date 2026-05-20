@@ -97,10 +97,11 @@ const DRAW_CONFIG = {
     screenH: 0,                    // 屏幕高度
     renderW: 1920,                 // 渲染分辨率宽度
     renderH: 1080,                 // 渲染分辨率高度
-    dpr: window.devicePixelRatio || 1,  // 设备像素比
+    dprLimit: 2,                   // DPR 上限（0=自动无限制，从配置加载后覆盖）
+    dpr: Math.min(window.devicePixelRatio || 1, 2),  // 设备像素比（受 dprLimit 限制）
     pdfScale: 2,                   // PDF 渲染缩放比例
     imageSmoothingQuality: 'high', // 图像平滑质量
-    baseDpr: window.devicePixelRatio || 1, // 基础设备像素比
+    baseDpr: window.devicePixelRatio || 1, // 基础设备像素比（受 dprLimit 限制）
     canvasBgColor: '#2a2a2a',      // 画布背景颜色
     penColors: [
         '#ef4444', '#f97316', '#eab308', '#22c55e', '#06b6d4',
@@ -114,6 +115,12 @@ const DRAW_CONFIG = {
 
 // 将配置暴露到全局，供 batch-draw.js 使用
 window.DRAW_CONFIG = DRAW_CONFIG;
+
+// 应用 DPR 限制（0=自动无限制）
+function main_calc_capped_dpr(rawDpr, limit) {
+    return limit > 0 ? Math.min(rawDpr, limit) : rawDpr;
+}
+window.main_calc_capped_dpr = main_calc_capped_dpr;
 
 function main_fetch_safe_scale() {
     return Math.max(0.001, state.scale || 1);
@@ -1363,8 +1370,8 @@ async function main_update_canvas_size(newScreenW, newScreenH) {
     DRAW_CONFIG.canvasW = Math.floor(newScreenW * 2);
     DRAW_CONFIG.canvasH = Math.floor(newScreenH * 2);
     
-    // 使用固定的 DPR
-    DRAW_CONFIG.dpr = DRAW_CONFIG.baseDpr;
+    // 使用固定的 DPR（受 dprLimit 限制，0=自动无限制）
+    DRAW_CONFIG.dpr = window.main_calc_capped_dpr(DRAW_CONFIG.baseDpr, DRAW_CONFIG.dprLimit);
     
     main_update_move_bound();
     
