@@ -744,6 +744,7 @@ function oobe_setup_page4_buttons() {
         
         oobe_hide_camera_preview();
         try {
+            await invoke('device_detect_all');
             await invoke('settings_save_all', { settings: finalSettings });
             oobe_show_page5();
         } catch (error) {

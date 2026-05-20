@@ -1474,6 +1474,275 @@ fn app_submit_exit() {
     std::process::exit(0);
 }
 
+// ==================== 设备信息检测 ====================
+
+#[derive(Debug, Clone, Serialize)]
+pub struct DeviceInfo {
+    pub windows_version: String,
+    pub windows_build: u32,
+    pub windows_display_version: String,
+    pub cpu_name: String,
+    pub cpu_cores: usize,
+    pub cpu_arch: String,
+    pub gpu_name: String,
+    pub gpu_driver_version: String,
+    pub gpu_driver_date: String,
+    pub gpu_dedicated_memory_mb: u64,
+    pub total_ram_mb: u64,
+    pub system_type: String,
+    pub disk_total_gb: u64,
+    pub disk_type: String,
+    pub has_touchscreen: bool,
+}
+
+/// 检测设备信息并写入 device.json
+#[tauri::command]
+async fn device_detect_all(app: tauri::AppHandle) -> Result<DeviceInfo, String> {
+    let device_info = device_collect_info();
+
+    let config_dir = app.path().app_config_dir().map_err(|e| e.to_string())?;
+    if !config_dir.exists() {
+        std::fs::create_dir_all(&config_dir).map_err(|e| e.to_string())?;
+    }
+
+    let device_path = config_dir.join("device.json");
+    let json = serde_json::to_string_pretty(&device_info).map_err(|e| e.to_string())?;
+    std::fs::write(&device_path, &json).map_err(|e| format!("保存设备信息失败: {}", e))?;
+
+    log::info!("设备信息已保存到: {:?}", device_path);
+
+    Ok(device_info)
+}
+
+fn device_collect_info() -> DeviceInfo {
+    let (win_ver, win_build, win_display) = device_detect_windows_version();
+    let (cpu_name, cpu_cores, cpu_arch) = device_detect_cpu();
+    let (gpu_name, gpu_driver, gpu_driver_date, gpu_mem) = device_detect_gpu();
+    let (total_ram_mb, system_type) = device_detect_system();
+    let (disk_total_gb, disk_type) = device_detect_disk();
+    let has_touchscreen = device_detect_touchscreen();
+
+    DeviceInfo {
+        windows_version: win_ver,
+        windows_build: win_build,
+        windows_display_version: win_display,
+        cpu_name,
+        cpu_cores,
+        cpu_arch,
+        gpu_name,
+        gpu_driver_version: gpu_driver,
+        gpu_driver_date: gpu_driver_date,
+        gpu_dedicated_memory_mb: gpu_mem,
+        total_ram_mb,
+        system_type,
+        disk_total_gb,
+        disk_type,
+        has_touchscreen,
+    }
+}
+
+fn device_detect_windows_version() -> (String, u32, String) {
+    #[cfg(target_os = "windows")]
+    {
+        use winreg::RegKey;
+        use winreg::enums::*;
+
+        if let Ok(hklm) = RegKey::predef(HKEY_LOCAL_MACHINE).open_subkey(r"SOFTWARE\Microsoft\Windows NT\CurrentVersion") {
+            let product_name: String = hklm.get_value("ProductName").unwrap_or_else(|_| "Windows".to_string());
+            let current_build: String = hklm.get_value("CurrentBuild").unwrap_or_else(|_| "0".to_string());
+            let display_version: String = hklm.get_value("DisplayVersion").unwrap_or_default();
+            let release_id: String = hklm.get_value("ReleaseId").unwrap_or_default();
+            let _edition_id: String = hklm.get_value("EditionID").unwrap_or_default();
+
+            let build_number: u32 = current_build.parse().unwrap_or(0);
+            let version_str = if !display_version.is_empty() {
+                format!("{} {} (Build {})", product_name.trim(), display_version, current_build)
+            } else if !release_id.is_empty() {
+                format!("{} {} (Build {})", product_name.trim(), release_id, current_build)
+            } else {
+                format!("{} (Build {})", product_name.trim(), current_build)
+            };
+
+            return (version_str, build_number, display_version);
+        }
+    }
+
+    ("Unknown".to_string(), 0, String::new())
+}
+
+fn device_detect_cpu() -> (String, usize, String) {
+    let cpu_name: String;
+
+    #[cfg(target_os = "windows")]
+    {
+        use winreg::RegKey;
+        use winreg::enums::*;
+
+        if let Ok(hklm) = RegKey::predef(HKEY_LOCAL_MACHINE).open_subkey(r"HARDWARE\DESCRIPTION\System\CentralProcessor\0") {
+            cpu_name = hklm.get_value("ProcessorNameString").unwrap_or_else(|_| "Unknown".to_string());
+        } else {
+            cpu_name = "Unknown".to_string();
+        }
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        cpu_name = "Unknown".to_string();
+    }
+
+    let cores = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(1);
+
+    let arch = if cfg!(target_arch = "x86_64") { "x64".to_string() }
+               else if cfg!(target_arch = "x86") { "x86".to_string() }
+               else if cfg!(target_arch = "aarch64") { "ARM64".to_string() }
+               else { "Unknown".to_string() };
+
+    (cpu_name.trim().to_string(), cores, arch)
+}
+
+fn device_detect_gpu() -> (String, String, String, u64) {
+    #[cfg(target_os = "windows")]
+    {
+        let output = std::process::Command::new("powershell")
+            .args([
+                "-NoProfile", "-NonInteractive", "-Command",
+                "Get-CimInstance -ClassName Win32_VideoController | Select-Object -First 1 Name, DriverVersion, DriverDate, AdapterRAM | ConvertTo-Json -Compress"
+            ])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output();
+
+        if let Ok(output) = output {
+            if output.status.success() {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&stdout) {
+                    let name = json.get("Name").and_then(|v| v.as_str()).unwrap_or("Unknown").to_string();
+                    let driver = json.get("DriverVersion").and_then(|v| v.as_str()).unwrap_or_default().to_string();
+                    let driver_date = json.get("DriverDate").and_then(|v| v.as_str()).unwrap_or_default().to_string();
+                    let ram = json.get("AdapterRAM").and_then(|v| v.as_u64()).unwrap_or(0);
+                    return (name, driver, driver_date, ram / (1024 * 1024));
+                }
+            }
+        }
+    }
+
+    ("Unknown".to_string(), String::new(), String::new(), 0)
+}
+
+fn device_detect_system() -> (u64, String) {
+    #[cfg(target_os = "windows")]
+    {
+        let output = std::process::Command::new("powershell")
+            .args([
+                "-NoProfile", "-NonInteractive", "-Command",
+                "Get-CimInstance -ClassName Win32_ComputerSystem | Select-Object TotalPhysicalMemory, PCSystemType | ConvertTo-Json -Compress"
+            ])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output();
+
+        if let Ok(output) = output {
+            if output.status.success() {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&stdout) {
+                    let ram = json.get("TotalPhysicalMemory").and_then(|v| v.as_u64()).unwrap_or(0);
+                    let sys_type = json.get("PCSystemType").and_then(|v| v.as_u64()).unwrap_or(0);
+                    let type_str = match sys_type {
+                        1 => "Desktop".to_string(),
+                        2 => "Laptop".to_string(),
+                        3 => "Workstation".to_string(),
+                        4 => "Enterprise Server".to_string(),
+                        5 => "Tablet".to_string(),
+                        _ => "Unknown".to_string(),
+                    };
+                    return (ram / (1024 * 1024), type_str);
+                }
+            }
+        }
+    }
+
+    (0, "Unknown".to_string())
+}
+
+fn device_detect_disk() -> (u64, String) {
+    #[cfg(target_os = "windows")]
+    {
+        let disk_size = {
+            let output = std::process::Command::new("powershell")
+                .args([
+                    "-NoProfile", "-NonInteractive", "-Command",
+                    "Get-CimInstance -ClassName Win32_LogicalDisk -Filter \"DriveType=3\" | Select-Object -First 1 Size | ConvertTo-Json -Compress"
+                ])
+                .creation_flags(CREATE_NO_WINDOW)
+                .output();
+
+            match output {
+                Ok(o) if o.status.success() => {
+                    let stdout = String::from_utf8_lossy(&o.stdout);
+                    serde_json::from_str::<serde_json::Value>(&stdout)
+                        .ok()
+                        .and_then(|v| v.get("Size").and_then(|s| s.as_u64()))
+                        .unwrap_or(0)
+                }
+                _ => 0,
+            }
+        };
+
+        let disk_type = if disk_size > 0 {
+            let output = std::process::Command::new("powershell")
+                .args([
+                    "-NoProfile", "-NonInteractive", "-Command",
+                    "Get-CimInstance -ClassName Win32_DiskDrive | Select-Object -First 1 @{N='RPM';E={if ($_.RotationsPerMinute -eq $null -or $_.RotationsPerMinute -eq 0) {'SSD'} else {'HDD'}}} | ConvertTo-Json -Compress"
+                ])
+                .creation_flags(CREATE_NO_WINDOW)
+                .output();
+
+            match output {
+                Ok(o) if o.status.success() => {
+                    let stdout = String::from_utf8_lossy(&o.stdout);
+                    match serde_json::from_str::<serde_json::Value>(&stdout) {
+                        Ok(ref v) => v.get("RPM")
+                            .and_then(|m| m.as_str())
+                            .unwrap_or("Unknown")
+                            .to_string(),
+                        Err(_) => "Unknown".to_string(),
+                    }
+                }
+                _ => "Unknown".to_string(),
+            }
+        } else {
+            "Unknown".to_string()
+        };
+
+        return (disk_size / (1024 * 1024 * 1024), disk_type);
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    { (0, "Unknown".to_string()) }
+}
+
+fn device_detect_touchscreen() -> bool {
+    #[cfg(target_os = "windows")]
+    {
+        let output = std::process::Command::new("powershell")
+            .args([
+                "-NoProfile", "-NonInteractive", "-Command",
+                "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SystemInformation]::IsTouchEnabled"
+            ])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output();
+
+        if let Ok(output) = output {
+            if output.status.success() {
+                let stdout = String::from_utf8_lossy(&output.stdout).trim().to_lowercase();
+                return stdout == "true" || stdout == "True";
+            }
+        }
+    }
+
+    false
+}
+
 // ==================== Office 文件转换 ====================
 
 /// Office 软件类型
@@ -2997,7 +3266,8 @@ pub fn app_init_run() {
             model_delete_uvdoc,
             model_check_dexined,
             model_import_dexined,
-            model_delete_dexined
+            model_delete_dexined,
+            device_detect_all
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
