@@ -689,29 +689,26 @@ let cachedVisibleRectScale = null;
 let cachedVisibleRectX = null;
 let cachedVisibleRectY = null;
 
-let offscreenCanvasPool = [];
-const MAX_OFFSCREEN_CANVAS = 2;
+const OFFSCREEN_MAX_PHYSICAL = 3840;
 
 function main_fetch_offscreen_canvas() {
-    if (offscreenCanvasPool.length > 0) {
-        return offscreenCanvasPool.pop();
-    }
-    
     const canvas = document.createElement('canvas');
-    canvas.width = DRAW_CONFIG.canvasW * DRAW_CONFIG.dpr;
-    canvas.height = DRAW_CONFIG.canvasH * DRAW_CONFIG.dpr;
+    let w = DRAW_CONFIG.canvasW * DRAW_CONFIG.dpr;
+    let h = DRAW_CONFIG.canvasH * DRAW_CONFIG.dpr;
+    if (w > OFFSCREEN_MAX_PHYSICAL || h > OFFSCREEN_MAX_PHYSICAL) {
+        const s = OFFSCREEN_MAX_PHYSICAL / Math.max(w, h);
+        w = Math.round(w * s);
+        h = Math.round(h * s);
+    }
+    canvas.width = w;
+    canvas.height = h;
     const ctx = canvas.getContext('2d', { alpha: true });
-    ctx.scale(DRAW_CONFIG.dpr, DRAW_CONFIG.dpr);
+    ctx.scale(w / DRAW_CONFIG.canvasW, h / DRAW_CONFIG.canvasH);
     return { canvas, ctx };
 }
 
 function main_release_offscreen_canvas(offscreen) {
-    if (offscreenCanvasPool.length < MAX_OFFSCREEN_CANVAS) {
-        offscreen.ctx.setTransform(1, 0, 0, 1, 0, 0);
-        offscreen.ctx.clearRect(0, 0, offscreen.canvas.width, offscreen.canvas.height);
-        offscreen.ctx.scale(DRAW_CONFIG.dpr, DRAW_CONFIG.dpr);
-        offscreenCanvasPool.push(offscreen);
-    }
+    // 不缓存，直接丢弃，由 GC 回收
 }
 
 function main_delete_cached_rect() {
