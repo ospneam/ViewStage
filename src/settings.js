@@ -399,23 +399,9 @@ document.addEventListener('DOMContentLoaded', async () => {
                     }
                 }
                 
-                // 主题设置
-                const themeSelected = document.getElementById('themeSelected');
-                const themeOptionsContainer = document.getElementById('themeOptions');
-                if (themeSelected && themeOptionsContainer) {
-                    const savedTheme = settings.theme || 'simplify';
-                    themeOptionsContainer.querySelectorAll('.select-option').forEach(option => {
-                        if (option.dataset.value === savedTheme) {
-                            themeSelected.textContent = option.textContent;
-                            option.classList.add('selected');
-                        } else {
-                            option.classList.remove('selected');
-                        }
-                    });
-
-                    // 加载用户安装的主题
-                    settings_load_user_themes(savedTheme);
-                }
+                // 主题设置 — 卡片模式
+                const savedTheme = settings.theme || 'simplify';
+                settings_load_user_themes(savedTheme);
                 
                 // 默认旋转角度设置
                 const defaultRotationSelected = document.getElementById('defaultRotationSelected');
@@ -502,31 +488,90 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (!window.__TAURI__) return;
 
         const { invoke } = window.__TAURI__.core;
-        const container = document.getElementById('themeOptions');
-        if (!container) return;
 
         invoke('theme_list_user').then(themes => {
-            themes.forEach(({ name, display_name }) => {
-                const existing = container.querySelector(`.select-option[data-value="${name}"]`);
-                if (!existing) {
-                    const opt = document.createElement('div');
-                    opt.className = 'select-option';
-                    opt.dataset.value = name;
-                    opt.textContent = display_name;
-                    container.appendChild(opt);
-                    if (name === savedTheme) {
-                        const sel = document.getElementById('themeSelected');
-                        if (sel) sel.textContent = display_name;
-                        opt.classList.add('selected');
-                    }
-                }
-            });
-
+            const allThemes = [
+                {
+                    name: 'dark',
+                    display_name: window.i18n?.format_translate('settings.themeDark') || '深色',
+                    canvas_bg: '#1a1a1a',
+                    text_color: '#ffffff'
+                },
+                {
+                    name: 'simplify',
+                    display_name: window.i18n?.format_translate('settings.themeSimplify') || '浅色',
+                    canvas_bg: '#ffffff',
+                    text_color: '#1a1a1a'
+                },
+                ...themes
+            ];
+            settings_render_all_themes(allThemes, savedTheme);
             // 刷新已安装主题列表
             settings_refresh_theme_list(themes);
         }).catch(e => {
             console.error('Failed to load user themes:', e);
         });
+    }
+
+    function settings_render_all_themes(themes, selectedName) {
+        const grid = document.getElementById('themeGrid');
+        if (!grid) return;
+
+        grid.innerHTML = '';
+
+        const builtinNames = ['dark', 'simplify'];
+        const userThemes = [];
+
+        themes.forEach(({ name, display_name, canvas_bg, text_color }) => {
+            const card = document.createElement('div');
+            card.className = 'theme-card' + (name === selectedName ? ' selected' : '');
+            card.dataset.value = name;
+
+            const isLight = canvas_bg === '#ffffff' || canvas_bg === '#fff';
+            const dotColor = isLight ? '#1a1a1a' : canvas_bg;
+
+            const isBuiltin = builtinNames.includes(name);
+            const previewImg = isBuiltin
+                ? `<img class="theme-card-preview-img" src="themes/${name}/preview.png" alt="${display_name}" loading="lazy">`
+                : '';
+
+            const fallbackHtml = !previewImg ? `
+                <div class="theme-card-preview-bar" style="background: ${text_color}"></div>
+                <span class="theme-card-preview-text" style="color: ${text_color}">Aa</span>
+                <div class="theme-card-preview-dot" style="background: ${dotColor}"></div>
+            ` : '';
+
+            card.innerHTML = `
+                <div class="theme-card-preview" style="background: ${canvas_bg}">
+                    ${previewImg}
+                    ${fallbackHtml}
+                </div>
+                <div class="theme-card-info">
+                    <span class="theme-card-name">${display_name}</span>
+                    <span class="theme-card-check">✓</span>
+                </div>
+            `;
+
+            grid.appendChild(card);
+
+            if (!isBuiltin) {
+                userThemes.push({ card, name });
+            }
+        });
+
+        // 异步加载用户主题预览图
+        if (userThemes.length > 0 && window.__TAURI__) {
+            const { invoke } = window.__TAURI__.core;
+            userThemes.forEach(({ card, name }) => {
+                invoke('theme_get_preview', { name }).then(b64 => {
+                    if (!b64) return;
+                    const preview = card.querySelector('.theme-card-preview');
+                    if (!preview) return;
+                    preview.style.background = '';
+                    preview.innerHTML = `<img class="theme-card-preview-img" src="${b64}" alt="" loading="lazy">`;
+                }).catch(() => {});
+            });
+        }
     }
 
     function settings_refresh_theme_list(themes) {
@@ -562,22 +607,21 @@ document.addEventListener('DOMContentLoaded', async () => {
                 try {
                     await invoke('theme_delete', { name });
 
-                    // 从下拉框中移除
-                    const opt = document.querySelector(`#themeOptions .select-option[data-value="${name}"]`);
-                    if (opt) opt.remove();
-
-                    // 刷新列表
+                    // 刷新列表和卡片
                     const updated = themes.filter(t => t.name !== name);
                     settings_refresh_theme_list(updated);
 
+                    const grid = document.getElementById('themeGrid');
+                    const card = grid?.querySelector(`.theme-card[data-value="${name}"]`);
+                    if (card) card.remove();
+
                     // 如果当前选中的是已删除的主题，切回 simplify
-                    const themeSelected = document.getElementById('themeSelected');
-                    if (themeSelected && themeSelected.textContent === display_name) {
-                        const defaultOpt = document.querySelector(`#themeOptions .select-option[data-value="simplify"]`);
-                        if (defaultOpt) {
-                            document.querySelectorAll('#themeOptions .select-option').forEach(o => o.classList.remove('selected'));
-                            defaultOpt.classList.add('selected');
-                            themeSelected.textContent = defaultOpt.textContent;
+                    const selectedCard = grid?.querySelector('.theme-card.selected');
+                    if (!selectedCard || selectedCard.dataset.value === name) {
+                        const simplifyCard = grid?.querySelector('.theme-card[data-value="simplify"]');
+                        if (simplifyCard) {
+                            grid?.querySelectorAll('.theme-card').forEach(c => c.classList.remove('selected'));
+                            simplifyCard.classList.add('selected');
                             await settings_save_all_local({ theme: 'simplify' });
                         }
                     }
@@ -1339,29 +1383,17 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     }
     
-    // 主题选择
-    const themeSelect = document.getElementById('themeSelect');
-    const themeSelected = document.getElementById('themeSelected');
-    const themeOptions = document.getElementById('themeOptions');
+    // 主题卡片选择
+    const themeGrid = document.getElementById('themeGrid');
+    if (themeGrid) {
+        themeGrid.addEventListener('click', async (e) => {
+            const card = e.target.closest('.theme-card');
+            if (!card || card.classList.contains('selected')) return;
 
-    if (themeSelect && themeSelected && themeOptions) {
-        themeSelected.addEventListener('click', () => {
-            themeSelect.classList.toggle('open');
-        });
+            const value = card.dataset.value;
 
-        // 使用事件委托处理静态和动态添加的选项
-        themeOptions.addEventListener('click', async (e) => {
-            const option = e.target.closest('.select-option');
-            if (!option) return;
-
-            const value = option.dataset.value;
-            themeSelected.textContent = option.textContent;
-
-            const allOptions = themeOptions.querySelectorAll('.select-option');
-            allOptions.forEach(opt => opt.classList.remove('selected'));
-            option.classList.add('selected');
-
-            themeSelect.classList.remove('open');
+            themeGrid.querySelectorAll('.theme-card').forEach(c => c.classList.remove('selected'));
+            card.classList.add('selected');
 
             const saved = await settings_save_all_local({ theme: value });
             if (saved) {
@@ -1373,12 +1405,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                 if (restartModal) {
                     restartModal.classList.add('active');
                 }
-            }
-        });
-
-        document.addEventListener('click', (e) => {
-            if (!themeSelect.contains(e.target)) {
-                themeSelect.classList.remove('open');
             }
         });
     }
@@ -1596,33 +1622,65 @@ document.addEventListener('DOMContentLoaded', async () => {
 
                     const themeName = themeResult.name;
                     const displayName = themeResult.display_name;
+                    const canvasBg = themeResult.canvas_bg || '#1a1a1a';
+                    const textColor = themeResult.text_color || '#ffffff';
                     console.log('主题已导入:', themeName);
 
-                    // 动态添加到下拉框
-                    const container = document.getElementById('themeOptions');
-                    if (container) {
-                        let opt = container.querySelector(`.select-option[data-value="${themeName}"]`);
-                        if (opt) {
-                            opt.textContent = displayName;
-                        } else {
-                            opt = document.createElement('div');
-                            opt.className = 'select-option';
-                            opt.dataset.value = themeName;
-                            opt.textContent = displayName;
-                            container.appendChild(opt);
+                    // 刷新所有主题卡片
+                    const savedTheme = themeName;
+                    invoke('theme_list_user').then(themes => {
+                        const allThemes = [
+                            {
+                                name: 'dark',
+                                display_name: window.i18n?.format_translate('settings.themeDark') || '深色',
+                                canvas_bg: '#1a1a1a',
+                                text_color: '#ffffff'
+                            },
+                            {
+                                name: 'simplify',
+                                display_name: window.i18n?.format_translate('settings.themeSimplify') || '浅色',
+                                canvas_bg: '#ffffff',
+                                text_color: '#1a1a1a'
+                            },
+                            ...themes
+                        ];
+                        settings_render_all_themes(allThemes, savedTheme);
+                    }).catch(() => {
+                        // 失败时至少添加当前导入的主题卡片，并尝试加载预览图
+                        const grid = document.getElementById('themeGrid');
+                        if (grid) {
+                            const existing = grid.querySelector(`.theme-card[data-value="${themeName}"]`);
+                            if (!existing) {
+                                const card = document.createElement('div');
+                                card.className = 'theme-card selected';
+                                card.dataset.value = themeName;
+                                card.innerHTML = `
+                                    <div class="theme-card-preview" style="background: ${canvasBg}">
+                                        <div class="theme-card-preview-bar" style="background: ${textColor}"></div>
+                                        <span class="theme-card-preview-text" style="color: ${textColor}">Aa</span>
+                                        <div class="theme-card-preview-dot" style="${canvasBg === '#ffffff' ? 'background: #1a1a1a' : 'background: ' + canvasBg}"></div>
+                                    </div>
+                                    <div class="theme-card-info">
+                                        <span class="theme-card-name">${displayName}</span>
+                                        <span class="theme-card-check">✓</span>
+                                    </div>
+                                `;
+                                grid.appendChild(card);
+                                // 异步加载预览图
+                                invoke('theme_get_preview', { name: themeName }).then(b64 => {
+                                    if (!b64) return;
+                                    const preview = card.querySelector('.theme-card-preview');
+                                    if (!preview) return;
+                                    preview.style.background = '';
+                                    preview.innerHTML = `<img class="theme-card-preview-img" src="${b64}" alt="" loading="lazy">`;
+                                }).catch(() => {});
+                            }
+                            grid.querySelectorAll('.theme-card').forEach(c => c.classList.remove('selected'));
+                            if (existing) existing.classList.add('selected');
                         }
-                    }
+                    });
 
                     // 自动选中并提示重启
-                    const themeSelected = document.getElementById('themeSelected');
-                    if (themeSelected) {
-                        themeSelected.textContent = displayName;
-                    }
-                    const allOptions = document.querySelectorAll('#themeOptions .select-option');
-                    allOptions.forEach(opt => opt.classList.remove('selected'));
-                    const newOpt = container?.querySelector(`.select-option[data-value="${themeName}"]`);
-                    if (newOpt) newOpt.classList.add('selected');
-
                     await settings_save_all_local({ theme: themeName });
                     const restartModal = document.getElementById('restartModal');
                     const modalMessage = restartModal?.querySelector('.modal-message');

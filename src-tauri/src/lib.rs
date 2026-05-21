@@ -310,6 +310,8 @@ fn dir_fetch_theme(app: tauri::AppHandle) -> Result<String, String> {
 struct ThemeInfo {
     name: String,
     display_name: String,
+    canvas_bg: String,
+    text_color: String,
 }
 
 /// 获取用户主题目录下所有已安装的主题信息
@@ -357,9 +359,29 @@ fn theme_list_user(app: tauri::AppHandle) -> Result<Vec<ThemeInfo>, String> {
                 let disp = json["displayName"].as_str().filter(|s| !s.is_empty());
                 let theme_name = pkg.unwrap_or(&dir_name);
 
+                // 读取 theme.json 获取预览颜色
+                let theme_json_path = path.join("theme.json");
+                let (canvas_bg, text_color) = if theme_json_path.exists() {
+                    if let Ok(tc) = std::fs::read_to_string(&theme_json_path) {
+                        if let Ok(tj) = serde_json::from_str::<serde_json::Value>(&tc) {
+                            let bg = tj["canvasBgColor"].as_str().unwrap_or("#1a1a1a").to_string();
+                            let txt = tj["noCameraMessage"]["textColor"].as_str().unwrap_or("#ffffff").to_string();
+                            (bg, txt)
+                        } else {
+                            ("#1a1a1a".to_string(), "#ffffff".to_string())
+                        }
+                    } else {
+                        ("#1a1a1a".to_string(), "#ffffff".to_string())
+                    }
+                } else {
+                    ("#1a1a1a".to_string(), "#ffffff".to_string())
+                };
+
                 themes.push(ThemeInfo {
                     name: theme_name.to_string(),
                     display_name: disp.unwrap_or(theme_name).to_string(),
+                    canvas_bg,
+                    text_color,
                 });
                 found = true;
                 break;
@@ -368,9 +390,26 @@ fn theme_list_user(app: tauri::AppHandle) -> Result<Vec<ThemeInfo>, String> {
 
         if !found {
             // 没有身份文件，仍然使用目录名
+            let (canvas_bg, text_color) = if path.join("theme.json").exists() {
+                if let Ok(tc) = std::fs::read_to_string(path.join("theme.json")) {
+                    if let Ok(tj) = serde_json::from_str::<serde_json::Value>(&tc) {
+                        let bg = tj["canvasBgColor"].as_str().unwrap_or("#1a1a1a").to_string();
+                        let txt = tj["noCameraMessage"]["textColor"].as_str().unwrap_or("#ffffff").to_string();
+                        (bg, txt)
+                    } else {
+                        ("#1a1a1a".to_string(), "#ffffff".to_string())
+                    }
+                } else {
+                    ("#1a1a1a".to_string(), "#ffffff".to_string())
+                }
+            } else {
+                ("#1a1a1a".to_string(), "#ffffff".to_string())
+            };
             themes.push(ThemeInfo {
                 name: dir_name.clone(),
                 display_name: dir_name,
+                canvas_bg,
+                text_color,
             });
         }
     }
@@ -629,10 +668,32 @@ fn theme_import_vst(app: tauri::AppHandle, file_path: String, force: Option<bool
 
     log::info!("Theme imported successfully: packageName='{}', displayName='{}'", package_name, display_name);
 
+    let canvas_bg = theme_json["canvasBgColor"].as_str().unwrap_or("#1a1a1a").to_string();
+    let text_color = theme_json["noCameraMessage"]["textColor"].as_str().unwrap_or("#ffffff").to_string();
+
     Ok(ThemeInfo {
         name: package_name.to_string(),
         display_name: display_name.to_string(),
+        canvas_bg,
+        text_color,
     })
+}
+
+/// 获取用户主题的预览图片（Base64 编码）
+#[tauri::command]
+fn theme_get_preview(app: tauri::AppHandle, name: String) -> Result<Option<String>, String> {
+    let config_dir = app.path().app_config_dir()
+        .map_err(|e| format!("Failed to get config dir: {}", e))?;
+    let preview_path = config_dir.join("themes").join(&name).join("preview.png");
+
+    if !preview_path.exists() {
+        return Ok(None);
+    }
+
+    let bytes = std::fs::read(&preview_path)
+        .map_err(|e| format!("Failed to read preview: {}", e))?;
+    let b64 = general_purpose::STANDARD.encode(&bytes);
+    Ok(Some(format!("data:image/png;base64,{}", b64)))
 }
 
 // ==================== 图片保存 ====================
@@ -2713,6 +2774,7 @@ pub fn app_init_run() {
             theme_list_user,
             theme_delete,
             theme_import_vst,
+            theme_get_preview,
             image_update_rotation,
             image_save_file,
             stroke_format_compact,

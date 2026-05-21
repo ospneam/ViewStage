@@ -1862,3 +1862,113 @@ button {
 .theme-user-item-delete:hover {
     opacity: 1;
 }
+
+/* ==================== 主题卡片 ==================== */
+.theme-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 12px;
+    margin-bottom: 20px;
+}
+
+.theme-card {
+    position: relative;
+    background: var(--color-surface-card, rgba(255, 255, 255, 0.08));
+    border: 2px solid var(--color-hairline, rgba(255, 255, 255, 0.1));
+    border-radius: var(--rounded-lg, 12px);
+    overflow: hidden;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.theme-card:hover {
+    border-color: var(--color-muted, rgba(255, 255, 255, 0.3));
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.theme-card.selected {
+    border-color: var(--color-brand-accent, #3b82f6);
+    box-shadow: 0 0 0 1px var(--color-brand-accent, #3b82f6);
+}
+
+.theme-card-preview {
+    width: 100%;
+    height: 100px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    position: relative;
+    overflow: hidden;
+}
+
+.theme-card-preview-text {
+    font-size: 28px;
+    font-weight: 700;
+    font-family: 'Georgia', serif;
+    opacity: 0.8;
+}
+
+.theme-card-preview-bar {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 4px;
+    opacity: 0.15;
+}
+
+.theme-card-preview-accent {
+    width: 40px;
+    height: 4px;
+    border-radius: 2px;
+    opacity: 0.3;
+    position: absolute;
+    bottom: 16px;
+}
+
+.theme-card-preview-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    opacity: 0.4;
+    position: absolute;
+    bottom: 16px;
+    right: 16px;
+}
+
+.theme-card-info {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 12px;
+    background: var(--color-surface-soft, rgba(255, 255, 255, 0.03));
+}
+
+.theme-card-name {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--color-ink, #ffffff);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.theme-card-check {
+    font-size: 14px;
+    color: var(--color-brand-accent, #3b82f6);
+    opacity: 0;
+    transition: opacity 0.15s ease;
+}
+
+.theme-card-preview-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+.theme-card.selected .theme-card-check {
+    opacity: 1;
+}
