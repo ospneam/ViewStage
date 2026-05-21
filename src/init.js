@@ -186,7 +186,7 @@ async function settings_load_camera_config() {
                 DRAW_CONFIG.penEffectMode = settings.penEffectMode;
             }
 
-            const themeName = settings.theme || 'simplify';
+            const themeName = settings.theme || 'com.viewstage.theme.simplify';
             await ThemeManager.theme_update_active(themeName);
 
             const canvasBgColor = ThemeManager.theme_fetch_canvas_bg_color();

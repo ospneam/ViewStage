@@ -1825,44 +1825,6 @@ button {
     color: var(--color-error, #f44336);
 }
 
-.theme-user-list {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    width: 100%;
-}
-
-.theme-user-item {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 8px 12px;
-    background: var(--color-surface, #2a2a2a);
-    border: 1px solid var(--color-muted, #444);
-    border-radius: var(--rounded-md, 6px);
-}
-
-.theme-user-item-name {
-    font-size: 13px;
-    color: var(--color-ink, #e0e0e0);
-}
-
-.theme-user-item-delete {
-    background: none;
-    border: none;
-    color: var(--color-error, #f44336);
-    cursor: pointer;
-    font-size: 18px;
-    padding: 0 4px;
-    line-height: 1;
-    opacity: 0.6;
-    transition: opacity 0.15s;
-}
-
-.theme-user-item-delete:hover {
-    opacity: 1;
-}
-
 /* ==================== 主题卡片 ==================== */
 .theme-grid {
     display: grid;
@@ -1942,8 +1904,63 @@ button {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 10px 12px;
+    padding: 8px 12px;
     background: var(--color-surface-soft, rgba(255, 255, 255, 0.03));
+}
+
+.theme-card-info-main {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+}
+
+.theme-card-actions {
+    display: flex;
+    gap: 4px;
+    padding: 6px 12px 8px;
+    background: var(--color-surface-soft, rgba(255, 255, 255, 0.03));
+    border-top: 1px solid var(--color-hairline-soft, rgba(255, 255, 255, 0.05));
+}
+
+.theme-card-btn {
+    flex: 1;
+    padding: 4px 8px;
+    border: 1px solid var(--color-hairline, rgba(255, 255, 255, 0.12));
+    border-radius: var(--rounded-sm, 6px);
+    font-size: 11px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    background: transparent;
+    color: var(--color-muted, rgba(255, 255, 255, 0.6));
+    text-align: center;
+}
+
+.theme-card-btn:hover {
+    background: var(--color-surface-card, rgba(255, 255, 255, 0.08));
+    color: var(--color-ink, #fff);
+    border-color: var(--color-muted, rgba(255, 255, 255, 0.2));
+}
+
+.theme-card-btn-apply {
+    color: var(--color-brand-accent, #3b82f6);
+    border-color: rgba(59, 130, 246, 0.2);
+}
+
+.theme-card-btn-apply:hover {
+    background: rgba(59, 130, 246, 0.1);
+    border-color: rgba(59, 130, 246, 0.3);
+}
+
+.theme-card-btn-delete {
+    color: var(--color-error, #ef4444);
+    border-color: rgba(239, 68, 68, 0.2);
+}
+
+.theme-card-btn-delete:hover {
+    background: rgba(239, 68, 68, 0.1);
+    border-color: rgba(239, 68, 68, 0.3);
 }
 
 .theme-card-name {

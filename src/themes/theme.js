@@ -4,6 +4,11 @@ const ThemeManager = {
   userThemePath: null,
   isSettingsPage: false,
 
+  BUILTIN_PACKAGES: {
+    'com.viewstage.theme.dark': 'dark',
+    'com.viewstage.theme.simplify': 'simplify'
+  },
+
   async init(themeName = null) {
     this.isSettingsPage = window.location.pathname.includes('settings.html');
     
@@ -18,20 +23,26 @@ const ThemeManager = {
     if (window.__TAURI__) {
       try {
         const { invoke } = window.__TAURI__.core;
-        const             settings = await invoke('settings_fetch_all');
-        return settings?.theme || 'simplify';
+        const settings = await invoke('settings_fetch_all');
+        return settings?.theme || 'com.viewstage.theme.simplify';
       } catch (e) {
         console.warn('无法获取保存的主题设置:', e);
       }
     }
-    return 'simplify';
+    return 'com.viewstage.theme.simplify';
   },
 
   async theme_update_active(themeName) {
     try {
       let themeModule = null;
+      const builtinDir = this.BUILTIN_PACKAGES[themeName];
       
-      if (window.__TAURI__ && !this.theme_validate_builtin(themeName)) {
+      if (builtinDir) {
+        // 内置主题
+        const module = await import(`./${builtinDir}/theme.js`);
+        themeModule = module.default;
+      } else if (window.__TAURI__) {
+        // 用户主题
         if (!this.userThemePath) {
           const { invoke } = window.__TAURI__.core;
           try {
@@ -52,8 +63,8 @@ const ThemeManager = {
       }
       
       if (!themeModule) {
-        const module = await import(`./${themeName}/theme.js`);
-        themeModule = module.default;
+        console.error(`Theme not found: ${themeName}`);
+        return;
       }
       
       this.currentThemeModule = themeModule;
@@ -70,8 +81,11 @@ const ThemeManager = {
   },
 
   theme_validate_builtin(themeName) {
-    const builtInThemes = ['dark', 'simplify'];
-    return builtInThemes.includes(themeName);
+    return !!this.BUILTIN_PACKAGES[themeName];
+  },
+
+  theme_fetch_builtin_dir(themeName) {
+    return this.BUILTIN_PACKAGES[themeName] || null;
   },
 
   async theme_validate_user(themeDir) {
@@ -195,7 +209,8 @@ const ThemeManager = {
     if (this.currentThemeModule && this.currentThemeModule.fetch_icon_path) {
       return this.currentThemeModule.fetch_icon_path(iconName);
     }
-    return `themes/${this.currentTheme}/icons/${iconName}.svg`;
+    const dir = this.BUILTIN_PACKAGES[this.currentTheme] || this.currentTheme;
+    return `themes/${dir}/icons/${iconName}.svg`;
   },
 
   theme_fetch_icon(iconName, options = {}) {

@@ -181,7 +181,7 @@
         function splash_apply_theme(themeName) {
             console.log('[splash] applyTheme:', themeName);
             document.body.classList.remove('theme-simplify', 'theme-dark');
-            if (themeName === 'simplify') {
+            if (themeName === 'com.viewstage.theme.simplify') {
                 document.body.classList.add('theme-simplify');
             } else {
                 document.body.classList.add('theme-dark');
@@ -194,15 +194,15 @@
                 try {
                     const settings = await invoke('settings_fetch_all');
                     console.log('[splash] settings loaded:', settings?.theme);
-                    const themeName = settings.theme || 'simplify';
+                    const themeName = settings.theme || 'com.viewstage.theme.simplify';
                     splash_apply_theme(themeName);
                 } catch (e) {
                     console.log('[splash] 加载主题设置失败:', e?.message || e);
-                    splash_apply_theme('dark');
+                    splash_apply_theme('com.viewstage.theme.dark');
                 }
             } else {
                 console.log('[splash] no invoke, using dark');
-                splash_apply_theme('dark');
+                splash_apply_theme('com.viewstage.theme.dark');
             }
             console.log('[splash] loadTheme done');
         }

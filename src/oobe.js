@@ -43,7 +43,7 @@ const oobe_default_config = {
     width: 1920,
     height: 1080,
     language: "zh-CN",
-    theme: "simplify",
+    theme: "com.viewstage.theme.simplify",
     defaultCamera: "",
     cameraWidth: 1280,
     cameraHeight: 720,

@@ -400,7 +400,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 }
                 
                 // 主题设置 — 卡片模式
-                const savedTheme = settings.theme || 'simplify';
+                const savedTheme = settings.theme || 'com.viewstage.theme.simplify';
                 settings_load_user_themes(savedTheme);
                 
                 // 默认旋转角度设置
@@ -490,24 +490,23 @@ document.addEventListener('DOMContentLoaded', async () => {
         const { invoke } = window.__TAURI__.core;
 
         invoke('theme_list_user').then(themes => {
+            const builtinSuffix = window.i18n?.format_translate('settings.themeBuiltinSuffix') || '（内置主题）';
             const allThemes = [
                 {
-                    name: 'dark',
-                    display_name: window.i18n?.format_translate('settings.themeDark') || '深色',
+                    name: 'com.viewstage.theme.dark',
+                    display_name: (window.i18n?.format_translate('settings.themeDark') || '深色') + builtinSuffix,
                     canvas_bg: '#1a1a1a',
                     text_color: '#ffffff'
                 },
                 {
-                    name: 'simplify',
-                    display_name: window.i18n?.format_translate('settings.themeSimplify') || '浅色',
+                    name: 'com.viewstage.theme.simplify',
+                    display_name: (window.i18n?.format_translate('settings.themeSimplify') || '浅色') + builtinSuffix,
                     canvas_bg: '#ffffff',
                     text_color: '#1a1a1a'
                 },
                 ...themes
             ];
             settings_render_all_themes(allThemes, savedTheme);
-            // 刷新已安装主题列表
-            settings_refresh_theme_list(themes);
         }).catch(e => {
             console.error('Failed to load user themes:', e);
         });
@@ -519,7 +518,11 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         grid.innerHTML = '';
 
-        const builtinNames = ['dark', 'simplify'];
+        const builtinNames = ['com.viewstage.theme.dark', 'com.viewstage.theme.simplify'];
+        const builtinDirs = {
+            'com.viewstage.theme.dark': 'dark',
+            'com.viewstage.theme.simplify': 'simplify'
+        };
         const userThemes = [];
 
         themes.forEach(({ name, display_name, canvas_bg, text_color }) => {
@@ -531,8 +534,9 @@ document.addEventListener('DOMContentLoaded', async () => {
             const dotColor = isLight ? '#1a1a1a' : canvas_bg;
 
             const isBuiltin = builtinNames.includes(name);
+            const dir = builtinDirs[name] || name;
             const previewImg = isBuiltin
-                ? `<img class="theme-card-preview-img" src="themes/${name}/preview.png" alt="${display_name}" loading="lazy">`
+                ? `<img class="theme-card-preview-img" src="themes/${dir}/preview.png" alt="${display_name}" loading="lazy">`
                 : '';
 
             const fallbackHtml = !previewImg ? `
@@ -547,8 +551,14 @@ document.addEventListener('DOMContentLoaded', async () => {
                     ${fallbackHtml}
                 </div>
                 <div class="theme-card-info">
-                    <span class="theme-card-name">${display_name}</span>
-                    <span class="theme-card-check">✓</span>
+                    <div class="theme-card-info-main">
+                        <span class="theme-card-name">${display_name}</span>
+                        <span class="theme-card-check">✓</span>
+                    </div>
+                </div>
+                <div class="theme-card-actions">
+                    <button class="theme-card-btn theme-card-btn-apply" data-action="apply">${window.i18n?.format_translate('settings.apply') || '应用'}</button>
+                    ${isBuiltin ? '' : `<button class="theme-card-btn theme-card-btn-delete" data-action="delete">${window.i18n?.format_translate('settings.delete') || '删除'}</button>`}
                 </div>
             `;
 
@@ -574,68 +584,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     }
 
-    function settings_refresh_theme_list(themes) {
-        const container = document.getElementById('userThemeListContainer');
-        const list = document.getElementById('userThemeList');
-        if (!container || !list) return;
-
-        if (!themes || themes.length === 0) {
-            container.style.display = 'none';
-            return;
-        }
-
-        container.style.display = '';
-        list.innerHTML = '';
-
-        themes.forEach(({ name, display_name }) => {
-            const item = document.createElement('div');
-            item.className = 'theme-user-item';
-
-            const nameSpan = document.createElement('span');
-            nameSpan.className = 'theme-user-item-name';
-            nameSpan.textContent = display_name;
-            item.appendChild(nameSpan);
-
-            const delBtn = document.createElement('button');
-            delBtn.className = 'theme-user-item-delete';
-            delBtn.textContent = '×';
-            delBtn.title = `Delete ${display_name}`;
-            delBtn.addEventListener('click', async () => {
-                if (!confirm(`Delete theme "${display_name}"?`)) return;
-
-                const { invoke } = window.__TAURI__.core;
-                try {
-                    await invoke('theme_delete', { name });
-
-                    // 刷新列表和卡片
-                    const updated = themes.filter(t => t.name !== name);
-                    settings_refresh_theme_list(updated);
-
-                    const grid = document.getElementById('themeGrid');
-                    const card = grid?.querySelector(`.theme-card[data-value="${name}"]`);
-                    if (card) card.remove();
-
-                    // 如果当前选中的是已删除的主题，切回 simplify
-                    const selectedCard = grid?.querySelector('.theme-card.selected');
-                    if (!selectedCard || selectedCard.dataset.value === name) {
-                        const simplifyCard = grid?.querySelector('.theme-card[data-value="simplify"]');
-                        if (simplifyCard) {
-                            grid?.querySelectorAll('.theme-card').forEach(c => c.classList.remove('selected'));
-                            simplifyCard.classList.add('selected');
-                            await settings_save_all_local({ theme: 'simplify' });
-                        }
-                    }
-                } catch (e) {
-                    console.error('Failed to delete theme:', e);
-                    alert(`Failed to delete theme: ${e}`);
-                }
-            });
-
-            item.appendChild(delBtn);
-            list.appendChild(item);
-        });
-    }
-    
     async function settings_fetch_supported_resolutions(deviceId) {
         const commonResolutions = [
             { w: 640, h: 480, label: '640 x 480 (VGA)', aspectRatio: '4:3' },
@@ -1387,8 +1335,40 @@ document.addEventListener('DOMContentLoaded', async () => {
     const themeGrid = document.getElementById('themeGrid');
     if (themeGrid) {
         themeGrid.addEventListener('click', async (e) => {
+            const btn = e.target.closest('.theme-card-btn');
             const card = e.target.closest('.theme-card');
-            if (!card || card.classList.contains('selected')) return;
+            if (!card) return;
+
+            // 处理删除
+            if (btn?.dataset.action === 'delete') {
+                const name = card.dataset.value;
+                const displayName = card.querySelector('.theme-card-name')?.textContent || name;
+                if (!confirm(window.i18n?.format_translate('settings.deleteThemeConfirm')?.replace('{name}', displayName) || `Delete theme "${displayName}"?`)) return;
+
+                const { invoke } = window.__TAURI__.core;
+                try {
+                    await invoke('theme_delete', { name });
+                    card.remove();
+                    // 如果删除的是当前选中的主题，切回 simplify
+                    const selectedCard = themeGrid.querySelector('.theme-card.selected');
+                    if (!selectedCard) {
+                        const simplifyCard = themeGrid.querySelector('.theme-card[data-value="com.viewstage.theme.simplify"]');
+                        if (simplifyCard) {
+                            themeGrid.querySelectorAll('.theme-card').forEach(c => c.classList.remove('selected'));
+                            simplifyCard.classList.add('selected');
+                            await settings_save_all_local({ theme: 'com.viewstage.theme.simplify' });
+                        }
+                    }
+                } catch (e) {
+                    console.error('Failed to delete theme:', e);
+                    alert(`Failed to delete theme: ${e}`);
+                }
+                return;
+            }
+
+            // 处理应用 — 仅点击"应用"按钮
+            if (!btn || btn.dataset.action !== 'apply') return;
+            if (card.classList.contains('selected')) return;
 
             const value = card.dataset.value;
 
@@ -1629,16 +1609,17 @@ document.addEventListener('DOMContentLoaded', async () => {
                     // 刷新所有主题卡片
                     const savedTheme = themeName;
                     invoke('theme_list_user').then(themes => {
+                        const builtinSuffix = window.i18n?.format_translate('settings.themeBuiltinSuffix') || '（内置主题）';
                         const allThemes = [
                             {
-                                name: 'dark',
-                                display_name: window.i18n?.format_translate('settings.themeDark') || '深色',
-                                canvas_bg: '#1a1a1a',
-                                text_color: '#ffffff'
-                            },
-                            {
-                                name: 'simplify',
-                                display_name: window.i18n?.format_translate('settings.themeSimplify') || '浅色',
+                            name: 'com.viewstage.theme.dark',
+                            display_name: (window.i18n?.format_translate('settings.themeDark') || '深色') + builtinSuffix,
+                            canvas_bg: '#1a1a1a',
+                            text_color: '#ffffff'
+                        },
+                        {
+                            name: 'com.viewstage.theme.simplify',
+                                display_name: (window.i18n?.format_translate('settings.themeSimplify') || '浅色') + builtinSuffix,
                                 canvas_bg: '#ffffff',
                                 text_color: '#1a1a1a'
                             },
@@ -1661,8 +1642,14 @@ document.addEventListener('DOMContentLoaded', async () => {
                                         <div class="theme-card-preview-dot" style="${canvasBg === '#ffffff' ? 'background: #1a1a1a' : 'background: ' + canvasBg}"></div>
                                     </div>
                                     <div class="theme-card-info">
-                                        <span class="theme-card-name">${displayName}</span>
-                                        <span class="theme-card-check">✓</span>
+                                        <div class="theme-card-info-main">
+                                            <span class="theme-card-name">${displayName}</span>
+                                            <span class="theme-card-check">✓</span>
+                                        </div>
+                                    </div>
+                                    <div class="theme-card-actions">
+                                        <button class="theme-card-btn theme-card-btn-apply" data-action="apply">${window.i18n?.format_translate('settings.apply') || '应用'}</button>
+                                        <button class="theme-card-btn theme-card-btn-delete" data-action="delete">${window.i18n?.format_translate('settings.delete') || '删除'}</button>
                                     </div>
                                 `;
                                 grid.appendChild(card);
@@ -1688,14 +1675,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                         modalMessage.textContent = window.i18n?.format_translate('settings.themeChanged') || 'Theme changed, restart to apply.';
                     }
                     if (restartModal) restartModal.classList.add('active');
-
-                    // 刷新已安装主题列表
-                    if (window.__TAURI__) {
-                        const { invoke } = window.__TAURI__.core;
-                        invoke('theme_list_user').then(themes => {
-                            settings_refresh_theme_list(themes);
-                        }).catch(() => {});
-                    }
 
                     settings_show_dialog(
                         window.i18n?.format_translate('settings.themeImportSuccess') || '主题导入成功，重启后生效。',
