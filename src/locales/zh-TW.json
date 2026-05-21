@@ -68,6 +68,7 @@
     "themeOverwriteConfirm": "主題已存在，是否覆蓋？",
     "themeImportSuccess": "主題導入成功，重新啟動後生效。",
     "themeImportFailed": "主題導入失敗",
+    "themeChanged": "主題已變更，重新啟動後生效。",
     "about": "關於",
     "language": "語言",
     "resolution": "解析度",

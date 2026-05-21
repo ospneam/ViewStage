@@ -389,23 +389,24 @@ fn theme_delete(app: tauri::AppHandle, name: String) -> Result<(), String> {
     let config_dir = app.path().app_config_dir()
         .map_err(|e| format!("Failed to get config dir: {}", e))?;
     let theme_base = config_dir.join("themes");
-    let theme_dir = theme_base.join(&name);
 
-    // 确保目标目录在 themes/ 内（防止路径遍历）
-    if !theme_dir.starts_with(&theme_base) {
+    // 规范化路径防止路径遍历
+    let theme_base_canonical = std::fs::canonicalize(&theme_base)
+        .map_err(|_| "Themes directory not found".to_string())?;
+    let theme_dir = theme_base.join(&name);
+    let theme_dir_canonical = std::fs::canonicalize(&theme_dir)
+        .map_err(|_| format!("Theme '{}' not found", name))?;
+
+    if !theme_dir_canonical.starts_with(&theme_base_canonical) {
         return Err("Invalid theme name".to_string());
     }
 
-    if !theme_dir.exists() {
-        return Err(format!("Theme '{}' not found", name));
-    }
-
     // 确保不是内置主题（内置主题不在 themes/ 目录下，此检查为安全兜底）
-    if !theme_dir.join("theme.json").exists() && !theme_dir.join("config.json").exists() {
+    if !theme_dir_canonical.join("theme.json").exists() && !theme_dir_canonical.join("config.json").exists() {
         return Err(format!("'{}' is not a valid user theme", name));
     }
 
-    std::fs::remove_dir_all(&theme_dir)
+    std::fs::remove_dir_all(&theme_dir_canonical)
         .map_err(|e| format!("Failed to delete theme '{}': {}", name, e))?;
 
     log::info!("Theme '{}' deleted", name);

@@ -1366,6 +1366,10 @@ document.addEventListener('DOMContentLoaded', async () => {
             const saved = await settings_save_all_local({ theme: value });
             if (saved) {
                 const restartModal = document.getElementById('restartModal');
+                const modalMessage = restartModal?.querySelector('.modal-message');
+                if (modalMessage) {
+                    modalMessage.textContent = window.i18n?.format_translate('settings.themeChanged') || 'Theme changed, restart to apply.';
+                }
                 if (restartModal) {
                     restartModal.classList.add('active');
                 }
@@ -1621,6 +1625,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
                     await settings_save_all_local({ theme: themeName });
                     const restartModal = document.getElementById('restartModal');
+                    const modalMessage = restartModal?.querySelector('.modal-message');
+                    if (modalMessage) {
+                        modalMessage.textContent = window.i18n?.format_translate('settings.themeChanged') || 'Theme changed, restart to apply.';
+                    }
                     if (restartModal) restartModal.classList.add('active');
 
                     // 刷新已安装主题列表
