@@ -79,31 +79,64 @@ pub struct CompactStrokesRequest {
 // ==================== 系统目录 ====================
 // 获取应用缓存目录、配置目录、ViewStage目录
 
+/// 集中管理应用所有存储路径
+#[allow(dead_code)]
+struct AppPaths {
+    config_dir: std::path::PathBuf,
+    cache_dir: std::path::PathBuf,
+    data_dir: std::path::PathBuf,
+    log_dir: std::path::PathBuf,
+    themes_dir: std::path::PathBuf,
+    updates_dir: std::path::PathBuf,
+    config_path: std::path::PathBuf,
+    device_path: std::path::PathBuf,
+    pictures_dir: std::path::PathBuf,
+}
+
+impl AppPaths {
+    fn new(app: &tauri::AppHandle) -> Result<Self, String> {
+        let config_dir = app.path().app_config_dir()
+            .map_err(|e| format!("Failed to get config dir: {}", e))?;
+        let cache_dir = app.path().app_cache_dir()
+            .map_err(|e| format!("Failed to get cache dir: {}", e))?;
+        let data_dir = app.path().app_data_dir()
+            .map_err(|e| format!("Failed to get data dir: {}", e))?;
+        let pictures_dir = dirs::picture_dir()
+            .ok_or("Failed to get pictures directory")?.join("ViewStage");
+
+        Ok(Self {
+            log_dir: config_dir.join("log"),
+            themes_dir: config_dir.join("themes"),
+            updates_dir: data_dir.join("updates"),
+            config_path: config_dir.join("config.json"),
+            device_path: config_dir.join("device.json"),
+            config_dir,
+            cache_dir,
+            data_dir,
+            pictures_dir,
+        })
+    }
+}
+
 /// 获取应用缓存目录
 #[tauri::command]
 fn dir_fetch_cache(app: tauri::AppHandle) -> Result<String, String> {
-    let config_dir = app.path().app_config_dir()
-        .map_err(|e| format!("Failed to get config dir: {}", e))?;
+    let paths = AppPaths::new(&app)?;
     
-    let cache_dir = config_dir.join("cache");
-    
-    if !cache_dir.exists() {
-        std::fs::create_dir_all(&cache_dir)
+    if !paths.cache_dir.exists() {
+        std::fs::create_dir_all(&paths.cache_dir)
             .map_err(|e| format!("Failed to create cache dir: {}", e))?;
     }
     
-    Ok(cache_dir.to_string_lossy().to_string())
+    Ok(paths.cache_dir.to_string_lossy().to_string())
 }
 
 /// 获取缓存大小
 #[tauri::command]
 fn cache_fetch_size(app: tauri::AppHandle) -> Result<u64, String> {
-    let config_dir = app.path().app_config_dir()
-        .map_err(|e| format!("Failed to get config dir: {}", e))?;
+    let paths = AppPaths::new(&app)?;
     
-    let cache_dir = config_dir.join("cache");
-    
-    if !cache_dir.exists() {
+    if !paths.cache_dir.exists() {
         return Ok(0);
     }
     
@@ -124,18 +157,15 @@ fn cache_fetch_size(app: tauri::AppHandle) -> Result<u64, String> {
         size
     }
     
-    Ok(directory_calc_size(&cache_dir))
+    Ok(directory_calc_size(&paths.cache_dir))
 }
 
 /// 清除缓存
 #[tauri::command]
 fn cache_delete_all(app: tauri::AppHandle) -> Result<String, String> {
-    let config_dir = app.path().app_config_dir()
-        .map_err(|e| format!("Failed to get config dir: {}", e))?;
+    let paths = AppPaths::new(&app)?;
     
-    let cache_dir = config_dir.join("cache");
-    
-    if !cache_dir.exists() {
+    if !paths.cache_dir.exists() {
         return Ok("缓存目录不存在".to_string());
     }
     
@@ -162,7 +192,7 @@ fn cache_delete_all(app: tauri::AppHandle) -> Result<String, String> {
         (size, count)
     }
     
-    let (cleared_size, cleared_files) = directory_delete_contents(&cache_dir);
+    let (cleared_size, cleared_files) = directory_delete_contents(&paths.cache_dir);
     
     log::info!("清除缓存: {} 字节, {} 个文件", cleared_size, cleared_files);
     
@@ -172,10 +202,8 @@ fn cache_delete_all(app: tauri::AppHandle) -> Result<String, String> {
 /// 检查并执行自动清除缓存
 #[tauri::command]
 fn cache_validate_auto_clear(app: tauri::AppHandle) -> Result<bool, String> {
-    let config_dir = app.path().app_config_dir()
-        .map_err(|e| format!("Failed to get config dir: {}", e))?;
-    
-    let config_file = config_dir.join("config.json");
+    let paths = AppPaths::new(&app)?;
+    let config_file = &paths.config_path;
     
     if !config_file.exists() {
         return Ok(false);
@@ -227,7 +255,7 @@ fn cache_validate_auto_clear(app: tauri::AppHandle) -> Result<bool, String> {
     if days_since_last_clear >= auto_clear_days as i64 {
         log::info!("执行自动清除缓存，距上次清除 {} 天", days_since_last_clear);
         
-        let cache_dir = config_dir.join("cache");
+        let cache_dir = &paths.cache_dir;
         
         if cache_dir.exists() {
             fn directory_delete_contents(path: &std::path::Path) {
@@ -263,15 +291,27 @@ fn cache_validate_auto_clear(app: tauri::AppHandle) -> Result<bool, String> {
 /// 获取应用配置目录
 #[tauri::command]
 fn dir_fetch_config(app: tauri::AppHandle) -> Result<String, String> {
-    let config_dir = app.path().app_config_dir()
-        .map_err(|e| format!("Failed to get config dir: {}", e))?;
+    let paths = AppPaths::new(&app)?;
     
-    if !config_dir.exists() {
-        std::fs::create_dir_all(&config_dir)
+    if !paths.config_dir.exists() {
+        std::fs::create_dir_all(&paths.config_dir)
             .map_err(|e| format!("Failed to create config dir: {}", e))?;
     }
     
-    Ok(config_dir.to_string_lossy().to_string())
+    Ok(paths.config_dir.to_string_lossy().to_string())
+}
+
+/// 获取日志目录
+#[tauri::command]
+fn dir_fetch_log(app: tauri::AppHandle) -> Result<String, String> {
+    let paths = AppPaths::new(&app)?;
+    
+    if !paths.log_dir.exists() {
+        std::fs::create_dir_all(&paths.log_dir)
+            .map_err(|e| format!("Failed to create log dir: {}", e))?;
+    }
+    
+    Ok(paths.log_dir.to_string_lossy().to_string())
 }
 
 /// 获取图片保存目录 (~/Pictures/ViewStage)
@@ -290,20 +330,17 @@ fn dir_fetch_pictures_viewstage() -> Result<String, String> {
     Ok(cds_dir.to_string_lossy().to_string())
 }
 
-/// 获取用户主题目录 (%APPDATA%/SECTL/ViewStage/themes)
+/// 获取用户主题目录 (%APPDATA%/SECTL.ViewStage/themes)
 #[tauri::command]
 fn dir_fetch_theme(app: tauri::AppHandle) -> Result<String, String> {
-    let config_dir = app.path().app_config_dir()
-        .map_err(|e| format!("Failed to get config dir: {}", e))?;
+    let paths = AppPaths::new(&app)?;
     
-    let theme_dir = config_dir.join("themes");
-    
-    if !theme_dir.exists() {
-        std::fs::create_dir_all(&theme_dir)
+    if !paths.themes_dir.exists() {
+        std::fs::create_dir_all(&paths.themes_dir)
             .map_err(|e| format!("Failed to create theme dir: {}", e))?;
     }
     
-    Ok(theme_dir.to_string_lossy().to_string())
+    Ok(paths.themes_dir.to_string_lossy().to_string())
 }
 
 #[derive(Serialize)]
@@ -317,9 +354,8 @@ struct ThemeInfo {
 /// 获取用户主题目录下所有已安装的主题信息
 #[tauri::command]
 fn theme_list_user(app: tauri::AppHandle) -> Result<Vec<ThemeInfo>, String> {
-    let config_dir = app.path().app_config_dir()
-        .map_err(|e| format!("Failed to get config dir: {}", e))?;
-    let theme_dir = config_dir.join("themes");
+    let paths = AppPaths::new(&app)?;
+    let theme_dir = &paths.themes_dir;
 
     if !theme_dir.exists() {
         return Ok(Vec::new());
@@ -425,9 +461,8 @@ fn theme_delete(app: tauri::AppHandle, name: String) -> Result<(), String> {
         return Err("Theme name cannot be empty".to_string());
     }
 
-    let config_dir = app.path().app_config_dir()
-        .map_err(|e| format!("Failed to get config dir: {}", e))?;
-    let theme_base = config_dir.join("themes");
+    let paths = AppPaths::new(&app)?;
+    let theme_base = &paths.themes_dir;
 
     // 规范化路径防止路径遍历
     let theme_base_canonical = std::fs::canonicalize(&theme_base)
@@ -482,9 +517,8 @@ fn zip_read_text(archive: &mut ZipArchive<std::fs::File>, target: &str) -> Resul
 /// force=true 时允许覆盖已存在的主题
 #[tauri::command]
 fn theme_import_vst(app: tauri::AppHandle, file_path: String, force: Option<bool>) -> Result<ThemeInfo, String> {
-    let config_dir = app.path().app_config_dir()
-        .map_err(|e| format!("Failed to get config dir: {}", e))?;
-    let theme_base = config_dir.join("themes");
+    let paths = AppPaths::new(&app)?;
+    let theme_base = &paths.themes_dir;
 
     if !theme_base.exists() {
         std::fs::create_dir_all(&theme_base)
@@ -682,9 +716,8 @@ fn theme_import_vst(app: tauri::AppHandle, file_path: String, force: Option<bool
 /// 获取用户主题的预览图片（Base64 编码）
 #[tauri::command]
 fn theme_get_preview(app: tauri::AppHandle, name: String) -> Result<Option<String>, String> {
-    let config_dir = app.path().app_config_dir()
-        .map_err(|e| format!("Failed to get config dir: {}", e))?;
-    let preview_path = config_dir.join("themes").join(&name).join("preview.png");
+    let paths = AppPaths::new(&app)?;
+    let preview_path = paths.themes_dir.join(&name).join("preview.png");
 
     if !preview_path.exists() {
         return Ok(None);
@@ -1337,8 +1370,8 @@ fn config_merge_defaults(existing: &serde_json::Value, defaults: &serde_json::Va
 
 #[tauri::command]
 async fn settings_fetch_all(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
-    let config_dir = app.path().app_config_dir().map_err(|e| e.to_string())?;
-    let config_path = config_dir.join("config.json");
+    let paths = AppPaths::new(&app)?;
+    let config_path = &paths.config_path;
     
     let default_config = config_fetch_default();
     
@@ -1381,7 +1414,7 @@ async fn settings_fetch_all(app: tauri::AppHandle) -> Result<serde_json::Value, 
                         format!("保存配置失败: {}", e)
                     })?;
                 
-                config_backup_cleanup_old(&config_dir, 3);
+                config_backup_cleanup_old(&paths.config_dir, 3);
                 
                 log::info!("配置迁移成功");
                 Ok(merged_config)
@@ -1413,13 +1446,13 @@ async fn settings_fetch_all(app: tauri::AppHandle) -> Result<serde_json::Value, 
 
 #[tauri::command]
 async fn settings_save_all(app: tauri::AppHandle, settings: serde_json::Value) -> Result<(), String> {
-    let config_dir = app.path().app_config_dir().map_err(|e| e.to_string())?;
+    let paths = AppPaths::new(&app)?;
     
-    if !config_dir.exists() {
-        std::fs::create_dir_all(&config_dir).map_err(|e| e.to_string())?;
+    if !paths.config_dir.exists() {
+        std::fs::create_dir_all(&paths.config_dir).map_err(|e| e.to_string())?;
     }
     
-    let config_path = config_dir.join("config.json");
+    let config_path = &paths.config_path;
     let temp_path = config_path.with_extension("json.tmp");
     
     let existing_settings = if config_path.exists() {
@@ -1497,12 +1530,12 @@ fn app_restart(app: &tauri::AppHandle) {
 
 #[tauri::command]
 async fn settings_delete_all(app: tauri::AppHandle) -> Result<(), String> {
-    let config_dir = app.path().app_config_dir().map_err(|e| e.to_string())?;
+    let paths = AppPaths::new(&app)?;
     
-    if config_dir.exists() {
-        std::fs::remove_dir_all(&config_dir).map_err(|e| e.to_string())?;
+    if paths.config_dir.exists() {
+        std::fs::remove_dir_all(&paths.config_dir).map_err(|e| e.to_string())?;
         
-        if config_dir.exists() {
+        if paths.config_dir.exists() {
             return Err("配置目录删除失败".to_string());
         }
     }
@@ -1568,14 +1601,9 @@ async fn update_download_file(
     let total_size = response.content_length().unwrap_or(0);
     log::info!("文件大小: {} bytes ({:.2} MB)", total_size, total_size as f64 / 1024.0 / 1024.0);
 
-    let app_data_dir = app.path().app_data_dir()
-        .map_err(|e| {
-            log::error!("获取应用数据目录失败: {}", e);
-            format!("Failed to get app data dir: {}", e)
-        })?;
-    
-    let updates_dir = app_data_dir.join("updates");
-    std::fs::create_dir_all(&updates_dir)
+    let paths = AppPaths::new(&app)?;
+    let updates_dir = &paths.updates_dir;
+    std::fs::create_dir_all(updates_dir)
         .map_err(|e| {
             log::error!("创建更新目录失败: {}", e);
             format!("Failed to create updates dir: {}", e)
@@ -1727,17 +1755,16 @@ pub struct DeviceInfo {
 #[tauri::command]
 async fn device_detect_all(app: tauri::AppHandle) -> Result<DeviceInfo, String> {
     let device_info = device_collect_info();
+    let paths = AppPaths::new(&app)?;
 
-    let config_dir = app.path().app_config_dir().map_err(|e| e.to_string())?;
-    if !config_dir.exists() {
-        std::fs::create_dir_all(&config_dir).map_err(|e| e.to_string())?;
+    if !paths.config_dir.exists() {
+        std::fs::create_dir_all(&paths.config_dir).map_err(|e| e.to_string())?;
     }
 
-    let device_path = config_dir.join("device.json");
     let json = serde_json::to_string_pretty(&device_info).map_err(|e| e.to_string())?;
-    std::fs::write(&device_path, &json).map_err(|e| format!("保存设备信息失败: {}", e))?;
+    std::fs::write(&paths.device_path, &json).map_err(|e| format!("保存设备信息失败: {}", e))?;
 
-    log::info!("设备信息已保存到: {:?}", device_path);
+    log::info!("设备信息已保存到: {:?}", paths.device_path);
 
     Ok(device_info)
 }
@@ -2112,12 +2139,11 @@ async fn office_convert_docx_to_pdf_bytes(file_data: Vec<u8>, file_name: String,
     let detection = office_detect_windows();
     println!("推荐使用: {:?}", detection.recommended);
     
-    let config_dir = app.path().app_config_dir().map_err(|e| e.to_string())?;
-    let cache_dir = config_dir.join("cache");
-    fs::create_dir_all(&cache_dir).map_err(|e| e.to_string())?;
+    let paths = AppPaths::new(&app)?;
+    fs::create_dir_all(&paths.cache_dir).map_err(|e| e.to_string())?;
     
     let folder_name = format!("document_{}", chrono::Local::now().format("%Y%m%d%H%M%S"));
-    let doc_cache_dir = cache_dir.join(&folder_name);
+    let doc_cache_dir = paths.cache_dir.join(&folder_name);
     fs::create_dir_all(&doc_cache_dir).map_err(|e| e.to_string())?;
     
     let temp_name = format!("temp_{}.docx", chrono::Local::now().format("%Y%m%d%H%M%S"));
@@ -2229,12 +2255,11 @@ async fn office_convert_docx_to_pdf(docx_path: String, app: tauri::AppHandle) ->
     
     println!("转换文件: {}", docx_absolute.display());
     
-    let config_dir = app.path().app_config_dir().map_err(|e| e.to_string())?;
-    let cache_dir = config_dir.join("cache");
-    fs::create_dir_all(&cache_dir).map_err(|e| e.to_string())?;
+    let paths = AppPaths::new(&app)?;
+    fs::create_dir_all(&paths.cache_dir).map_err(|e| e.to_string())?;
     
     let folder_name = format!("document_{}", chrono::Local::now().format("%Y%m%d%H%M%S"));
-    let doc_cache_dir = cache_dir.join(&folder_name);
+    let doc_cache_dir = paths.cache_dir.join(&folder_name);
     fs::create_dir_all(&doc_cache_dir).map_err(|e| e.to_string())?;
     
     let pdf_name = format!("{}.pdf", folder_name);
@@ -2653,8 +2678,7 @@ pub fn app_init_run() {
     
     let config_dir = dirs::config_dir()
         .unwrap_or_else(|| std::path::PathBuf::from("."))
-        .join("SECTL")
-        .join("ViewStage");
+        .join("SECTL.ViewStage");
     let log_dir = config_dir.join("log");
     
     if let Err(e) = std::fs::create_dir_all(&log_dir) {
@@ -2769,6 +2793,7 @@ pub fn app_init_run() {
             cache_delete_all,
             cache_validate_auto_clear,
             dir_fetch_config, 
+            dir_fetch_log,
             dir_fetch_pictures_viewstage,
             dir_fetch_theme,
             theme_list_user,

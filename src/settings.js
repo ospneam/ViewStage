@@ -1813,8 +1813,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 const { invoke } = window.__TAURI__.core;
                 const { openPath } = window.__TAURI__.opener;
                 
-                const configDir = await invoke('dir_fetch_config');
-                const logDir = configDir + '\\log';
+                const logDir = await invoke('dir_fetch_log');
                 
                 await openPath(logDir);
             } catch (error) {
