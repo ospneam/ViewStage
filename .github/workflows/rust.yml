@@ -91,6 +91,7 @@ jobs:
         run: cargo tauri --version
 
       - name: Clean previous bundle artifacts
+        shell: bash
         run: rm -rf src-tauri/target/release/bundle
 
       - name: Build Tauri application
