@@ -90,6 +90,9 @@ jobs:
       - name: Verify Tauri CLI version
         run: cargo tauri --version
 
+      - name: Clean previous bundle artifacts
+        run: rm -rf src-tauri/target/release/bundle
+
       - name: Build Tauri application
         run: cargo tauri build --config ${{ matrix.config-path }}
         env:
@@ -105,26 +108,31 @@ jobs:
             linux)          suffix="-linux" ;;
           esac
           if [ -n "$suffix" ]; then
-            find src-tauri/target/release/bundle -maxdepth 2 -type f | while IFS= read -r f; do
-              case "$f" in
-                *.tar.gz)
-                  base="${f%.tar.gz}"
-                  mv "$f" "${base}${suffix}.tar.gz"
-                  ;;
-                *.deb|*.AppImage|*.msi|*.exe)
-                  base="${f%.*}"
-                  ext="${f##*.}"
-                  mv "$f" "${base}${suffix}.${ext}"
-                  ;;
-              esac
-            done
+            find src-tauri/target/release/bundle -maxdepth 2 -type f \
+              \( -name '*.deb' -o -name '*.AppImage' -o -name '*.tar.gz' -o -name '*.msi' -o -name '*.exe' \) \
+              -exec sh -c '
+                s="$1"; shift
+                for f; do
+                  case "$f" in
+                    *.tar.gz)
+                      d="${f%.tar.gz}"
+                      mv "$f" "${d}${s}.tar.gz"
+                      ;;
+                    *)
+                      d="${f%.*}"
+                      e="${f##*.}"
+                      mv "$f" "${d}${s}.${e}"
+                      ;;
+                  esac
+                done
+              ' sh "$suffix" {} +
           fi
 
       - name: List build artifacts
         shell: bash
         run: |
           echo "=== Build artifacts (${{ matrix.label }}) ==="
-          ls -lh src-tauri/target/release/bundle/*/*
+          find src-tauri/target/release/bundle -maxdepth 2 -type f -exec ls -lh {} \;
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
