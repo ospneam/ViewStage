@@ -105,11 +105,18 @@ jobs:
             linux)          suffix="-linux" ;;
           esac
           if [ -n "$suffix" ]; then
-            for f in src-tauri/target/release/bundle/*/*; do
-              [ -f "$f" ] || continue
-              dir=$(dirname "$f")
-              name=$(basename "$f")
-              mv "$f" "$dir/${name%.*}${suffix}.${name##*.}"
+            find src-tauri/target/release/bundle -maxdepth 2 -type f | while IFS= read -r f; do
+              case "$f" in
+                *.tar.gz)
+                  base="${f%.tar.gz}"
+                  mv "$f" "${base}${suffix}.tar.gz"
+                  ;;
+                *.deb|*.AppImage|*.msi|*.exe)
+                  base="${f%.*}"
+                  ext="${f##*.}"
+                  mv "$f" "${base}${suffix}.${ext}"
+                  ;;
+              esac
             done
           fi
 
