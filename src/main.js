@@ -1,14 +1,7 @@
 /**
- * ViewStage - 摄像头及PDF展台应用
- * 
- * 架构说明：
- * - 图像层(imageElement) + 批注层(drawCanvas)
- * - 批注系统：笔画记录 + 压缩存储 + 撤销支持
- * - 图像处理：Rust后端并行处理（增强、缩略图、旋转）
- * 
- * 性能优化策略：
- * - 批量处理：使用RAF批量绘制减少重绘次数
- * - 内存优化：使用Blob URL替代Data URL存储图片
+ * ViewStage 主逻辑 —— 摄像头及展台应用核心
+ * 架构: 图像层(img) + 批注层(canvas)，批注系统含笔画记录/压缩/撤销，图像处理由Rust后端并行
+ * 性能: RAF批量绘制减少重绘；Blob URL替代Data URL节省内存
  */
 
 import './batch-draw.js';
@@ -30,7 +23,7 @@ import {
     MAX_HISTORY_STEPS
 } from './history.js';
 
-// ==================== 全局变量 ====================
+// === 全局变量 ===
 let last_canvas_transform = { x: null, y: null, scale: null };
 let currentAnimationId = null;
 let pending_transform = null;
@@ -58,7 +51,7 @@ function main_update_transform_schedule(x, y, scale) {
     }
 }
 
-// ==================== PDF.js 配置 ====================
+// === PDF.js 配置 ===
 function main_init_pdfjs() {
     if (window.pdfjsLib) {
         window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'JS/pdf.worker.min.js';
@@ -80,40 +73,38 @@ async function main_wait_pdfjs(maxWait = 5000) {
     return false;
 }
 
-// ==================== 全局配置 ====================
-// 绘制参数、画布尺寸、缩放限制等全局配置
+// === 全局配置 ===
 
 const DRAW_CONFIG = {
-    penColor: null,                // 默认笔色（初始化时设为 penColors[0]）
-    penWidth: 5,                   // 默认笔宽 (px)
-    eraserSize: 15,                // 橡皮大小 (px)
-    minScale: 0.5,                 // 最小缩放比例
-    maxScale: 3,                   // 默认最大缩放比例
-    maxScaleCamera: 2,             // 摄像头模式最大缩放比例
-    maxScaleImage: 4,              // 图片/文档模式最大缩放比例
-    canvasW: 1000,                 // 画布宽度 (逻辑像素)
-    canvasH: 600,                  // 画布高度 (逻辑像素)
-    screenW: 0,                    // 屏幕宽度
-    screenH: 0,                    // 屏幕高度
-    renderW: 1920,                 // 渲染分辨率宽度
-    renderH: 1080,                 // 渲染分辨率高度
-    dprLimit: 2,                   // DPR 上限（0=自动无限制，从配置加载后覆盖）
-    dpr: 1,  // 设备像素比（初始化后由配置覆盖）
-    pdfScale: 2,                   // PDF 渲染缩放比例
-    imageSmoothingQuality: 'high', // 图像平滑质量
-    baseDpr: window.devicePixelRatio || 1, // 基础设备像素比（受 dprLimit 限制）
-    canvasBgColor: '#2a2a2a',      // 画布背景颜色
+    penColor: null,
+    penWidth: 5,
+    eraserSize: 15,
+    minScale: 0.5,
+    maxScale: 3,
+    maxScaleCamera: 2,
+    maxScaleImage: 4,
+    canvasW: 1000,
+    canvasH: 600,
+    screenW: 0,
+    screenH: 0,
+    renderW: 1920,
+    renderH: 1080,
+    dprLimit: 2,
+    dpr: 1,
+    pdfScale: 2,
+    imageSmoothingQuality: 'high',
+    baseDpr: window.devicePixelRatio || 1,
+    canvasBgColor: '#2a2a2a',
     penColors: [
         '#ef4444', '#f97316', '#eab308', '#22c55e', '#06b6d4',
         '#3b82f6', '#6366f1', '#a855f7', '#ec4899', '#f43f5e',
         '#14b8a6', '#64748b', '#1e293b', '#000000', '#ffffff'
     ],
-    // 钢笔效果配置
-    penSmoothness: 0.8,             // 钢笔平滑度 (0-1, 越高越平滑)
-    penEffectMode: 'limited'        // 钢笔效果模式: 'full' | 'limited' | 'off'
+    penSmoothness: 0.8,
+    penEffectMode: 'limited'
 };
 
-// 默认选中第一号颜色
+// 选中第一号颜色作为默认笔色
 if (DRAW_CONFIG.penColor === null && DRAW_CONFIG.penColors.length > 0) {
     DRAW_CONFIG.penColor = DRAW_CONFIG.penColors[0];
 }
@@ -132,7 +123,7 @@ function main_fetch_safe_scale() {
 }
 window.main_fetch_safe_scale = main_fetch_safe_scale;
 
-// ==================== 钢笔笔锋效果管理器 ====================
+// === 钢笔笔锋效果管理器 ===
 // 使用曲面细分算法，根据速度和压感动态调整线宽
 // 效果分级: full(完整) | limited(限制) | off(关闭)
 
@@ -358,7 +349,7 @@ function main_main_stroke_clone_deep(strokes) {
     return main_stroke_clone(strokes, true);
 }
 
-// 四叉树空间索引（用于快速查找与脏区域相交的笔画）
+// StrokeQuadTree —— 四叉树空间索引，用于快速查找与脏区域相交的笔画
 class StrokeQuadTree {
     constructor(boundary, capacity = 8, maxDepth = 6, depth = 0) {
         this.boundary = boundary;
@@ -466,24 +457,18 @@ class StrokeQuadTree {
 // 全局四叉树索引
 let strokeQuadTree = null;
 
-// ==================== 全局状态 ====================
-// 应用状态管理：模式、画布变换、批注历史、摄像头、图像管理等
+// === 全局状态 ===
 
 let state = {
-    // 模式状态
-    drawMode: 'move',              // 当前模式: 'move' | 'comment' | 'eraser'
-    isDrawing: false,              // 是否正在绘制
-    isDragging: false,             // 是否正在拖拽
-    isScaling: false,              // 是否正在缩放 (触控)
-    
-    // 画布变换
-    canvasX: 0,                    // 画布X偏移
-    canvasY: 0,                    // 画布Y偏移
-    scale: 1,                      // 当前缩放比例
-    lastX: 0,                      // 上一个绘制点X
-    lastY: 0,                      // 上一个绘制点Y
-    
-    // 摄像头视图状态（独立保存）
+    drawMode: 'move',
+    isDrawing: false,
+    isDragging: false,
+    isScaling: false,
+    canvasX: 0,
+    canvasY: 0,
+    scale: 1,
+    lastX: 0,
+    lastY: 0,
     cameraViewState: {
         scale: 1,
         canvasX: 0,
@@ -491,80 +476,61 @@ let state = {
         strokeHistory: [],
         baseImageURL: null
     },
-    
-    // 拖拽状态
-    startDragX: 0,                 // 拖拽起始X
-    startDragY: 0,                 // 拖拽起始Y
-    
-    // 缩放状态 (触控双指)
-    startScale: 1,                 // 缩放起始比例
-    startDistanceSq: 0,            // 双指起始距离的平方
-    startScaleX: 0,                // 缩放中心X
-    startScaleY: 0,                // 缩放中心Y
-    startCanvasX: 0,               // 缩放起始画布X
-    startCanvasY: 0,               // 缩放起始画布Y
-    
-    // 批注历史 (撤销系统)
-    strokeHistory: [],             // 笔画历史数组
-    baseImageURL: null,            // 压缩后的基础图片 (base64)
-    baseImageObj: null,            // 基础图片 Image 对象
-    baseImageLoadId: 0,            // 用于跟踪 baseImageObj 加载状态
-    currentStroke: null,           // 当前正在绘制的笔画
-    
-    // 移动边界
+    startDragX: 0,
+    startDragY: 0,
+    startScale: 1,
+    startDistanceSq: 0,
+    startScaleX: 0,
+    startScaleY: 0,
+    startCanvasX: 0,
+    startCanvasY: 0,
+    strokeHistory: [],
+    baseImageURL: null,
+    baseImageObj: null,
+    baseImageLoadId: 0,
+    currentStroke: null,
     moveBound: {
         minX: 0, maxX: 0,
         minY: 0, maxY: 0
     },
-    
-    // 摄像头状态
-    cameraStream: null,            // MediaStream 对象
-    isCameraOpen: false,           // 摄像头是否开启
-    isCameraReady: false,          // 摄像头视频是否就绪（有有效尺寸）
-    cameraAvailable: true,         // 摄像头是否可用
-    isMirrored: false,             // 是否镜像 (前置摄像头)
-    cameraAnimationId: null,       // requestAnimationFrame ID
-    cameraRotation: 0,             // 摄像头旋转角度
-    useFrontCamera: false,         // 是否使用前置摄像头
-    defaultCameraId: null,         // 默认摄像头设备ID
-    cameraWidth: 1280,             // 摄像头宽度
-    cameraHeight: 720,             // 摄像头高度
-    wasCameraOpenBeforeMinimize: false, // 最小化前摄像头是否开启
-    
-    // 图像管理
-    currentImage: null,            // 当前显示的图像 Image 对象
-    imageList: [],                 // 图片列表
-    currentImageIndex: -1,         // 当前图片索引
-    
-    // PDF/文件管理
-    fileList: [],                  // 文件列表 (PDF等)
-    currentFolderIndex: -1,        // 当前文件夹索引
-    currentFolderPageIndex: -1,    // 当前页索引
-    pdfDocuments: new Map(),       // PDF文档对象缓存 (热加载)
-    loadedPages: new Set(),        // 已加载的页面ID集合
-    
-    // 真实笔触效果
-    currentPressure: 0.5,          // 当前压感值 (0-1)
-    currentVelocity: 0,            // 当前速度（钢笔模式不使用）
-    currentLineWidth: 0,           // 当前动态线宽
-    lastLineWidth: 0               // 上一个点的线宽
+    cameraStream: null,
+    isCameraOpen: false,
+    isCameraReady: false,
+    cameraAvailable: true,
+    isMirrored: false,
+    cameraAnimationId: null,
+    cameraRotation: 0,
+    useFrontCamera: false,
+    defaultCameraId: null,
+    cameraWidth: 1280,
+    cameraHeight: 720,
+    wasCameraOpenBeforeMinimize: false,
+    currentImage: null,
+    imageList: [],
+    currentImageIndex: -1,
+    fileList: [],
+    currentFolderIndex: -1,
+    currentFolderPageIndex: -1,
+    pdfDocuments: new Map(),
+    loadedPages: new Set(),
+    currentPressure: 0.5,
+    currentVelocity: 0,
+    currentLineWidth: 0,
+    lastLineWidth: 0
 };
 
 const MAX_PDF_CACHE = 10;
 
-// ==================== 源ID管理系统 ====================
+// === 源ID管理系统 ===
 // 统一管理所有源（摄像头、图片、文档）的缩放和批注数据
 
-// 源ID计数器
 let sourceIdCounters = {
-    pic: 0,      // 图片计数器
-    doc: 0       // 文档计数器
+    pic: 0,
+    doc: 0
 };
 
-// 当前源ID
 let currentSourceId = null;
 
-// 统一存储结构
 let sourceDataStore = {};
 
 const MAX_SOURCE_CACHE = 50;
@@ -660,21 +626,14 @@ function main_load_source_data(sourceId) {
     currentSourceId = sourceId;
 }
 
-// 切换到新源
+// 切换到新源：保存当前源 → 加载目标源 → 重绘 → 刷新UI
 async function main_update_source(newSourceId) {
-    // 保存当前源数据
     main_save_current_source_data();
-    
-    // 加载新源数据
     main_load_source_data(newSourceId);
-    
-    // 清除画布并重新渲染
     main_delete_draw_canvas();
     if (state.strokeHistory.length > 0) {
         await main_render_all_strokes();
     }
-    
-    // 更新UI
     main_update_move_bound();
     main_update_canvas_position();
     main_update_canvas_transform();
@@ -1042,7 +1001,6 @@ async function main_render_pdf_pages_parallel(pdf, totalPages, batchSize = 4, do
 }
 
 async function main_load_pdf_from_path(filePath) {
-    // 保存当前批注数据
     if (currentSourceId) {
         main_save_current_source_data();
     }
@@ -1202,7 +1160,6 @@ async function main_load_pdf_from_path(filePath) {
                     state.currentFolderIndex = state.fileList.length - 1;
                     state.currentFolderPageIndex = 0;
                     
-                    // 切换到新源ID
                     if (firstPage.sourceId) {
                         await main_update_source(firstPage.sourceId);
                     }
@@ -1289,7 +1246,7 @@ async function main_load_pdf_from_path(filePath) {
             isWord: false
         };
         
-        sourceIdCounters.doc++;  // 增加文档计数器
+        sourceIdCounters.doc++;
         const docNumber = sourceIdCounters.doc;
         
         const processedPages = await main_render_pdf_pages_parallel(pdf, totalPages, 4, docNumber);
@@ -1307,7 +1264,6 @@ async function main_load_pdf_from_path(filePath) {
                 state.currentFolderIndex = state.fileList.length - 1;
                 state.currentFolderPageIndex = 0;
                 
-                // 切换到新源ID
                 if (firstPage.sourceId) {
                     await main_update_source(firstPage.sourceId);
                 }
@@ -1367,7 +1323,7 @@ async function main_update_canvas_size(newScreenW, newScreenH) {
     
     main_update_move_bound();
     
-    // 批注层：摄像头模式下如果没有批注，可以跳过尺寸设置
+    // 摄像头无批注时跳过画布尺寸设置，避免不必要内存分配
     const hasStrokes = state.strokeHistory && state.strokeHistory.length > 0;
     const hasBaseImage = state.baseImageObj !== null;
     
@@ -1376,13 +1332,11 @@ async function main_update_canvas_size(newScreenW, newScreenH) {
         dom.drawCanvas.height = DRAW_CONFIG.canvasH * DRAW_CONFIG.dpr;
     }
     
-    // 所有层 CSS 尺寸相同
     dom.imageElement.style.width = DRAW_CONFIG.canvasW + 'px';
     dom.imageElement.style.height = DRAW_CONFIG.canvasH + 'px';
     dom.drawCanvas.style.width = DRAW_CONFIG.canvasW + 'px';
     dom.drawCanvas.style.height = DRAW_CONFIG.canvasH + 'px';
     
-    // 批注层上下文：只在有内容时设置
     if (!state.isCameraOpen || hasStrokes || hasBaseImage) {
         dom.drawCtx.setTransform(1, 0, 0, 1, 0, 0);
         dom.drawCtx.scale(DRAW_CONFIG.dpr, DRAW_CONFIG.dpr);
@@ -1395,17 +1349,15 @@ async function main_update_canvas_size(newScreenW, newScreenH) {
         dom.drawCtx.miterLimit = 10;
     }
     
-    // 重新绘制内容
+    // 重绘内容层 + 批注层 → 恢复变换
     if (state.currentImage) {
         main_render_image_centered(state.currentImage);
     }
     
-    // 重新绘制批注
     if (state.strokeHistory.length > 0 || state.baseImageObj) {
         await main_render_all_strokes();
     }
     
-    // 恢复画布位置和缩放
     state.scale = oldScale;
     state.canvasX = oldCanvasX;
     state.canvasY = oldCanvasY;
@@ -1500,7 +1452,6 @@ function main_fetch_visible_rect() {
     return cachedVisibleRect;
 }
 
-// 检查笔画是否在可见区域内
 function main_validate_stroke_visible(stroke, visibleRect) {
     if (!stroke.bounds) return true;
     
@@ -1951,7 +1902,7 @@ function main_show_pen_control_panel(targetBtn, mode) {
         if (eraserSizeControl) eraserSizeControl.style.display = 'flex';
     }
     
-    // 重置面板位置和可见性，确保尺寸计算准确
+    // 重置面板布局 → 强制重排获取准确尺寸 → 计算并约束位置
     panel.style.position = 'absolute';
     panel.style.bottom = 'auto';
     panel.style.top = 'auto';
@@ -1961,22 +1912,18 @@ function main_show_pen_control_panel(targetBtn, mode) {
     panel.style.opacity = '0';
     panel.classList.remove('visible');
     
-    // 强制浏览器重排，确保获取准确的尺寸
     panel.offsetHeight;
     
-    // 获取实际面板尺寸
     const panelWidth = panel.offsetWidth || (mode === 'comment' ? 380 : 240);
     const panelHeight = panel.offsetHeight || 120;
     
-    // 计算面板位置，确保居中对齐按钮
     let left = btnRect.left - containerRect.left + (btnRect.width / 2) - (panelWidth / 2);
     let top = btnRect.top - containerRect.top - panelHeight - 15;
     
-    // 边界检查，确保面板不超出容器
     const containerPadding = 10;
     left = Math.max(containerPadding, Math.min(left, containerRect.width - panelWidth - containerPadding));
     
-    // 如果面板顶部超出容器，显示在按钮下方
+    // 面板顶部超出容器时改显示在按钮下方
     if (top < containerPadding) {
         top = btnRect.bottom - containerRect.top + 15;
     }
@@ -2021,8 +1968,7 @@ function main_update_eraser_hint_position(clientX, clientY) {
     });
 }
 
-// ==================== 画布交互事件 ====================
-// 鼠标、触控事件处理：绘制、拖拽、缩放
+// === 画布交互事件：鼠标/触控 绘制、拖拽、缩放 ===
 
 function main_setup_canvas_mouse_events() {
     // 优先使用 Pointer Events（支持压感）
@@ -2123,9 +2069,6 @@ function main_handle_pointer_move(e) {
     }
 }
 
-/**
- * Pointer 抬起处理
- */
 async function main_handle_pointer_up(e) {
     if (state.isDragging) {
         state.isDragging = false;
@@ -2139,9 +2082,6 @@ async function main_handle_pointer_up(e) {
     }
 }
 
-/**
- * Pointer 离开处理
- */
 async function main_handle_pointer_leave(e) {
     if (state.isDragging) {
         state.isDragging = false;
@@ -2154,9 +2094,7 @@ async function main_handle_pointer_leave(e) {
     }
 }
 
-/**
- * 鼠标按下处理
- */
+// 鼠标事件降级处理
 function main_handle_mouse_down(e) {
     e.preventDefault();
     state.drawCanvasRect = dom.drawCanvas.getBoundingClientRect();
@@ -2186,9 +2124,6 @@ function main_handle_mouse_down(e) {
     }
 }
 
-/**
- * 鼠标移动处理
- */
 function main_handle_mouse_move(e) {
     e.preventDefault();
     
@@ -2704,9 +2639,8 @@ function main_validate_eraser_intersection(eraserStroke) {
             continue;
         }
         
-            // 检查橡皮擦路径上的每个点（from 和 to 两个端点都检查）
+            // 检查橡皮擦路径每个端点是否命中笔画（同时检查 from 和 to，快速移动时长线段可能跳过 from 点）
             for (const eraserPoint of eraserPoints) {
-                // 检查 from 端点
                 let ex = eraserPoint.fromX;
                 let ey = eraserPoint.fromY;
                 
@@ -2716,7 +2650,6 @@ function main_validate_eraser_intersection(eraserStroke) {
                     }
                 }
                 
-                // 检查 to 端点（快速移动时长线段可能跳过 from 点）
                 ex = eraserPoint.toX;
                 ey = eraserPoint.toY;
                 
@@ -2930,7 +2863,6 @@ async function main_render_all_strokes(dirtyRect = null) {
     // 进一步过滤：只保留可见区域内的笔画
     strokesToRedraw = strokesToRedraw.filter(stroke => main_validate_stroke_visible(stroke, visibleRect));
     
-    // 检查是否有橡皮擦笔画
     const hasEraseStrokes = strokesToRedraw.some(stroke => stroke.type === 'erase');
     
     main_update_context_state(ctx, {
@@ -3183,10 +3115,9 @@ window.get_pen_effect_mode = get_pen_effect_mode;
 
 let compactIdleId = null;
 
-// ==================== 批注绘制系统 ====================
-// Canvas上下文状态管理、笔画绘制、批注压缩
+// === 批注绘制系统 ===
+// Canvas上下文状态缓存、笔画绘制、批注压缩
 
-// 上下文状态缓存
 let currentContextState = {
     strokeStyle: null,
     lineWidth: null,
@@ -3195,12 +3126,12 @@ let currentContextState = {
     globalCompositeOperation: null
 };
 
-// ==================== 上下文状态管理 ====================
+// === 上下文状态管理 ===
 
 /**
- * 设置上下文状态（只更新变化的属性）
- * @param {CanvasRenderingContext2D} ctx - 目标上下文
- * @param {Object} state - 新状态
+ * 设置上下文状态（只更新变化的属性，避免冗余调用）
+ * @param {CanvasRenderingContext2D} ctx
+ * @param {Object} state - 含 strokeStyle/lineWidth/lineCap/lineJoin/globalCompositeOperation
  */
 function main_update_context_state(ctx, state) {
     if (currentContextState.strokeStyle !== state.strokeStyle) {
@@ -3231,9 +3162,8 @@ function main_update_context_state(ctx, state) {
 window.main_update_context_state = main_update_context_state;
 
 /**
- * 按时间顺序逐个绘制笔画
- * 必须按原始顺序绘制，确保橡皮擦的destination-out在正确时机执行
- * @param {CanvasRenderingContext2D} ctx - 目标上下文
+ * 按原始顺序逐个绘制笔画（橡皮擦 destination-out 必须在正确时机执行）
+ * @param {CanvasRenderingContext2D} ctx
  * @param {Array} strokes - 笔画数组
  */
 async function main_render_strokes_to_context(ctx, strokes) {
@@ -3566,31 +3496,25 @@ function main_load_base_image(url) {
     img.src = url;
 }
 
-// 拍照功能
+// 拍照/切换回摄像头/保存画布截图
 function main_save_photo() {
     if (state.isCameraOpen) {
         main_save_camera_image();
     } else if (state.currentImageIndex >= 0 && state.imageList.length > 0) {
         (async () => {
             try {
-                // 保存当前数据并重置状态
                 main_save_current_source_data();
-                
                 state.currentImageIndex = -1;
                 state.currentImage = null;
                 currentSourceId = null;
                 main_delete_image_layer();
                 main_delete_draw_canvas();
-                
                 await main_update_source('cam');
-                
                 if (!state.isCameraOpen) {
                     await main_update_camera_state(true);
                 }
-                
                 main_update_sidebar_selection();
                 main_update_photo_button_state();
-                console.log('返回摄像头');
             } catch (error) {
                 console.error('返回摄像头失败:', error);
                 if (error.name === 'NotFoundError' || error.name === 'DevicesNotFoundError') {
@@ -3605,25 +3529,19 @@ function main_save_photo() {
     } else if (state.currentFolderIndex >= 0 && state.currentFolderPageIndex >= 0) {
         (async () => {
             try {
-                // 保存当前数据并重置状态
                 main_save_current_source_data();
-                
                 state.currentFolderIndex = -1;
                 state.currentFolderPageIndex = -1;
                 state.currentImage = null;
                 currentSourceId = null;
                 main_delete_image_layer();
                 main_delete_draw_canvas();
-                
                 await main_update_source('cam');
-                
                 if (!state.isCameraOpen) {
                     await main_update_camera_state(true);
                 }
-                
                 main_update_folder_page_selection(-1, -1);
                 main_update_photo_button_state();
-                console.log('返回摄像头');
             } catch (error) {
                 console.error('返回摄像头失败:', error);
             }
@@ -3638,11 +3556,9 @@ function main_save_merged_canvas() {
     const offscreen = main_fetch_offscreen_canvas();
     const mergedCtx = offscreen.ctx;
     
-    // 填充背景色
     mergedCtx.fillStyle = '#3a3a3a';
     mergedCtx.fillRect(0, 0, DRAW_CONFIG.canvasW, DRAW_CONFIG.canvasH);
     
-    // 绘制图片层
     if (dom.imageElement.src) {
         mergedCtx.drawImage(dom.imageElement, 
             parseFloat(dom.imageElement.style.left) || 0, 
@@ -3989,12 +3905,11 @@ async function main_update_image_selection(index) {
         return;
     }
     
-    // 更新索引
     state.currentImageIndex = index;
     state.currentFolderIndex = -1;
     state.currentFolderPageIndex = -1;
     
-    // 使用源ID管理系统切换（内部会自动保存当前数据并加载新数据）
+    // 使用源ID切换源（自动保存当前并加载目标源的数据）
     const imgData = state.imageList[index];
     
     if (!imgData.sourceId) {
@@ -4341,7 +4256,7 @@ function main_show_folder_page(folderIndex, pageIndex) {
             
             const page = folder.pages[pageIndex];
             
-            // 使用源ID管理系统切换（内部会自动保存当前数据并加载新数据）
+            // 使用源ID切换源（自动保存当前并加载目标源的数据）
             if (!page.sourceId) {
                 page.sourceId = main_create_source_id('doc', pageIndex);
             }
@@ -4460,7 +4375,6 @@ function main_load_pdf() {
         const file = e.target.files[0];
         if (!file) return;
         
-        // 保存当前批注数据
         if (currentSourceId) {
             main_save_current_source_data();
         }
@@ -4566,7 +4480,7 @@ function main_load_pdf() {
                     isWord: true
                 };
                 
-                sourceIdCounters.doc++;  // 增加文档计数器
+                sourceIdCounters.doc++;
                 const docNumber = sourceIdCounters.doc;
                 
                 folder.pages = await main_render_pdf_pages_parallel(pdf, totalPages, 4, docNumber);
@@ -4587,7 +4501,6 @@ function main_load_pdf() {
                         state.currentFolderIndex = state.fileList.length - 1;
                         state.currentFolderPageIndex = 0;
                         
-                        // 切换到新源ID
                         if (firstPage.sourceId) {
                             await main_update_source(firstPage.sourceId);
                         }
@@ -4639,7 +4552,7 @@ function main_load_pdf() {
                     pages: []
                 };
                 
-                sourceIdCounters.doc++;  // 增加文档计数器
+                sourceIdCounters.doc++;
                 const docNumber = sourceIdCounters.doc;
                 
                 folder.pages = await main_render_pdf_pages_parallel(pdf, totalPages, 4, docNumber);
@@ -4660,7 +4573,6 @@ function main_load_pdf() {
                         state.currentFolderIndex = state.fileList.length - 1;
                         state.currentFolderPageIndex = 0;
                         
-                        // 切换到新源ID
                         if (firstPage.sourceId) {
                             await main_update_source(firstPage.sourceId);
                         }
@@ -4775,15 +4687,13 @@ function main_hide_file_sidebar() {
     console.log('收起文件侧边栏');
 }
 
-// 触控反馈
-// ==================== 摄像头功能 ====================
-// 摄像头开启/关闭、帧渲染、拍照、旋转、镜像等
+// === 摄像头功能 ===
+// 摄像头开启/关闭、帧渲染、拍照、旋转、镜像
 
 /**
- * 统一的摄像头状态管理函数
- * @param {boolean} open - true: 开启摄像头, false: 关闭摄像头
- * @param {Object} options - 可选参数
- * @param {boolean} options.forceClose - 强制关闭（不保存状态用于恢复）
+ * 统一的摄像头状态管理
+ * @param {boolean} open - true:开启 false:关闭
+ * @param {Object} [options] - {forceClose: true} 强制关闭
  */
 async function main_update_camera_state(open, options = {}) {
     const { forceClose = false } = options;
@@ -4851,10 +4761,9 @@ async function main_update_camera_state(open, options = {}) {
             state.isCameraOpen = true;
             state.cameraAvailable = true;
             
-            // 切换到摄像头源ID
             await main_update_source('cam');
             
-            // 重置图片索引，避免摄像头的批注被错误保存到图片
+            // 重置索引，避免摄像头批注被错误保存至旧图片源
             state.currentImageIndex = -1;
             state.currentFolderIndex = -1;
             state.currentFolderPageIndex = -1;
@@ -4945,8 +4854,8 @@ async function main_init_camera() {
 }
 
 /**
- * 无摄像头模式初始化
- * 在摄像头不可用时调用，确保界面正常显示且功能可用
+ * 摄像头不可用时初始化，确保界面正常
+ * @param {string} message - 无摄像头提示文字
  */
 async function main_init_without_camera(message) {
     try {
@@ -4997,9 +4906,6 @@ async function main_init_without_camera(message) {
     }
 }
 
-/**
- * 显示无摄像头提示信息
- */
 function main_show_no_camera_message(message) {
     if (!dom.canvasWrapper) {
         console.error('main_show_no_camera_message: canvasWrapper 不存在');
@@ -5052,9 +4958,6 @@ function main_show_no_camera_message(message) {
     `;
 }
 
-/**
- * 隐藏无摄像头提示信息
- */
 function main_hide_no_camera_message() {
     const msgElement = document.getElementById('noCameraMessage');
     if (msgElement) {
@@ -5304,13 +5207,11 @@ function main_show_sidebar_if_hidden() {
     }
 }
 
-// ==================== 图像导入功能 ====================
-// 图片导入、拍照保存、PDF处理等
+// === 图像导入功能 ===
+// 图片导入、拍照保存、PDF处理
 
 /**
- * 导入图片文件
- * - 支持多选
- * - 批量导入时使用Rust并行生成缩略图
+ * 导入图片文件（支持多选，批量导入时用 Rust 并行生成缩略图）
  */
 async function main_load_image() {
     const input = document.createElement('input');
@@ -5322,7 +5223,7 @@ async function main_load_image() {
         const files = Array.from(e.target.files);
         if (files.length === 0) return;
         
-        // 保存当前批注数据
+        // 保存当前源数据，确保切换前批注不丢失
         if (currentSourceId) {
             main_save_current_source_data();
         }
@@ -5331,7 +5232,6 @@ async function main_load_image() {
             await main_update_camera_state(false);
         }
         
-        // 检查是否有大图片（大于2.5MB）
         const hasLargeImage = files.some(file => file.size > 2.5 * 1024 * 1024);
         
         // 如果有大图片或者多个文件，显示加载动画

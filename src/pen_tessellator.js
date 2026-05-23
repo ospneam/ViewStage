@@ -1,4 +1,14 @@
+/**
+ * 钢笔笔锋曲面细分 - 将笔画点数据拆分为带渐变宽度的细分段，实现钢笔笔触效果
+ * 渲染时将每个细分段以二次贝塞尔曲线绘制，产生平滑笔迹
+ */
 class PenTessellator {
+    /**
+     * 从笔画数据构建曲面细分后的可渲染笔画
+     * @param {Object} stroke - 原始笔画数据（points: 点数组, lineWidth: 基础笔宽, color: 颜色）
+     * @param {Object} [options] - 配置项，含 density 密度系数、storedWidths 实时存储宽度数组、noStartTaper 是否禁用起笔渐变
+     * @returns {Object|null} { segments: 细分段数组, color: 颜色 }，无效输入返回 null
+     */
     tessellator_build_stroke_from_stroke_data(stroke, options = {}) {
         if (!stroke || !stroke.points || stroke.points.length < 1) return null;
 
@@ -14,6 +24,7 @@ class PenTessellator {
         return { segments: segs, color };
     }
 
+    // 将点序列转换为每段的渐变宽度数组，支持实时存储宽度或按速度重算两种模式
     _tessellator_build_segments(points, base_width, density = 1, noStartTaper = false, storedWidths = null) {
         if (points.length < 1) return null;
 
@@ -105,6 +116,11 @@ class PenTessellator {
         return segments;
     }
 
+    /**
+     * 渲染曲面细分后的笔画到 canvas
+     * @param {CanvasRenderingContext2D} ctx - 画布上下文
+     * @param {Object} tessellated_stroke - 细分笔画数据（segments 数组 + color 颜色）
+     */
     tessellator_render_stroke(ctx, tessellated_stroke) {
         if (!tessellated_stroke || !tessellated_stroke.segments) return;
 

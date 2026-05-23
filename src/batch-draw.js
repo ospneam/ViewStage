@@ -1,3 +1,8 @@
+/**
+ * 批量绘制管理器 - 实时笔迹批量渲染
+ * 待绘制命令按批次聚合，通过 requestAnimationFrame 调度刷新；
+ * 支持自适应帧率调节和钢笔效果笔锋模拟
+ */
 class RealtimeBatchDrawManager {
     constructor() {
         this.ctx = null;
@@ -9,27 +14,27 @@ class RealtimeBatchDrawManager {
         this.lastType = null;
         this.lastColor = null;
         this.lastLineWidth = null;
-        
+
         this.currentFps = 60;
         this.minFps = 15;
         this.maxFps = 60;
         this.fpsStep = 5;
-        
+
         this.drawTimes = [];
         this.drawTimesMax = 10;
-        
+
         this.commandCounts = [];
         this.commandCountsMax = 5;
-        
+
         this.frameRateMode = 'adaptive';
         this.lastAdjustTime = 0;
         this.adjustCooldown = 100;
-        
+
         this.LOW_LOAD_FPS = 60;
         this.MEDIUM_LOAD_FPS = 45;
         this.HIGH_LOAD_FPS = 30;
         this.CRITICAL_LOAD_FPS = 20;
-        
+
         this.LOW_LOAD_THRESHOLD = 10;
         this.MEDIUM_LOAD_THRESHOLD = 30;
         this.HIGH_LOAD_THRESHOLD = 50;
@@ -46,6 +51,7 @@ class RealtimeBatchDrawManager {
         this._storedWidths = [];
     }
 
+    // 获取或缓存 canvas 上下文
     batch_draw_fetch_ctx() {
         if (!this.ctx) {
             this.ctx = window.dom?.drawCtx;
@@ -53,9 +59,13 @@ class RealtimeBatchDrawManager {
         return this.ctx;
     }
 
+    /**
+     * 更新帧率模式（低/高/自适应）
+     * @param {string} mode - 'low' | 'high' | 'adaptive'
+     */
     batch_draw_update_frame_rate(mode) {
         this.frameRateMode = mode;
-        
+
         if (mode === 'low') {
             this.currentFps = 30;
             this.drawInterval = 1000 / 30;
@@ -72,6 +82,7 @@ class RealtimeBatchDrawManager {
         return this.frameRateMode === 'adaptive';
     }
 
+    // 根据待渲染命令数估算目标 FPS：命令越多，负载越大，FPS 越低
     batch_draw_calc_target_fps(commandCount) {
         if (commandCount < this.LOW_LOAD_THRESHOLD) {
             return this.LOW_LOAD_FPS;
@@ -84,29 +95,35 @@ class RealtimeBatchDrawManager {
         }
     }
 
+    /**
+     * 自适应帧率调节：基于最近绘制的耗时和命令数滑动窗口，动态调整 FPS
+     * 当实际绘制时间超过当前帧预算 1.5 倍时降帧；低于 0.7 倍且未达目标时升帧
+     * @param {number} drawTime - 本次绘制耗时（ms）
+     * @param {number} commandCount - 本次绘制命令数
+     */
     batch_draw_calc_adjust_fps(drawTime, commandCount) {
         const now = performance.now();
         if (now - this.lastAdjustTime < this.adjustCooldown) {
             return;
         }
         this.lastAdjustTime = now;
-        
+
         this.drawTimes.push(drawTime);
         if (this.drawTimes.length > this.drawTimesMax) {
             this.drawTimes.shift();
         }
-        
+
         this.commandCounts.push(commandCount);
         if (this.commandCounts.length > this.commandCountsMax) {
             this.commandCounts.shift();
         }
-        
+
         const avgDrawTime = this.drawTimes.reduce((a, b) => a + b, 0) / this.drawTimes.length;
         const avgCommandCount = this.commandCounts.reduce((a, b) => a + b, 0) / this.commandCounts.length;
-        
+
         const targetFps = this.batch_draw_calc_target_fps(avgCommandCount);
         const currentFrameTime = 1000 / this.currentFps;
-        
+
         if (avgDrawTime > currentFrameTime * 1.5) {
             const newFps = Math.max(this.minFps, this.currentFps - this.fpsStep);
             if (newFps !== this.currentFps) {
@@ -122,18 +139,30 @@ class RealtimeBatchDrawManager {
         }
     }
 
+    // 获取当前绘制统计信息
     batch_draw_fetch_stats() {
         return {
             currentFps: this.currentFps,
             targetFps: this.batch_draw_calc_target_fps(this.pendingCount),
             pendingCount: this.pendingCount,
-            avgDrawTime: this.drawTimes.length > 0 
-                ? this.drawTimes.reduce((a, b) => a + b, 0) / this.drawTimes.length 
+            avgDrawTime: this.drawTimes.length > 0
+                ? this.drawTimes.reduce((a, b) => a + b, 0) / this.drawTimes.length
                 : 0,
             frameRateMode: this.frameRateMode
         };
     }
 
+    /**
+     * 创建绘制命令并加入待处理队列
+     * 自适应模式下，首条命令立即按负载设定目标 FPS，防止高刷开始
+     * @param {string} type - 'draw' | 'erase'
+     * @param {number} fromX
+     * @param {number} fromY
+     * @param {number} toX
+     * @param {number} toY
+     * @param {string} color
+     * @param {number} lineWidth
+     */
     batch_draw_create_command(type, fromX, fromY, toX, toY, color, lineWidth) {
         const idx = this.pendingCount++;
         if (idx >= this.pendingCommands.length) {
@@ -160,6 +189,7 @@ class RealtimeBatchDrawManager {
         this.batch_draw_setup_schedule();
     }
 
+    // 调度刷新：到间隔时间直接刷新，否则等待下一帧
     batch_draw_setup_schedule() {
         if (this.drawRafId !== null) return;
 
@@ -176,13 +206,23 @@ class RealtimeBatchDrawManager {
         }
     }
 
+    /**
+     * 钢笔笔锋线宽计算：将实时移动速度映射到线宽
+     * 速度越快线宽越细（快笔轻划），配合 easeInOut 曲线平滑过渡，
+     * 再加距离混合和每帧最大变化量限制，防止跳变
+     * @param {number} speed - 当前速度
+     * @param {number} baseWidth - 基础笔宽
+     * @param {number} lastLineWidth - 上一段线宽
+     * @param {number} dist - 移动距离
+     * @returns {number} 最终线宽
+     */
     _calc_pen_line_width(speed, baseWidth, lastLineWidth, dist) {
         // 当钢笔效果开启时，基础笔宽增加5px
         const penEffectActive = window.get_pen_effect_mode() !== 'off';
         if (penEffectActive) {
             baseWidth += 5;
         }
-        
+
         const speedScale = Math.max(0.4, Math.min(2.5, baseWidth / 4));
         const maxSpeed = 2.5 * speedScale;
         const minSpeed = 0.2 * speedScale;
@@ -207,6 +247,7 @@ class RealtimeBatchDrawManager {
         return Math.max(0.5, lineWidth);
     }
 
+    // 起笔渐变：前 4 段从 20% 基础宽度平滑过渡到实际计算宽度
     _apply_start_taper(lineWidth, baseWidth, segmentIndex, totalInBatch) {
         const globalIndex = this._totalSegments + segmentIndex;
         if (globalIndex < 4) {
@@ -218,6 +259,13 @@ class RealtimeBatchDrawManager {
         return lineWidth;
     }
 
+    /**
+     * 刷新所有待处理命令到 canvas
+     * - 橡皮擦命令使用 destination-out 混合模式
+     * - 绘制命令支持钢笔效果（按速度调整线宽 + 起笔渐变）
+     * - 相邻段使用中点二次贝塞尔曲线连接，保证笔迹平滑
+     * - 记录绘制耗时用于自适应帧率调节
+     */
     batch_draw_handle_flush() {
         const count = this.pendingCount;
         if (count === 0) return;
@@ -243,9 +291,8 @@ class RealtimeBatchDrawManager {
         ctx.lineCap = 'round';
         ctx.lineJoin = 'round';
 
-        // 计算本次批处理的总时间跨度（从上一批结束到现在）
-        // 所有命令共享该时间，除以命令数得到每条命令的近似时间
-        // 限制最大时间为 8ms（对应 120Hz 指针事件率），保证笔锋可见
+        // 计算本次批处理的时间跨度，用于估算每段绘制的近似速度
+        // 限制单段最大时间为 8ms（对应 120Hz），保证笔锋快速响应可见
         const curTime = performance.now();
         const batchTimeSpan = Math.max(1, curTime - lastMoveTime);
         const perSegTime = Math.min(batchTimeSpan / count, 8);
@@ -345,6 +392,7 @@ class RealtimeBatchDrawManager {
         }
     }
 
+    // 重置所有状态
     reset_state() {
         this.pendingCount = 0;
         this.pendingCommands.length = 0;
@@ -366,6 +414,9 @@ class RealtimeBatchDrawManager {
         this._storedWidths = [];
     }
 
+    /**
+     * 开始新一笔绘制：重置批处理状态，自适应模式从 LOW_LOAD_FPS 起步
+     */
     batch_draw_init_start() {
         this.pendingCount = 0;
         this.pendingCommands.length = 0;
@@ -383,7 +434,7 @@ class RealtimeBatchDrawManager {
             this.currentFps = this.LOW_LOAD_FPS;
             this.drawInterval = 1000 / this.currentFps;
         }
-        
+
         const ctx = this.batch_draw_fetch_ctx();
         if (ctx) {
             ctx.imageSmoothingEnabled = false;
@@ -400,6 +451,9 @@ class RealtimeBatchDrawManager {
         }
     }
 
+    /**
+     * 结束当前笔画：强制刷新残留命令，并补画最后一段的笔尖尾部连线
+     */
     batch_draw_handle_end() {
         if (this.drawRafId !== null) {
             cancelAnimationFrame(this.drawRafId);
@@ -425,6 +479,7 @@ class RealtimeBatchDrawManager {
         }
     }
 
+    // 清空所有绘制数据
     batch_draw_delete_all() {
         this.reset_state();
     }

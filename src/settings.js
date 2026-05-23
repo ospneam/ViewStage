@@ -256,7 +256,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                     }
                 }
                 
-                // PDF 输出分辨率设置
                 const pdfScaleSelected = document.getElementById('pdfScaleSelected');
                 const pdfScaleOptionsContainer = document.getElementById('pdfScaleOptions');
                 
@@ -273,7 +272,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                     });
                 }
                 
-                // DPR 限制设置
                 const dprLimitSelected = document.getElementById('dprLimitSelected');
                 const dprLimitOptionsContainer = document.getElementById('dprLimitOptions');
 
@@ -290,7 +288,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                     });
                 }
 
-                // 画笔颜色设置
                 const DEFAULT_COLORS = [
                     '#ef4444', '#f97316', '#eab308', '#22c55e', '#06b6d4',
                     '#3b82f6', '#6366f1', '#a855f7', '#ec4899', '#f43f5e',
@@ -326,7 +323,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                     }
                 }
                 
-                // 镜像设置
                 const mirrorToggle = document.getElementById('mirrorToggle');
                 if (mirrorToggle) {
                     try {
@@ -338,7 +334,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                     }
                 }
                 
-                // 降噪帧数设置
                 const denoiseFrameCount = settings.denoiseFrameCount || 3;
                 const denoiseFrameSelected = document.getElementById('denoiseFrameSelected');
                 const denoiseFrameOptions = document.querySelectorAll('#denoiseFrameOptions .select-option');
@@ -353,7 +348,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                     });
                 }
                 
-                // 降噪强度设置
                 const denoiseStrength = settings.denoiseStrength || 'medium';
                 const denoiseStrengthSelected = document.getElementById('denoiseStrengthSelected');
                 const denoiseStrengthOptions = document.querySelectorAll('#denoiseStrengthOptions .select-option');
@@ -368,7 +362,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                     });
                 }
                 
-                // 帧率模式设置
                 const frameRateModeGroup = document.getElementById('frameRateModeGroup');
                 if (frameRateModeGroup) {
                     const mode = settings.frameRateMode || 'adaptive';
@@ -382,7 +375,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                     }
                 }
                 
-                // 钢笔效果模式设置
                 const penEffectModeGroup = document.getElementById('penEffectModeGroup');
                 if (penEffectModeGroup) {
                     const mode = settings.penEffectMode || 'limited';
@@ -403,7 +395,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                 const savedTheme = settings.theme || 'com.viewstage.theme.simplify';
                 settings_load_user_themes(savedTheme);
                 
-                // 默认旋转角度设置
                 const defaultRotationSelected = document.getElementById('defaultRotationSelected');
                 const defaultRotationOptionsContainer = document.getElementById('defaultRotationOptions');
                 if (defaultRotationSelected && defaultRotationOptionsContainer) {

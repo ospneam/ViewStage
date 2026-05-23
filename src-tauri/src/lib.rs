@@ -1,15 +1,5 @@
-//! ViewStage - 图像处理 Rust 后端
-//! 
-//! 功能模块：
-//! - 图像旋转 (image_update_rotation): 90/180/270度旋转
-//! - 图片保存 (image_save_file): 保存到指定目录
-//! - 笔画压缩 (stroke_format_compact): 将笔画渲染到图片
-//! - 设置管理 (get_settings, save_settings): 应用配置持久化
-//!
-//! 性能优化：
-//! - 使用 rayon 并行处理像素
-//! - 使用 base64 编码传输数据
-//! - 使用 image 库进行图像处理
+// lib.rs — ViewStage Rust 后端
+// Tauri IPC 命令注册入口，集成了图像处理、设置管理、文件转换、更新检测等核心模块
 
 use tauri::{Manager, Emitter};
 use image::{DynamicImage, ImageBuffer, Rgba, RgbaImage};
@@ -36,18 +26,17 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 // ==================== 数据结构 ====================
-// 用于前后端通信的结构体定义
 
-/// 图片保存结果
+/// Tauri IPC 返回的图片保存结果
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ImageSaveResult {
-    pub path: String,                    // 保存路径
-    pub success: bool,                   // 是否成功
-    pub error: Option<String>,           // 错误信息
-    pub enhanced_data: Option<String>,   // 增强后的图片数据 (base64)
+    pub path: String,
+    pub success: bool,
+    pub error: Option<String>,
+    pub enhanced_data: Option<String>,
 }
 
-/// 笔画点 (线段)
+/// 笔画中的单条线段
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StrokePoint {
     pub from_x: f32,
@@ -56,28 +45,27 @@ pub struct StrokePoint {
     pub to_y: f32,
 }
 
-/// 笔画 (绘制或擦除)
+/// 单笔笔画（绘制或擦除），由多线段组成
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Stroke {
     #[serde(rename = "type")]
-    pub stroke_type: String,            // "draw" 或 "erase"
-    pub points: Vec<StrokePoint>,       // 线段点集合
-    pub color: Option<String>,          // 颜色 (#RRGGBB)
-    pub line_width: Option<u32>,        // 线宽
-    pub eraser_size: Option<u32>,       // 橡皮大小
+    pub stroke_type: String,
+    pub points: Vec<StrokePoint>,
+    pub color: Option<String>,
+    pub line_width: Option<u32>,
+    pub eraser_size: Option<u32>,
 }
 
 /// 笔画压缩请求
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompactStrokesRequest {
-    pub base_image: Option<String>,     // 基础图片 (base64)
-    pub strokes: Vec<Stroke>,           // 待压缩笔画
-    pub canvas_width: u32,              // 画布宽度
-    pub canvas_height: u32,             // 画布高度
+    pub base_image: Option<String>,
+    pub strokes: Vec<Stroke>,
+    pub canvas_width: u32,
+    pub canvas_height: u32,
 }
 
 // ==================== 系统目录 ====================
-// 获取应用缓存目录、配置目录、ViewStage目录
 
 /// 集中管理应用所有存储路径
 #[allow(dead_code)]
@@ -94,6 +82,7 @@ struct AppPaths {
 }
 
 impl AppPaths {
+    /// 构造所有路径，按需创建目录
     fn new(app: &tauri::AppHandle) -> Result<Self, String> {
         let config_dir = app.path().app_config_dir()
             .map_err(|e| format!("Failed to get config dir: {}", e))?;
@@ -118,7 +107,7 @@ impl AppPaths {
     }
 }
 
-/// 获取应用缓存目录
+/// Tauri IPC 命令：获取应用缓存目录，不存在则创建
 #[tauri::command]
 fn dir_fetch_cache(app: tauri::AppHandle) -> Result<String, String> {
     let paths = AppPaths::new(&app)?;
@@ -131,7 +120,7 @@ fn dir_fetch_cache(app: tauri::AppHandle) -> Result<String, String> {
     Ok(paths.cache_dir.to_string_lossy().to_string())
 }
 
-/// 获取缓存大小
+/// Tauri IPC 命令：获取缓存目录总字节数
 #[tauri::command]
 fn cache_fetch_size(app: tauri::AppHandle) -> Result<u64, String> {
     let paths = AppPaths::new(&app)?;
@@ -160,7 +149,7 @@ fn cache_fetch_size(app: tauri::AppHandle) -> Result<u64, String> {
     Ok(directory_calc_size(&paths.cache_dir))
 }
 
-/// 清除缓存
+/// Tauri IPC 命令：清空缓存目录所有文件
 #[tauri::command]
 fn cache_delete_all(app: tauri::AppHandle) -> Result<String, String> {
     let paths = AppPaths::new(&app)?;
@@ -199,7 +188,7 @@ fn cache_delete_all(app: tauri::AppHandle) -> Result<String, String> {
     Ok(format!("已清除 {} 个文件，共 {:.2} MB", cleared_files, cleared_size as f64 / 1024.0 / 1024.0))
 }
 
-/// 检查并执行自动清除缓存
+/// Tauri IPC 命令：检查是否达到自动清理缓存的间隔，若达到则执行清理
 #[tauri::command]
 fn cache_validate_auto_clear(app: tauri::AppHandle) -> Result<bool, String> {
     let paths = AppPaths::new(&app)?;
@@ -288,7 +277,7 @@ fn cache_validate_auto_clear(app: tauri::AppHandle) -> Result<bool, String> {
     Ok(false)
 }
 
-/// 获取应用配置目录
+/// Tauri IPC 命令：获取应用配置目录，不存在则创建
 #[tauri::command]
 fn dir_fetch_config(app: tauri::AppHandle) -> Result<String, String> {
     let paths = AppPaths::new(&app)?;
@@ -301,7 +290,7 @@ fn dir_fetch_config(app: tauri::AppHandle) -> Result<String, String> {
     Ok(paths.config_dir.to_string_lossy().to_string())
 }
 
-/// 获取日志目录
+/// Tauri IPC 命令：获取日志目录
 #[tauri::command]
 fn dir_fetch_log(app: tauri::AppHandle) -> Result<String, String> {
     let paths = AppPaths::new(&app)?;
@@ -314,7 +303,7 @@ fn dir_fetch_log(app: tauri::AppHandle) -> Result<String, String> {
     Ok(paths.log_dir.to_string_lossy().to_string())
 }
 
-/// 获取图片保存目录 (~/Pictures/ViewStage)
+/// Tauri IPC 命令：获取图片保存目录 ~/Pictures/ViewStage
 #[tauri::command]
 fn dir_fetch_pictures_viewstage() -> Result<String, String> {
     let pictures_dir = dirs::picture_dir()
@@ -330,7 +319,7 @@ fn dir_fetch_pictures_viewstage() -> Result<String, String> {
     Ok(cds_dir.to_string_lossy().to_string())
 }
 
-/// 获取用户主题目录 (%APPDATA%/SECTL.ViewStage/themes)
+/// Tauri IPC 命令：获取用户主题目录，不存在则创建
 #[tauri::command]
 fn dir_fetch_theme(app: tauri::AppHandle) -> Result<String, String> {
     let paths = AppPaths::new(&app)?;
@@ -351,7 +340,7 @@ struct ThemeInfo {
     text_color: String,
 }
 
-/// 获取用户主题目录下所有已安装的主题信息
+/// Tauri IPC 命令：获取用户主题目录下所有已安装的主题信息
 #[tauri::command]
 fn theme_list_user(app: tauri::AppHandle) -> Result<Vec<ThemeInfo>, String> {
     let paths = AppPaths::new(&app)?;
@@ -395,7 +384,6 @@ fn theme_list_user(app: tauri::AppHandle) -> Result<Vec<ThemeInfo>, String> {
                 let disp = json["displayName"].as_str().filter(|s| !s.is_empty());
                 let theme_name = pkg.unwrap_or(&dir_name);
 
-                // 读取 theme.json 获取预览颜色
                 let theme_json_path = path.join("theme.json");
                 let (canvas_bg, text_color) = if theme_json_path.exists() {
                     if let Ok(tc) = std::fs::read_to_string(&theme_json_path) {
@@ -425,7 +413,6 @@ fn theme_list_user(app: tauri::AppHandle) -> Result<Vec<ThemeInfo>, String> {
         }
 
         if !found {
-            // 没有身份文件，仍然使用目录名
             let (canvas_bg, text_color) = if path.join("theme.json").exists() {
                 if let Ok(tc) = std::fs::read_to_string(path.join("theme.json")) {
                     if let Ok(tj) = serde_json::from_str::<serde_json::Value>(&tc) {
@@ -454,7 +441,17 @@ fn theme_list_user(app: tauri::AppHandle) -> Result<Vec<ThemeInfo>, String> {
     Ok(themes)
 }
 
-/// 删除用户安装的主题
+/// Tauri IPC 命令：删除用户安装的主题
+///
+/// # 参数
+/// * `app` — Tauri 应用句柄
+/// * `name` — 主题名称（packageName）
+///
+/// # 异常
+/// * 主题名为空
+/// * 路径遍历检测失败
+/// * 主题不存在或不是用户主题
+/// * 删除目录失败
 #[tauri::command]
 fn theme_delete(app: tauri::AppHandle, name: String) -> Result<(), String> {
     if name.is_empty() {
@@ -475,7 +472,7 @@ fn theme_delete(app: tauri::AppHandle, name: String) -> Result<(), String> {
         return Err("Invalid theme name".to_string());
     }
 
-    // 确保不是内置主题（内置主题不在 themes/ 目录下，此检查为安全兜底）
+    // 确保不是内置主题（内置主题不在 themes/ 目录下）
     if !theme_dir_canonical.join("theme.json").exists() && !theme_dir_canonical.join("config.json").exists() {
         return Err(format!("'{}' is not a valid user theme", name));
     }
@@ -487,7 +484,7 @@ fn theme_delete(app: tauri::AppHandle, name: String) -> Result<(), String> {
     Ok(())
 }
 
-/// 在 ZIP 中查找文件条目的索引（忽略路径前缀）
+/// 在 ZIP 中按文件名模糊匹配条目索引（忽略路径前缀差异）
 fn zip_find_entry(archive: &mut ZipArchive<std::fs::File>, target: &str) -> Option<usize> {
     for i in 0..archive.len() {
         if let Ok(entry) = archive.by_index(i) {
@@ -500,7 +497,7 @@ fn zip_find_entry(archive: &mut ZipArchive<std::fs::File>, target: &str) -> Opti
     None
 }
 
-/// 从 ZIP 中读取文本文件内容（按文件名查找）
+/// 从 ZIP 中读取指定文件名的文本内容
 fn zip_read_text(archive: &mut ZipArchive<std::fs::File>, target: &str) -> Result<String, String> {
     let idx = zip_find_entry(archive, target)
         .ok_or_else(|| format!("Missing {} in .vst file", target))?;
@@ -512,9 +509,25 @@ fn zip_read_text(archive: &mut ZipArchive<std::fs::File>, target: &str) -> Resul
     Ok(content)
 }
 
-/// 从 .vst 文件导入主题
-/// .vst 是一个重命名的 ZIP 压缩包，包含 theme.json, config.json, theme.css 等文件
-/// force=true 时允许覆盖已存在的主题
+/// Tauri IPC 命令：从 .vst 文件导入主题
+///
+/// .vst 是重命名的 ZIP 压缩包，包含 theme.json / config.json / theme.css 等文件
+///
+/// # 参数
+/// * `app` — Tauri 应用句柄
+/// * `file_path` — .vst 文件的本地路径
+/// * `force` — 是否允许覆盖已存在的同名主题
+///
+/// # 返回值
+/// * `Ok(ThemeInfo)` — 导入成功的主题信息
+///
+/// # 异常
+/// * 文件打开或 ZIP 解析失败
+/// * 缺少必需文件（theme.json / config.json / theme.css）
+/// * config.json 校验失败（缺少字段或 packageName 格式非法）
+/// * theme.json 字段校验失败
+/// * 主题已存在且 force 为 false
+/// * 解压写入磁盘失败
 #[tauri::command]
 fn theme_import_vst(app: tauri::AppHandle, file_path: String, force: Option<bool>) -> Result<ThemeInfo, String> {
     let paths = AppPaths::new(&app)?;
@@ -525,13 +538,12 @@ fn theme_import_vst(app: tauri::AppHandle, file_path: String, force: Option<bool
             .map_err(|e| format!("Failed to create theme dir: {}", e))?;
     }
 
-    // 打开 .vst 文件（ZIP 格式）
     let file = std::fs::File::open(&file_path)
         .map_err(|e| format!("Failed to open file: {}", e))?;
     let mut archive = ZipArchive::new(file)
         .map_err(|e| format!("Invalid .vst file: {}", e))?;
 
-    // 检测 ZIP 中是否包含公共根目录
+    // 检测 ZIP 中是否包含公共根目录前缀（用于解压时剥离）
     let common_prefix = {
         let mut names = Vec::new();
         for i in 0..archive.len() {
@@ -546,7 +558,6 @@ fn theme_import_vst(app: tauri::AppHandle, file_path: String, force: Option<bool
             return Err("Empty .vst file".to_string());
         }
 
-        // 找公共前缀（所有路径都包含的顶层目录）
         let first = names[0].clone();
         let prefix = first.find('/').map(|i| &first[..=i]).unwrap_or("");
         if !prefix.is_empty() && names.iter().all(|n| n.starts_with(prefix)) {
@@ -556,7 +567,6 @@ fn theme_import_vst(app: tauri::AppHandle, file_path: String, force: Option<bool
         }
     };
 
-    // 用灵活查找校验必需文件
     if zip_find_entry(&mut archive, "theme.json").is_none() {
         return Err("Missing theme.json in .vst file (visual config)".to_string());
     }
@@ -567,7 +577,6 @@ fn theme_import_vst(app: tauri::AppHandle, file_path: String, force: Option<bool
         return Err("Missing theme.css in .vst file".to_string());
     }
 
-    // 读取并解析 config.json（身份信息）
     let config_json_content = zip_read_text(&mut archive, "config.json")?;
     let config_json: serde_json::Value = serde_json::from_str(&config_json_content)
         .map_err(|e| format!("Invalid config.json: {}", e))?;
@@ -594,12 +603,10 @@ fn theme_import_vst(app: tauri::AppHandle, file_path: String, force: Option<bool
         .filter(|s| !s.is_empty())
         .ok_or_else(|| "config.json: 'displayName' is required (non-empty string)".to_string())?;
 
-    // 读取并解析 theme.json（视觉配置）
     let theme_json_content = zip_read_text(&mut archive, "theme.json")?;
     let theme_json: serde_json::Value = serde_json::from_str(&theme_json_content)
         .map_err(|e| format!("Invalid theme.json: {}", e))?;
 
-    // 校验 theme.json 字段
     if theme_json["showToolbarText"].as_bool().is_none() {
         return Err("theme.json: 'showToolbarText' is required (bool)".to_string());
     }
@@ -645,7 +652,7 @@ fn theme_import_vst(app: tauri::AppHandle, file_path: String, force: Option<bool
         }
     }
 
-    // 验证图标 SVG 文件存在（不强制，仅警告）
+    // 不强制，仅警告：引用的图标 SVG 在 ZIP 中不存在
     for (_key, val) in icons.iter() {
         if let Some(icon_name) = val.as_str() {
             let svg_path = format!("icons/{}.svg", icon_name);
@@ -655,7 +662,6 @@ fn theme_import_vst(app: tauri::AppHandle, file_path: String, force: Option<bool
         }
     }
 
-    // 检查是否已存在，根据 force 决定是否覆盖
     let target_dir = theme_base.join(package_name);
     if target_dir.exists() {
         if force.unwrap_or(false) {
@@ -666,7 +672,6 @@ fn theme_import_vst(app: tauri::AppHandle, file_path: String, force: Option<bool
         }
     }
 
-    // 解压所有文件，去除公共前缀
     let prefix_len = common_prefix.len();
     for i in 0..archive.len() {
         let mut entry = archive.by_index(i)
@@ -713,7 +718,7 @@ fn theme_import_vst(app: tauri::AppHandle, file_path: String, force: Option<bool
     })
 }
 
-/// 获取用户主题的预览图片（Base64 编码）
+/// Tauri IPC 命令：获取用户主题的预览图片（Base64 编码）
 #[tauri::command]
 fn theme_get_preview(app: tauri::AppHandle, name: String) -> Result<Option<String>, String> {
     let paths = AppPaths::new(&app)?;
@@ -731,9 +736,7 @@ fn theme_get_preview(app: tauri::AppHandle, name: String) -> Result<Option<Strin
 
 // ==================== 图片保存 ====================
 
-/// 生成保存路径
-/// - 按日期创建子目录: YYYY-MM-DD
-/// - 文件名格式: {prefix}_HH-MM-SS-SSS.{extension}
+/// 按日期生成保存路径，格式：YYYY-MM-DD/{prefix}_HH-MM-SS-SSS.{extension}
 fn path_calc_save(base_dir: &str, prefix: &str, extension: &str) -> Result<(PathBuf, String), String> {
     use std::time::{SystemTime, UNIX_EPOCH};
     
@@ -759,6 +762,7 @@ fn path_calc_save(base_dir: &str, prefix: &str, extension: &str) -> Result<(Path
     Ok((file_path, file_name))
 }
 
+/// 过滤前缀字符串，只保留字母数字下划线和中划线，为空则回退 "photo"
 fn string_format_prefix(prefix: &str) -> String {
     let sanitized: String = prefix
         .chars()
@@ -767,6 +771,19 @@ fn string_format_prefix(prefix: &str) -> String {
     if sanitized.is_empty() { "photo".to_string() } else { sanitized }
 }
 
+/// Tauri IPC 命令：将 base64 编码的图片保存到 ~/Pictures/ViewStage
+///
+/// # 参数
+/// * `image_data` — 含 data:image 前缀的 base64 图片数据
+/// * `prefix` — 文件名前缀，为空则使用 "photo"
+///
+/// # 返回值
+/// * `Ok(ImageSaveResult)` — 包含保存路径及成功状态的保存结果
+///
+/// # 异常
+/// * base64 解码失败
+/// * 目录创建失败
+/// * 文件写入失败
 #[tauri::command]
 fn image_save_file(image_data: String, prefix: Option<String>) -> Result<ImageSaveResult, String> {
     let base_dir = dir_fetch_pictures_viewstage()?;
@@ -796,10 +813,8 @@ fn image_save_file(image_data: String, prefix: Option<String>) -> Result<ImageSa
 }
 
 // ==================== 笔画压缩 ====================
-// 将笔画渲染到图片，用于撤销功能
 
-/// 解析颜色字符串为 RGBA
-/// 支持格式: #RRGGBB 或 #RRGGBBAA
+/// 解析 #RRGGBB 或 #RRGGBBAA 格式颜色字符串为 RGBA
 fn color_calc_from_hex(color_str: &str) -> Result<Rgba<u8>, String> {
     if !color_str.starts_with('#') {
         return Err(format!("Invalid color format: must start with '#', got: {}", color_str));
@@ -832,6 +847,7 @@ fn color_calc_from_hex(color_str: &str) -> Result<Rgba<u8>, String> {
 
 const DEFAULT_COLOR: Rgba<u8> = Rgba([52, 152, 219, 255]);
 
+/// 在画布上用 Bresenham 算法绘制圆形笔触线段
 fn canvas_render_line(canvas: &mut RgbaImage, x1: i32, y1: i32, x2: i32, y2: i32, color: Rgba<u8>, width: u32) {
     let dx = (x2 - x1).abs();
     let dy = (y2 - y1).abs();
@@ -882,6 +898,7 @@ fn canvas_render_line(canvas: &mut RgbaImage, x1: i32, y1: i32, x2: i32, y2: i32
     }
 }
 
+/// 在画布上用 Bresenham 算法擦除圆形区域（设置 alpha=0）
 fn canvas_delete_line(canvas: &mut RgbaImage, x1: i32, y1: i32, x2: i32, y2: i32, width: u32) {
     let dx = (x2 - x1).abs();
     let dy = (y2 - y1).abs();
@@ -924,6 +941,9 @@ fn canvas_delete_line(canvas: &mut RgbaImage, x1: i32, y1: i32, x2: i32, y2: i32
     }
 }
 
+/// Tauri IPC 命令：将笔画数据渲染到画布并返回 base64 PNG
+///
+/// 接收笔画数组（绘制/擦除/清空），在空白或给定底图上逐笔渲染，用于撤销缩略图生成
 #[tauri::command]
 fn stroke_format_compact(request: CompactStrokesRequest) -> Result<String, String> {
     let mut canvas: RgbaImage = ImageBuffer::new(request.canvas_width, request.canvas_height);
@@ -998,7 +1018,6 @@ fn stroke_format_compact(request: CompactStrokesRequest) -> Result<String, Strin
 }
 
 // ==================== 全局状态 ====================
-// 镜像、增强等全局状态，使用原子类型保证线程安全
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -1007,8 +1026,8 @@ static OOBE_ACTIVE: AtomicBool = AtomicBool::new(false);
 static MAIN_SCRIPT_LOADED: AtomicBool = AtomicBool::new(false);
 
 // ==================== 设置窗口 ====================
-// 打开设置窗口、状态同步
 
+/// Tauri IPC 命令：打开或聚焦设置窗口（600×600，无边框，置顶）
 #[tauri::command]
 async fn window_show_settings(app: tauri::AppHandle) -> Result<(), String> {
     use tauri::WebviewWindowBuilder;
@@ -1037,6 +1056,7 @@ async fn window_show_settings(app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// Tauri IPC 命令：更新镜像状态并通知前端
 #[tauri::command]
 async fn mirror_update_state(enabled: bool, app: tauri::AppHandle) -> Result<(), String> {
     MIRROR_STATE.store(enabled, Ordering::SeqCst);
@@ -1044,11 +1064,13 @@ async fn mirror_update_state(enabled: bool, app: tauri::AppHandle) -> Result<(),
     Ok(())
 }
 
+/// Tauri IPC 命令：获取当前镜像状态
 #[tauri::command]
 async fn mirror_fetch_state() -> Result<bool, String> {
     Ok(MIRROR_STATE.load(Ordering::SeqCst))
 }
 
+/// Tauri IPC 命令：获取应用版本号（编译时注入）
 #[tauri::command]
 fn app_fetch_version() -> String {
     env!("CARGO_PKG_VERSION").to_string()
@@ -1070,6 +1092,7 @@ struct GitHubRelease {
     assets: Vec<GitHubAsset>,
 }
 
+/// GitHub 版本检测结果
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct UpdateCheckResult {
     has_update: bool,
@@ -1079,6 +1102,7 @@ struct UpdateCheckResult {
     current_release: Option<GitHubRelease>,
 }
 
+/// 解析语义化版本字符串为三元组，忽略前导 'v'
 fn version_calc_parse(version: &str) -> Option<(u32, u32, u32)> {
     let version = version.trim_start_matches('v');
     let parts: Vec<&str> = version.split('.').collect();
@@ -1092,6 +1116,7 @@ fn version_calc_parse(version: &str) -> Option<(u32, u32, u32)> {
     None
 }
 
+/// 比较两个版本号，判断 latest 是否比 current 更新
 fn version_validate_newer(current: &str, latest: &str) -> bool {
     let current_ver = version_calc_parse(current);
     let latest_ver = version_calc_parse(latest);
@@ -1102,6 +1127,7 @@ fn version_validate_newer(current: &str, latest: &str) -> bool {
     }
 }
 
+/// 校验 URL 是否为合法的 GitHub 域名，支持 gh-proxy.com 镜像前缀
 fn url_validate_github(url: &str) -> Result<(), String> {
     if url.starts_with("https://gh-proxy.com/") {
         let original_url = url.strip_prefix("https://gh-proxy.com/").unwrap_or(url);
@@ -1126,6 +1152,9 @@ fn url_validate_github(url: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Tauri IPC 命令：检查 GitHub Release 是否有新版本
+///
+/// 通过 GitHub API 获取最新 Release 并与当前编译版本比较
 #[tauri::command]
 async fn update_fetch_check() -> Result<UpdateCheckResult, String> {
     let current_version = env!("CARGO_PKG_VERSION");
@@ -1187,10 +1216,12 @@ async fn update_fetch_check() -> Result<UpdateCheckResult, String> {
     })
 }
 
+/// 当前配置版本号，用于增量迁移
 const CURRENT_CONFIG_VERSION: u32 = 2;
 
 type MigrationFn = fn(&mut serde_json::Value) -> Result<(), String>;
 
+/// 获取所有注册的迁移函数，key 为源版本号
 fn migration_fetch_all() -> std::collections::HashMap<u32, MigrationFn> {
     let mut migrations: std::collections::HashMap<u32, MigrationFn> = std::collections::HashMap::new();
     
@@ -1200,48 +1231,45 @@ fn migration_fetch_all() -> std::collections::HashMap<u32, MigrationFn> {
     migrations
 }
 
+/// 配置迁移：v0 -> v1，新增 theme / denoiseFrameCount / denoiseStrength 字段
 fn migration_v0_to_v1(config: &mut serde_json::Value) -> Result<(), String> {
     log::info!("执行配置迁移: v0 -> v1");
     
     if let Some(obj) = config.as_object_mut() {
         if !obj.contains_key("theme") {
             obj.insert("theme".to_string(), serde_json::json!("simplify"));
-            log::info!("添加字段: theme = simplify");
         }
         
         if !obj.contains_key("denoiseFrameCount") {
             obj.insert("denoiseFrameCount".to_string(), serde_json::json!(3));
-            log::info!("添加字段: denoiseFrameCount = 3");
         }
         
         if !obj.contains_key("denoiseStrength") {
             obj.insert("denoiseStrength".to_string(), serde_json::json!("medium"));
-            log::info!("添加字段: denoiseStrength = medium");
         }
         
         obj.insert("config_version".to_string(), serde_json::json!(1));
-        log::info!("设置配置版本: config_version = 1");
     }
     
     Ok(())
 }
 
+/// 配置迁移：v1 -> v2，新增 penEffectMode 字段
 fn migration_v1_to_v2(config: &mut serde_json::Value) -> Result<(), String> {
     log::info!("执行配置迁移: v1 -> v2");
     
     if let Some(obj) = config.as_object_mut() {
         if !obj.contains_key("penEffectMode") {
             obj.insert("penEffectMode".to_string(), serde_json::json!("limited"));
-            log::info!("添加字段: penEffectMode = limited");
         }
         
         obj.insert("config_version".to_string(), serde_json::json!(2));
-        log::info!("设置配置版本: config_version = 2");
     }
     
     Ok(())
 }
 
+/// 在迁移前备份旧配置，备份文件名含版本号和时间戳
 fn config_backup_create(config_path: &std::path::Path, version: u32) -> Result<std::path::PathBuf, String> {
     let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
     let backup_filename = format!("config.json.backup_v{}_{}", version, timestamp);
@@ -1254,6 +1282,7 @@ fn config_backup_create(config_path: &std::path::Path, version: u32) -> Result<s
     Ok(backup_path)
 }
 
+/// 清理旧备份，仅保留最近的 keep_count 个
 fn config_backup_cleanup_old(config_dir: &std::path::Path, keep_count: usize) {
     if let Ok(entries) = std::fs::read_dir(config_dir) {
         let mut backups: Vec<std::path::PathBuf> = entries
@@ -1274,13 +1303,12 @@ fn config_backup_cleanup_old(config_dir: &std::path::Path, keep_count: usize) {
         for old_backup in backups.iter().skip(keep_count) {
             if let Err(e) = std::fs::remove_file(old_backup) {
                 log::warn!("删除旧备份失败 {:?}: {}", old_backup, e);
-            } else {
-                log::info!("删除旧备份: {:?}", old_backup);
             }
         }
     }
 }
 
+/// 顺序执行配置迁移，从当前版本逐步升至最新版
 fn config_migrate_run(config: &mut serde_json::Value, migrations: &std::collections::HashMap<u32, MigrationFn>) -> Result<(), String> {
     let current_version = config
         .get("config_version")
@@ -1306,6 +1334,7 @@ fn config_migrate_run(config: &mut serde_json::Value, migrations: &std::collecti
     Ok(())
 }
 
+/// 生成默认配置（各字段均设初始值）
 fn config_fetch_default() -> serde_json::Value {
     serde_json::json!({
         "config_version": CURRENT_CONFIG_VERSION,
@@ -1356,6 +1385,7 @@ fn config_fetch_default() -> serde_json::Value {
     })
 }
 
+/// 用已有配置字段覆盖默认配置，确保新字段获得初始值
 fn config_merge_defaults(existing: &serde_json::Value, defaults: &serde_json::Value) -> serde_json::Value {
     let mut merged = defaults.clone();
     
@@ -1368,6 +1398,9 @@ fn config_merge_defaults(existing: &serde_json::Value, defaults: &serde_json::Va
     merged
 }
 
+/// Tauri IPC 命令：读取配置文件，按需执行版本迁移后返回完整配置
+///
+/// 配置文件不存在时返回默认配置；版本过旧时先备份再逐级迁移
 #[tauri::command]
 async fn settings_fetch_all(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
     let paths = AppPaths::new(&app)?;
@@ -1444,6 +1477,9 @@ async fn settings_fetch_all(app: tauri::AppHandle) -> Result<serde_json::Value, 
     }
 }
 
+/// Tauri IPC 命令：增量保存配置（用原子写入避免文件损坏）
+///
+/// 现有配置与传入设置按 key 合并，先写临时文件再 rename 实现原子替换
 #[tauri::command]
 async fn settings_save_all(app: tauri::AppHandle, settings: serde_json::Value) -> Result<(), String> {
     let paths = AppPaths::new(&app)?;
@@ -1487,6 +1523,9 @@ async fn settings_save_all(app: tauri::AppHandle, settings: serde_json::Value) -
     Ok(())
 }
 
+/// Tauri IPC 命令（Windows）：检测 ViewStage 是否已设为 PDF 默认打开程序
+///
+/// 分别检查 HKCU UserChoice 和 HKCR 注册表路径
 #[cfg(target_os = "windows")]
 #[tauri::command]
 async fn filetype_validate_pdf_default() -> Result<bool, String> {
@@ -1495,17 +1534,14 @@ async fn filetype_validate_pdf_default() -> Result<bool, String> {
     
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
     
-    // 检查用户设置的默认程序
     if let Ok(prog_id_key) = hkcu.open_subkey("Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\FileExts\\.pdf\\UserChoice") {
         if let Ok(prog_id) = prog_id_key.get_value::<String, _>("ProgId") {
-            // 检查是否是 ViewStage 的 ProgId
             if prog_id.contains("ViewStage") || prog_id.contains("viewstage") {
                 return Ok(true);
             }
         }
     }
     
-    // 检查系统默认程序
     let hkcr = RegKey::predef(HKEY_CLASSES_ROOT);
     if let Ok(pdf_key) = hkcr.open_subkey(".pdf") {
         if let Ok(default_prog) = pdf_key.get_value::<String, _>("") {
@@ -1518,16 +1554,19 @@ async fn filetype_validate_pdf_default() -> Result<bool, String> {
     Ok(false)
 }
 
+/// Tauri IPC 命令（非 Windows）：PDF 默认程序检测始终返回 false
 #[cfg(not(target_os = "windows"))]
 #[tauri::command]
 async fn filetype_validate_pdf_default() -> Result<bool, String> {
     Ok(false)
 }
 
+/// 重启当前应用
 fn app_restart(app: &tauri::AppHandle) {
     app.restart();
 }
 
+/// Tauri IPC 命令：删除整个配置目录后重启应用
 #[tauri::command]
 async fn settings_delete_all(app: tauri::AppHandle) -> Result<(), String> {
     let paths = AppPaths::new(&app)?;
@@ -1545,6 +1584,7 @@ async fn settings_delete_all(app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// Tauri IPC 命令：重启应用进程
 #[tauri::command]
 async fn app_restart_process(app: tauri::AppHandle) -> Result<(), String> {
     app_restart(&app);
@@ -1552,6 +1592,9 @@ async fn app_restart_process(app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// Tauri IPC 命令：从 GitHub Release 下载更新文件，支持镜像加速
+///
+/// 自动校验 URL 合法性，流式下载并向前端推送进度事件 "update-download-progress"
 #[tauri::command]
 async fn update_download_file(
     app: tauri::AppHandle,
@@ -1659,6 +1702,7 @@ async fn update_download_file(
     Ok(file_path.to_string_lossy().to_string())
 }
 
+/// Tauri IPC 命令：获取主显示器支持的分辨率列表
 #[tauri::command]
 async fn resolution_fetch_available(app: tauri::AppHandle) -> Result<Vec<(u32, u32, String)>, String> {
     let primary_monitor = app.primary_monitor()
@@ -1689,6 +1733,7 @@ async fn resolution_fetch_available(app: tauri::AppHandle) -> Result<Vec<(u32, u
     Ok(resolutions)
 }
 
+/// Tauri IPC 命令：隐藏启动画面，显示并聚焦主窗口
 #[tauri::command]
 async fn window_hide_splashscreen(app: tauri::AppHandle) -> Result<(), String> {
     if let Some(splashscreen) = app.get_webview_window("splashscreen") {
@@ -1701,6 +1746,7 @@ async fn window_hide_splashscreen(app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// Tauri IPC 命令：完成 OOBE 引导后重启应用
 #[tauri::command]
 async fn oobe_submit_complete(app: tauri::AppHandle) -> Result<(), String> {
     OOBE_ACTIVE.store(false, Ordering::SeqCst);
@@ -1710,21 +1756,25 @@ async fn oobe_submit_complete(app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// Tauri IPC 命令：检测 OOBE 是否处于激活状态
 #[tauri::command]
 fn oobe_check_active() -> bool {
     OOBE_ACTIVE.load(Ordering::SeqCst)
 }
 
+/// Tauri IPC 命令：标记前端主脚本已加载完成
 #[tauri::command]
 fn main_signal_loaded() {
     MAIN_SCRIPT_LOADED.store(true, Ordering::SeqCst);
 }
 
+/// Tauri IPC 命令：查询前端主脚本是否已加载完成
 #[tauri::command]
 fn main_check_loaded() -> bool {
     MAIN_SCRIPT_LOADED.load(Ordering::SeqCst)
 }
 
+/// Tauri IPC 命令：退出应用进程
 #[tauri::command]
 fn app_submit_exit() {
     std::process::exit(0);
@@ -1732,6 +1782,7 @@ fn app_submit_exit() {
 
 // ==================== 设备信息检测 ====================
 
+/// 聚合的设备信息，包含 Windows 版本、CPU、GPU、内存、磁盘、触屏等
 #[derive(Debug, Clone, Serialize)]
 pub struct DeviceInfo {
     pub windows_version: String,
@@ -1751,7 +1802,7 @@ pub struct DeviceInfo {
     pub has_touchscreen: bool,
 }
 
-/// 检测设备信息并写入 device.json
+/// Tauri IPC 命令：检测设备信息并写入 device.json
 #[tauri::command]
 async fn device_detect_all(app: tauri::AppHandle) -> Result<DeviceInfo, String> {
     let device_info = device_collect_info();
@@ -1769,6 +1820,7 @@ async fn device_detect_all(app: tauri::AppHandle) -> Result<DeviceInfo, String> 
     Ok(device_info)
 }
 
+/// 聚合所有子检测函数的设备信息
 fn device_collect_info() -> DeviceInfo {
     let (win_ver, win_build, win_display) = device_detect_windows_version();
     let (cpu_name, cpu_cores, cpu_arch) = device_detect_cpu();
@@ -1796,6 +1848,7 @@ fn device_collect_info() -> DeviceInfo {
     }
 }
 
+/// 检测操作系统版本信息，跨平台返回 (名称, 构建号, 显示版本)
 fn device_detect_windows_version() -> (String, u32, String) {
     #[cfg(target_os = "windows")]
     {
@@ -1855,6 +1908,7 @@ fn device_detect_windows_version() -> (String, u32, String) {
     }
 }
 
+/// 检测 CPU 型号、逻辑核心数、架构
 fn device_detect_cpu() -> (String, usize, String) {
     let cpu_name: String;
 
@@ -1902,6 +1956,7 @@ fn device_detect_cpu() -> (String, usize, String) {
     (cpu_name.trim().to_string(), cores, arch)
 }
 
+/// 检测 GPU 名称、驱动版本、驱动日期、显存大小（MB）
 fn device_detect_gpu() -> (String, String, String, u64) {
     #[cfg(target_os = "windows")]
     {
@@ -1979,6 +2034,7 @@ fn device_detect_gpu() -> (String, String, String, u64) {
     ("Unknown".to_string(), String::new(), String::new(), 0)
 }
 
+/// 检测总物理内存（MB）和系统类型（Desktop/Laptop/Tablet 等）
 fn device_detect_system() -> (u64, String) {
     #[cfg(target_os = "windows")]
     {
@@ -2053,6 +2109,7 @@ fn device_detect_system() -> (u64, String) {
     }
 }
 
+/// 检测系统盘总容量（GB）和类型（SSD/HDD）
 fn device_detect_disk() -> (u64, String) {
     #[cfg(target_os = "windows")]
     {
@@ -2150,6 +2207,7 @@ fn device_detect_disk() -> (u64, String) {
     { (0, "Unknown".to_string()) }
 }
 
+/// 检测设备是否支持触摸屏
 fn device_detect_touchscreen() -> bool {
     #[cfg(target_os = "windows")]
     {
@@ -2210,7 +2268,7 @@ fn device_detect_touchscreen() -> bool {
 
 // ==================== Office 文件转换 ====================
 
-/// Office 软件类型
+/// 可用 Office 软件类型
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum OfficeSoftware {
     MicrosoftWord,
@@ -2219,7 +2277,7 @@ pub enum OfficeSoftware {
     None,
 }
 
-/// Office 检测结果
+/// 检测到的 Office 安装情况与推荐软件
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OfficeDetectionResult {
     pub has_word: bool,
@@ -2228,6 +2286,7 @@ pub struct OfficeDetectionResult {
     pub recommended: OfficeSoftware,
 }
 
+/// Windows 平台：通过注册表检测 Office 安装情况
 #[cfg(target_os = "windows")]
 fn office_detect_windows() -> OfficeDetectionResult {
     use winreg::RegKey;
@@ -2258,6 +2317,7 @@ fn office_detect_windows() -> OfficeDetectionResult {
     }
 }
 
+/// Windows 平台：检测 Microsoft Word 是否安装（多版本注册表路径）
 #[cfg(target_os = "windows")]
 fn office_check_word(hkcu: &winreg::RegKey, hklm: &winreg::RegKey) -> bool {
     let paths = [
@@ -2276,6 +2336,7 @@ fn office_check_word(hkcu: &winreg::RegKey, hklm: &winreg::RegKey) -> bool {
     false
 }
 
+/// Windows 平台：检测 WPS Office 是否安装（注册表和路径双重检测）
 #[cfg(target_os = "windows")]
 fn office_check_wps(hkcu: &winreg::RegKey, hklm: &winreg::RegKey) -> bool {
     let paths = [
@@ -2292,6 +2353,7 @@ fn office_check_wps(hkcu: &winreg::RegKey, hklm: &winreg::RegKey) -> bool {
     false
 }
 
+/// Windows 平台：检测 LibreOffice 是否安装
 #[cfg(target_os = "windows")]
 fn office_check_libreoffice(hkcu: &winreg::RegKey, hklm: &winreg::RegKey) -> bool {
     let paths = [
@@ -2307,6 +2369,7 @@ fn office_check_libreoffice(hkcu: &winreg::RegKey, hklm: &winreg::RegKey) -> boo
     false
 }
 
+/// Linux 平台：检查命令是否可用
 #[cfg(target_os = "linux")]
 fn office_check_command_exists(name: &str) -> bool {
     std::process::Command::new("which")
@@ -2317,6 +2380,7 @@ fn office_check_command_exists(name: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// Linux 平台：通过 which 命令检测 Office 安装情况
 #[cfg(target_os = "linux")]
 fn office_detect_linux() -> OfficeDetectionResult {
     let has_libreoffice = office_check_command_exists("soffice") || office_check_command_exists("libreoffice");
@@ -2341,6 +2405,7 @@ fn office_detect_linux() -> OfficeDetectionResult {
     }
 }
 
+/// 非 Windows 平台：Office 检测始终返回无
 #[cfg(not(target_os = "windows"))]
 fn office_detect_windows() -> OfficeDetectionResult {
     OfficeDetectionResult {
@@ -2372,6 +2437,7 @@ fn office_detect_all() -> OfficeDetectionResult {
     }
 }
 
+/// 通过 LibreOffice 命令行将 docx 转换为 PDF（soffice --headless --convert-to pdf）
 fn office_convert_libreoffice(docx_path: &str, _pdf_path: &str, cache_dir: &std::path::Path) -> Result<(), String> {
     use std::process::Command;
     let output_dir = cache_dir.to_str()
@@ -2384,6 +2450,9 @@ fn office_convert_libreoffice(docx_path: &str, _pdf_path: &str, cache_dir: &std:
         .map_err(|e| format!("LibreOffice 转换失败: {}", e))
 }
 
+/// Tauri IPC 命令：接收 docx 文件字节数据，转换为 PDF 后返回缓存路径
+///
+/// 自动检测可用 Office 软件并按优先级尝试，使用临时缓存目录减少重复转换
 #[tauri::command]
 async fn office_convert_docx_to_pdf_bytes(file_data: Vec<u8>, file_name: String, app: tauri::AppHandle) -> Result<String, String> {
     use std::fs;
@@ -2509,6 +2578,9 @@ async fn office_convert_docx_to_pdf_bytes(file_data: Vec<u8>, file_name: String,
     }
 }
 
+/// Tauri IPC 命令：将本地 docx 文件路径转换为 PDF
+///
+/// 自动检测可用 Office 软件，返回缓存目录中的 PDF 路径
 #[tauri::command]
 async fn office_convert_docx_to_pdf(docx_path: String, app: tauri::AppHandle) -> Result<String, String> {
     use std::fs;
@@ -2586,6 +2658,7 @@ async fn office_convert_docx_to_pdf(docx_path: String, app: tauri::AppHandle) ->
     }
 }
 
+/// Windows 平台：通过 PowerShell COM 调用 Microsoft Word 将 docx 转为 PDF
 #[cfg(target_os = "windows")]
 fn office_convert_word(docx_path: &str, pdf_path: &str) -> Result<(), String> {
     use std::process::Command;
@@ -2634,6 +2707,9 @@ fn office_convert_word(docx_path: &str, pdf_path: &str) -> Result<(), String> {
     }
 }
 
+/// Windows 平台：通过 PowerShell COM 调用 WPS Office 将 docx 转为 PDF
+///
+/// 尝试 Kwps.Application 和 WPS.Application 两个 COM 接口
 #[cfg(target_os = "windows")]
 fn office_convert_wps(docx_path: &str, pdf_path: &str) -> Result<(), String> {
     use std::process::Command;
@@ -2687,6 +2763,9 @@ fn office_convert_wps(docx_path: &str, pdf_path: &str) -> Result<(), String> {
     }
 }
 
+/// Tauri IPC 命令：设置文件类型关联（PDF / DOC / DOCX）
+///
+/// 平台差异：Windows 通过注册表创建 ProgID，Linux 通过 XDG 规范
 #[tauri::command]
 async fn filetype_set_icons(app: tauri::AppHandle) -> Result<(), String> {
     #[cfg(target_os = "windows")]
@@ -2701,6 +2780,7 @@ async fn filetype_set_icons(app: tauri::AppHandle) -> Result<(), String> {
     Err("此功能仅支持 Windows 和 Linux 系统".to_string())
 }
 
+/// Linux 平台：通过 XDG 规范注册 ViewStage 为 PDF/DOCX/DOC 默认程序
 #[cfg(target_os = "linux")]
 fn filetype_set_icons_linux(app: &tauri::AppHandle) -> Result<(), String> {
     use std::process::Command;
@@ -2790,6 +2870,9 @@ fn filetype_set_icons_linux(app: &tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// Windows 平台：通过注册表创建 ProgID 和 UserChoice 设置文件关联
+///
+/// 为 .pdf / .docx / .doc 分别创建 ProgID，注册关联并设置默认程序，最后刷新图标缓存
 #[cfg(target_os = "windows")]
 async fn filetype_set_icons_windows(app: tauri::AppHandle) -> Result<(), String> {
     use std::process::Command;
@@ -2817,6 +2900,7 @@ async fn filetype_set_icons_windows(app: tauri::AppHandle) -> Result<(), String>
     let classes_key = hkcu.create_subkey("Software\\Classes")
         .map_err(|e| format!("创建 Classes 键失败: {}", e))?.0;
     
+    /// 在 HKCU\Software\Classes 下创建 ProgID，包含 DefaultIcon 和 shell/open/command
     fn filetype_create_progid(
         classes_key: &RegKey,
         prog_id: &str,
@@ -2855,6 +2939,7 @@ async fn filetype_set_icons_windows(app: tauri::AppHandle) -> Result<(), String>
     filetype_create_progid(&classes_key, &format!("{}.docx", app_id), &word_icon, &exe_path_str, "ViewStage Word Document")?;
     filetype_create_progid(&classes_key, &format!("{}.doc", app_id), &word_icon, &exe_path_str, "ViewStage Word 97-2003 Document")?;
     
+    /// 在扩展名的 OpenWithProgids 下注册关联
     fn filetype_create_association(classes_key: &RegKey, ext: &str, prog_id: &str) -> Result<(), String> {
         let (ext_key, _) = classes_key
             .create_subkey(ext)
@@ -2876,6 +2961,7 @@ async fn filetype_set_icons_windows(app: tauri::AppHandle) -> Result<(), String>
     filetype_create_association(&classes_key, ".docx", &format!("{}.docx", app_id))?;
     filetype_create_association(&classes_key, ".doc", &format!("{}.doc", app_id))?;
     
+    /// 通过 UserChoice 设置扩展名的默认打开程序（可能需要管理员权限）
     fn filetype_update_default(hkcu: &RegKey, ext: &str, prog_id: &str) -> Result<(), String> {
         let user_choice_path = format!(
             "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\FileExts\\{}\\UserChoice",
@@ -2948,6 +3034,7 @@ async fn filetype_set_icons_windows(app: tauri::AppHandle) -> Result<(), String>
     }
 }
 
+/// Tauri IPC 命令：移除文件类型关联（逆向操作 filetype_set_icons）
 #[tauri::command]
 async fn filetype_delete_icons() -> Result<(), String> {
     #[cfg(target_os = "windows")]
@@ -2962,6 +3049,7 @@ async fn filetype_delete_icons() -> Result<(), String> {
     Err("此功能仅支持 Windows 和 Linux 系统".to_string())
 }
 
+/// Linux 平台：移除 ViewStage 的 .desktop 文件和 MIME XML，更新数据库
 #[cfg(target_os = "linux")]
 fn filetype_delete_icons_linux() -> Result<(), String> {
     let data_home = std::env::var("XDG_DATA_HOME")
@@ -2998,6 +3086,7 @@ fn filetype_delete_icons_linux() -> Result<(), String> {
     Ok(())
 }
 
+/// Windows 平台：移除注册表文件关联（ProgID、OpenWithProgids、UserChoice）并刷新图标缓存
 #[cfg(target_os = "windows")]
 async fn filetype_delete_icons_windows() -> Result<(), String> {
     use std::process::Command;
@@ -3010,6 +3099,7 @@ async fn filetype_delete_icons_windows() -> Result<(), String> {
     
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
     
+    /// 从注册表删除指定 ProgID 及其所有子键
     fn filetype_delete_progid(hkcu: &RegKey, prog_id: &str) -> Result<(), String> {
         let classes_path = format!("Software\\Classes\\{}", prog_id);
         
@@ -3026,6 +3116,7 @@ async fn filetype_delete_icons_windows() -> Result<(), String> {
     filetype_delete_progid(&hkcu, &format!("{}.docx", app_id))?;
     filetype_delete_progid(&hkcu, &format!("{}.doc", app_id))?;
     
+    /// 从 OpenWithProgids 中移除指定 ProgID 关联
     fn filetype_delete_association(hkcu: &RegKey, ext: &str, prog_id: &str) -> Result<(), String> {
         let openwith_path = format!("Software\\Classes\\{}\\OpenWithProgids", ext);
         
@@ -3042,6 +3133,7 @@ async fn filetype_delete_icons_windows() -> Result<(), String> {
     filetype_delete_association(&hkcu, ".docx", &format!("{}.docx", app_id))?;
     filetype_delete_association(&hkcu, ".doc", &format!("{}.doc", app_id))?;
     
+    /// 删除 UserChoice 注册表项恢复系统默认
     fn filetype_delete_user_choice(hkcu: &RegKey, ext: &str) -> Result<(), String> {
         let user_choice_path = format!(
             "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\FileExts\\{}\\UserChoice",
@@ -3086,8 +3178,10 @@ async fn filetype_delete_icons_windows() -> Result<(), String> {
 }
 
 
-
-
+/// 应用入口函数
+///
+/// 初始化日志、注册 Tauri 插件和 IPC 命令，配置 OOBE/主窗口启动流程。
+/// 首次运行打开 OOBE 引导窗口，非首次运行读取配置设置窗口尺寸并全屏显示。
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn app_init_run() {
     use simplelog::{CombinedLogger, WriteLogger, LevelFilter, Config, TermLogger, TerminalMode, ColorChoice};
@@ -3204,6 +3298,7 @@ pub fn app_init_run() {
             
             Ok(())
         })
+        // 注册所有 Tauri IPC 命令
         .invoke_handler(tauri::generate_handler![
             dir_fetch_cache, 
             cache_fetch_size,

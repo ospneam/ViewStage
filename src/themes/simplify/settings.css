@@ -1,3 +1,4 @@
+/* ===== 设计令牌 ===== */
 :root {
     --color-canvas: #ffffff;
     --color-canvas-gradient-start: #ffffff;
@@ -53,6 +54,7 @@
     --icon-filter: none;
 }
 
+/* ===== 基础覆盖 ===== */
 body {
     background-color: var(--color-canvas);
     background-image: none;
@@ -66,6 +68,7 @@ body {
     filter: none !important;
 }
 
+/* ===== 顶栏/页面标题 ===== */
 .topbar {
     background: var(--color-canvas);
     border-bottom: 1px solid var(--color-hairline-soft);
@@ -93,6 +96,7 @@ body {
     color: var(--color-muted);
 }
 
+/* ===== 选择器/开关/滑块 ===== */
 .select-selected {
     background: var(--color-surface-card);
     border-color: var(--color-hairline);
@@ -435,6 +439,7 @@ body {
     color: var(--color-muted);
 }
 
+/* ===== 侧栏/模态框 ===== */
 .sidebar {
     background: var(--color-canvas);
 }
@@ -522,6 +527,7 @@ body {
     border-color: var(--color-hairline);
 }
 
+/* ===== 极光背景 ===== */
 .aurora-bg {
     position: fixed;
     top: 0;

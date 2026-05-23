@@ -1,3 +1,14 @@
+/**
+ * ViewStage 首次引导设置脚本
+ *
+ * OOBE 向导流程：
+ * - 轮播展示 → 语言/主题选择（page1）
+ * - 快速设置 / 导入配置选择（page2）
+ * - 分辨率/主题配置（page3）
+ * - 摄像头选择与预览（page4）
+ * - 完成页（page5）
+ */
+
 const invoke = window.__TAURI__?.core?.invoke;
 
 (async function oobe_init_i18n() {
@@ -155,6 +166,9 @@ function oobe_start_aurora() {
     auroraBg.classList.add('active');
 }
 
+/**
+ * 启动轮播自动播放，点击后进入设置页
+ */
 function oobe_setup_carousel() {
     const images = document.querySelectorAll('.carousel-image');
     const carouselPage = document.getElementById('carouselPage');
@@ -292,6 +306,10 @@ async function oobe_init_resolution_select() {
     oobe_setup_custom_selects();
 }
 
+/**
+ * 初始化所有自定义下拉选择框的点击交互和选项切换
+ * 特殊处理：语言切换触发布局更新，主题切换触发实时应用
+ */
 function oobe_setup_custom_selects() {
     document.querySelectorAll('.custom-select:not([data-initialized])').forEach(select => {
         select.setAttribute('data-initialized', 'true');
@@ -413,6 +431,12 @@ function oobe_setup_page2_buttons() {
     });
 }
 
+/**
+ * 校验导入的配置文件是否包含必要字段
+ *
+ * @param {object} config - 导入的配置对象
+ * @returns {boolean} 配置是否合法
+ */
 function oobe_validate_config(config) {
     if (!config || typeof config !== 'object') return false;
     
@@ -481,6 +505,10 @@ function oobe_show_page3_from_page4() {
     }, 250);
 }
 
+/**
+ * 枚举摄像头设备并初始化选择列表和预览
+ * 处理无权限、无设备、获取失败三种异常场景
+ */
 async function oobe_init_camera_select() {
     const cameraOptions = document.getElementById('cameraOptions');
     const cameraSelected = document.getElementById('cameraSelected');
@@ -552,6 +580,10 @@ function oobe_hide_camera_settings() {
     });
 }
 
+/**
+ * 根据当前选中的摄像头和设备分辨率打开实时视频预览
+ * 异常时显示占位提示文本
+ */
 async function oobe_init_camera_preview() {
     const video = document.getElementById('cameraPreview');
     const placeholder = document.getElementById('cameraPreviewPlaceholder');
@@ -596,6 +628,12 @@ function oobe_hide_camera_preview() {
     }
 }
 
+/**
+ * 通过摄像头能力检测获取设备实际支持的分辨率列表
+ *
+ * @param {string} deviceId - 摄像头设备 ID
+ * @returns {Promise<Array<{w:number, h:number, label:string}>>} 支持的分辨率数组（按面积降序）
+ */
 async function oobe_fetch_supported_resolutions(deviceId) {
     const commonResolutions = [
         { w: 640, h: 480, label: '640 x 480 (VGA)', aspectRatio: '4:3' },
@@ -669,7 +707,6 @@ async function oobe_fetch_supported_resolutions(deviceId) {
                 });
             }
         } catch (e) {
-            // 忽略错误
         }
         
     } catch (error) {
@@ -781,6 +818,12 @@ function oobe_setup_page5_buttons() {
     });
 }
 
+/**
+ * 合并导入配置与页面选中的设置，导入配置优先级低于页面选择
+ *
+ * @param {object} cached - 页面中用户选择的设置
+ * @returns {object} 合并后的最终配置
+ */
 function oobe_save_merged_settings(cached) {
     const base = oobe_imported_settings ? { ...oobe_imported_settings } : { ...oobe_default_config };
     

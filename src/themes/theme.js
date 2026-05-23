@@ -1,3 +1,4 @@
+/* 主题管理器：加载、切换内置/用户主题，提供图标路径、工具栏文字、画布背景色等主题配置查询 */
 const ThemeManager = {
   currentTheme: null,
   currentThemeModule: null,
@@ -9,6 +10,10 @@ const ThemeManager = {
     'com.viewstage.theme.simplify': 'simplify'
   },
 
+  /**
+   * 初始化主题管理器，加载指定主题（默认从配置读取）
+   * @param {string|null} themeName - 主题包名，不传则从后端配置读取
+   */
   async init(themeName = null) {
     this.isSettingsPage = window.location.pathname.includes('settings.html');
     
@@ -19,6 +24,10 @@ const ThemeManager = {
     await this.theme_update_active(themeName);
   },
 
+  /**
+   * 从后端配置中获取已保存的主题包名
+   * @returns {Promise<string>} 主题包名
+   */
   async theme_fetch_saved() {
     if (window.__TAURI__) {
       try {
@@ -32,17 +41,19 @@ const ThemeManager = {
     return 'com.viewstage.theme.simplify';
   },
 
+  /**
+   * 加载并激活指定主题，按内置→用户主题顺序查找
+   * @param {string} themeName - 主题包名
+   */
   async theme_update_active(themeName) {
     try {
       let themeModule = null;
       const builtinDir = this.BUILTIN_PACKAGES[themeName];
       
       if (builtinDir) {
-        // 内置主题
         const module = await import(`./${builtinDir}/theme.js`);
         themeModule = module.default;
       } else if (window.__TAURI__) {
-        // 用户主题
         if (!this.userThemePath) {
           const { invoke } = window.__TAURI__.core;
           try {
@@ -80,6 +91,11 @@ const ThemeManager = {
     }
   },
 
+  /**
+   * 检查主题名是否为内置主题
+   * @param {string} themeName - 主题包名
+   * @returns {boolean}
+   */
   theme_validate_builtin(themeName) {
     return !!this.BUILTIN_PACKAGES[themeName];
   },
@@ -106,7 +122,6 @@ const ThemeManager = {
 
     let mergedConfig = {};
 
-    // theme.json = 视觉配置
     try {
       const themeJsonPath = `${themeDir}/theme.json`;
       const themeJsonContent = await fs.readTextFile(themeJsonPath);
@@ -116,7 +131,6 @@ const ThemeManager = {
       console.warn('User theme missing theme.json:', e);
     }
 
-    // config.json = 身份信息
     try {
       const configPath = `${themeDir}/config.json`;
       const configContent = await fs.readTextFile(configPath);
@@ -157,10 +171,18 @@ const ThemeManager = {
     };
   },
 
+  /**
+   * 获取当前激活的主题包名
+   * @returns {string|null} 主题包名
+   */
   theme_fetch_current() {
     return this.currentTheme;
   },
 
+  /**
+   * 获取主题是否显示工具栏文字标签
+   * @returns {boolean} true=显示文字，false=仅图标
+   */
   theme_fetch_toolbar_text() {
     if (this.currentThemeModule && this.currentThemeModule.fetch_toolbar_text) {
       return this.currentThemeModule.fetch_toolbar_text();
@@ -168,6 +190,10 @@ const ThemeManager = {
     return true;
   },
 
+  /**
+   * 获取主题的画布背景色
+   * @returns {string} CSS 颜色值，默认 '#2a2a2a'
+   */
   theme_fetch_canvas_bg_color() {
     if (this.currentThemeModule && this.currentThemeModule.fetch_canvas_bg_color) {
       return this.currentThemeModule.fetch_canvas_bg_color();
@@ -175,6 +201,10 @@ const ThemeManager = {
     return '#2a2a2a';
   },
 
+  /**
+   * 获取无摄像头画面时的叠加文案样式
+   * @returns {Object} 包含 textColor、secondaryTextColor、tertiaryTextColor、textShadow 的样式对象
+   */
   theme_fetch_no_camera_style() {
     if (this.currentThemeModule && this.currentThemeModule.fetch_no_camera_style) {
       return this.currentThemeModule.fetch_no_camera_style();
@@ -187,6 +217,10 @@ const ThemeManager = {
     };
   },
 
+  /**
+   * 获取主题是否启用极光背景效果
+   * @returns {boolean} 默认 true
+   */
   theme_fetch_aurora_effect() {
     if (this.currentThemeModule && this.currentThemeModule.fetch_aurora_effect) {
       return this.currentThemeModule.fetch_aurora_effect();
@@ -194,6 +228,9 @@ const ThemeManager = {
     return true;
   },
 
+  /**
+   * 根据主题配置切换工具栏文字标签的显隐
+   */
   theme_update_toolbar_text_visibility() {
     const toolbar = document.querySelector('.toolbar');
     if (toolbar) {
@@ -205,6 +242,11 @@ const ThemeManager = {
     }
   },
 
+  /**
+   * 根据图标名称获取完整的图标资源路径
+   * @param {string} iconName - 图标名称（不含扩展名）
+   * @returns {string} 图标资源相对/绝对路径
+   */
   theme_fetch_icon_path(iconName) {
     if (this.currentThemeModule && this.currentThemeModule.fetch_icon_path) {
       return this.currentThemeModule.fetch_icon_path(iconName);
@@ -213,12 +255,25 @@ const ThemeManager = {
     return `themes/${dir}/icons/${iconName}.svg`;
   },
 
+  /**
+   * 生成图标的 img 标签 HTML 字符串
+   * @param {string} iconName - 图标名称
+   * @param {Object} [options] - 可选参数 {width, height, alt, style}
+   * @param {number} [options.width=16] - 图标宽度
+   * @param {number} [options.height=16] - 图标高度
+   * @param {string} [options.alt=''] - 替代文本
+   * @param {string} [options.style=''] - 额外样式
+   * @returns {string} img 标签
+   */
   theme_fetch_icon(iconName, options = {}) {
     const { width = 16, height = 16, alt = '', style = '' } = options;
     const src = this.theme_fetch_icon_path(iconName);
     return `<img src="${src}" width="${width}" height="${height}" alt="${alt}" style="${style}">`;
   },
 
+  /**
+   * 扫描 DOM 中所有 data-icon 属性元素并加载对应图标
+   */
   theme_load_icons() {
     const icons = document.querySelectorAll('[data-icon]');
     icons.forEach(img => {

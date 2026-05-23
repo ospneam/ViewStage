@@ -1,3 +1,4 @@
+/* ===== 设计令牌 ===== */
 :root {
     --color-canvas: #1a1a1a;
     --color-canvas-gradient-start: #1a1a1a;
@@ -55,6 +56,7 @@
     --scrollbar-thumb-hover: rgba(255, 255, 255, 0.3);
 }
 
+/* ===== 基础覆盖 ===== */
 body {
     background-image: none;
 }
@@ -67,6 +69,7 @@ body {
     background-color: var(--color-canvas);
 }
 
+/* ===== 按钮 ===== */
 .btn-primary {
     display: inline-flex;
     align-items: center;
@@ -347,6 +350,7 @@ body {
     border-radius: 50%;
 }
 
+/* ===== 侧栏按钮 ===== */
 .sidebar-btn {
     display: flex;
     align-items: center;
@@ -479,6 +483,7 @@ body {
     background: #dc2626;
 }
 
+/* ===== 开关 ===== */
 .toggle-switch {
     position: relative;
     display: inline-block;
@@ -525,6 +530,7 @@ body {
     transform: translateX(20px);
 }
 
+/* ===== 工具栏 ===== */
 .toolbar {
     position: absolute;
     bottom: 10px;
@@ -660,6 +666,7 @@ body {
     display: none;
 }
 
+/* ===== 侧边栏 ===== */
 .sidebar {
     display: flex;
     flex-direction: column;
@@ -931,6 +938,7 @@ body {
     white-space: nowrap;
 }
 
+/* ===== 画笔控制面板 ===== */
 .pen-control-panel {
     position: absolute;
     z-index: 100;
@@ -1047,6 +1055,7 @@ body {
     border: 2px solid var(--color-primary);
 }
 
+/* ===== 设置面板 ===== */
 .settings-panel {
     position: absolute;
     z-index: 100;
@@ -1101,6 +1110,7 @@ body {
     background: var(--color-surface-strong);
 }
 
+/* ===== 菜单弹出 ===== */
 .menu-popup {
     position: absolute;
     bottom: 90px;
@@ -1152,6 +1162,7 @@ body {
     filter: invert(1) !important;
 }
 
+/* ===== 加载/颜色/错误覆盖 ===== */
 .loading-overlay {
     background: rgba(26, 26, 26, 0.9);
 }

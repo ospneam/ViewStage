@@ -1,3 +1,4 @@
+/* ===== 通用重置 ===== */
 * {
     margin: 0;
     padding: 0;
@@ -28,6 +29,7 @@
     scrollbar-color: var(--scrollbar-thumb, rgba(255, 255, 255, 0.2)) var(--scrollbar-track, rgba(255, 255, 255, 0.05));
 }
 
+/* ===== 基础样式 ===== */
 body {
     font-family: var(--font-body, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif);
     background-color: var(--color-canvas, #2d2d2d);
@@ -41,6 +43,7 @@ button {
     font-family: inherit;
 }
 
+/* ===== 按钮 ===== */
 .btn-base {
     display: inline-flex;
     align-items: center;
@@ -222,6 +225,7 @@ button {
     width: 100%;
 }
 
+/* ===== 极光背景 ===== */
 .aurora-bg {
     position: fixed;
     top: 0;
@@ -248,6 +252,7 @@ button {
     transform: translateZ(0);
 }
 
+/* ===== 顶栏与侧栏 ===== */
 .topbar {
     width: 100vw;
     height: 7vh;
@@ -421,6 +426,7 @@ button {
     transform: scale(0.98);
 }
 
+/* ===== 设置页面 ===== */
 .page {
     display: none;
     padding: 20px;
@@ -556,6 +562,7 @@ button {
     border-bottom: 1px solid var(--color-hairline, rgba(255, 255, 255, 0.1));
 }
 
+/* ===== 设置项 ===== */
 .setting-item {
     display: flex;
     align-items: center;
@@ -577,6 +584,7 @@ button {
     order: 3;
 }
 
+/* ===== 颜色选择器 ===== */
 .color-editor {
     display: flex;
     flex-direction: column;
@@ -868,6 +876,7 @@ button {
     color: var(--color-ink, #fff);
 }
 
+/* ===== 自定义选择器 ===== */
 .custom-select {
     position: relative;
     min-width: 120px;
@@ -972,6 +981,7 @@ button {
     background: rgba(239, 68, 68, 0.2);
 }
 
+/* ===== 模态框 ===== */
 .modal-overlay {
     position: fixed;
     top: 0;
@@ -1064,6 +1074,7 @@ button {
     background: rgba(239, 68, 68, 0.2);
 }
 
+/* ===== 设置弹窗 ===== */
 .settings-dialog-overlay {
     position: fixed;
     top: 0;
@@ -1155,6 +1166,7 @@ button {
     border-color: #d4d4d4;
 }
 
+/* ===== 更新页面 ===== */
 #pageUpdate.active {
     display: flex;
     flex-direction: column;
@@ -1205,6 +1217,7 @@ button {
     text-align: left;
 }
 
+/* ===== 开关/选项组 ===== */
 .toggle-switch {
     position: relative;
     display: inline-block;
@@ -1501,6 +1514,7 @@ button {
     background: var(--color-surface-strong, #3a3a3a);
 }
 
+/* ===== 滑块 ===== */
 .slider-container {
     display: flex;
     align-items: center;
@@ -1554,6 +1568,7 @@ button {
     text-align: right;
 }
 
+/* ===== 折叠组 ===== */
 .setting-group {
     margin: var(--spacing-xs, 8px) 0;
     border-radius: var(--rounded-md, 8px);
@@ -1697,6 +1712,7 @@ button {
     border-radius: var(--rounded-xs, 4px);
 }
 
+/* ===== 分区容器 ===== */
 .setting-section {
     margin-bottom: 30px;
     background: var(--color-surface-soft, rgba(255, 255, 255, 0.03));
@@ -1714,6 +1730,7 @@ button {
     border-bottom: 1px solid var(--color-hairline, rgba(255, 255, 255, 0.1));
 }
 
+/* ===== 模型卡片 ===== */
 .model-card {
     background: var(--color-surface-card, rgba(255, 255, 255, 0.05));
     border-radius: var(--rounded-md, 8px);
@@ -1835,7 +1852,7 @@ button {
     color: var(--color-error, #f44336);
 }
 
-/* ==================== 主题卡片 ==================== */
+/* ===== 主题卡片 ===== */
 .theme-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));

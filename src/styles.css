@@ -1,3 +1,4 @@
+/* ===== 设计令牌 ===== */
 :root {
     --color-canvas: #1a1a1a;
     --color-canvas-gradient-start: #1a1a1a;
@@ -48,6 +49,7 @@
     --scrollbar-thumb-hover: rgba(255, 255, 255, 0.3);
 }
 
+/* ===== 全局重置 ===== */
 * {
     margin: 0;
     padding: 0;
@@ -79,6 +81,7 @@
     background: var(--scrollbar-thumb-hover);
 }
 
+/* ===== 基础布局 ===== */
 html, body {
     height: 100%;
     overflow: hidden;
@@ -115,6 +118,7 @@ body {
     position: relative;
 }
 
+/* ===== 画布区域 ===== */
 .canvas-container {
     position: absolute;
     top: 0;
@@ -211,6 +215,7 @@ body {
     will-change: transform, left, top;
 }
 
+/* ===== 加载遮罩 ===== */
 .loading-overlay {
     position: fixed;
     top: 0;
@@ -261,6 +266,7 @@ body {
     font-weight: 500;
 }
 
+/* ===== 错误弹窗 ===== */
 .error-dialog-overlay {
     position: fixed;
     top: 0;
@@ -353,6 +359,7 @@ body {
     opacity: 0.9;
 }
 
+/* ===== 按钮 ===== */
 .btn-primary {
     display: inline-flex;
     align-items: center;
@@ -631,6 +638,7 @@ body {
     border-radius: 50%;
 }
 
+/* ===== 侧栏按钮 ===== */
 .sidebar-btn {
     display: flex;
     align-items: center;
@@ -728,6 +736,7 @@ body {
     font-size: 14px;
 }
 
+/* ===== 模态框按钮 ===== */
 .modal-btn {
     display: inline-flex;
     align-items: center;
@@ -762,6 +771,7 @@ body {
     opacity: 0.9;
 }
 
+/* ===== 开关 ===== */
 .toggle-switch {
     position: relative;
     display: inline-block;

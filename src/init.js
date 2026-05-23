@@ -1,3 +1,6 @@
+/**
+ * 应用初始化流程 - DOM 构建、画布设置、摄像头初始化、事件绑定
+ */
 import ThemeManager from './themes/theme.js';
 import { history_init_manager, history_validate_undo } from './history.js';
 import './batch-draw.js';
@@ -13,6 +16,7 @@ if (document.readyState === 'loading') {
     window.main_init_pdfjs();
 }
 
+// 通过 Tauri 后端初始化缓存、配置、图片保存等目录路径
 async function dir_init_cache_path() {
     if (window.__TAURI__) {
         try {
@@ -25,6 +29,7 @@ async function dir_init_cache_path() {
     }
 }
 
+// 发射启动进度事件到 splashscreen 窗口
 function app_emit_splash_progress(step, message) {
     if (window.__TAURI__) {
         const { emit } = window.__TAURI__.event;
@@ -32,6 +37,7 @@ function app_emit_splash_progress(step, message) {
     }
 }
 
+// 缓存所有 DOM 元素引用，验证关键节点存在性
 function dom_init_all() {
     const dom = window.dom;
     dom.canvasContainer = document.getElementById('canvasContainer');
@@ -75,6 +81,10 @@ function dom_init_all() {
     return true;
 }
 
+/**
+ * 初始化画布：设置尺寸（屏幕 2 倍）、DPR 缩放、渲染上下文属性
+ * 计算画布偏移使画布居中屏幕
+ */
 function canvas_init_all() {
     const dom = window.dom;
     const state = window.state;
@@ -130,6 +140,7 @@ function canvas_init_all() {
     console.log(`画布初始化: 屏幕 ${screenW}x${screenH}, 画布 ${DRAW_CONFIG.canvasW}x${DRAW_CONFIG.canvasH}`);
 }
 
+// 从后端加载摄像头、渲染尺寸、主题等设置，并应用到当前状态
 async function settings_load_camera_config() {
     if (window.__TAURI__) {
         try {
@@ -198,14 +209,21 @@ async function settings_load_camera_config() {
     }
 }
 
+// 提交当前笔画到历史快照
 async function draw_save_snapshot() {
     await window.main_submit_stroke();
 }
 
+// 根据可撤销状态更新撤销按钮
 function history_update_button_status() {
     window.dom.btnUndo.disabled = !history_validate_undo();
 }
 
+/**
+ * 主初始化入口，按顺序执行：
+ * 国际化 → OOBE 检查 → PDF 文件关联 → DOM 构建 → 设置加载 → 画布初始化 →
+ * 历史管理器 → 事件绑定 → 快照保存 → 摄像头检测与初始化 → 关闭启动屏
+ */
 async function main_init_all() {
     console.log('[init] main_init_all start');
     try {
@@ -276,6 +294,7 @@ async function main_init_all() {
         app_emit_splash_progress(3, '正在初始化摄像头...');
         console.log('[init] progress 3 emitted');
 
+        // 摄像头检测与初始化：先枚举设备，无摄像头则直接跳过
         let is_camera_handled = false;
 
         if (navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) {
@@ -317,6 +336,7 @@ async function main_init_all() {
         app_emit_splash_progress(5, '');
         console.log('[init] progress 5 emitted');
 
+        // 关闭启动屏
         if (window.__TAURI__) {
             try {
                 console.log('[init] invoking window_hide_splashscreen');
@@ -346,6 +366,7 @@ document.addEventListener('beforeunload', () => {
     window.main_delete_all_pdf_blob_urls?.();
 });
 
+// 为按钮添加触摸缩放反馈，并初始化窗口最小化监听
 function main_setup_touch_events() {
     const buttons = document.querySelectorAll('button');
     buttons.forEach(button => {
