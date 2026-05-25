@@ -62,12 +62,12 @@ class PenTessellator {
 
                 let line_width;
                 if (clamped >= 1) {
-                    line_width = base_width * 0.25;
+                    line_width = base_width * 0.5;
                 } else if (clamped <= 0) {
                     line_width = base_width;
                 } else {
                     const eased = clamped * clamped * (3 - 2 * clamped);
-                    line_width = base_width - eased * (base_width * 0.75);
+                    line_width = base_width - eased * (base_width * 0.5);
                 }
 
                 const blend = Math.max(0.3, Math.min(0.85, 1 - dist / (base_width * 3)));

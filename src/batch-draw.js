@@ -223,13 +223,13 @@ class RealtimeBatchDrawManager {
 
         let lineWidth;
         if (speed >= maxSpeed) {
-            lineWidth = baseWidth * 0.25;
+            lineWidth = baseWidth * 0.5;
         } else if (speed <= minSpeed) {
             lineWidth = baseWidth;
         } else {
             const ratio = (speed - minSpeed) / (maxSpeed - minSpeed);
             const eased = ratio * ratio * (3 - 2 * ratio);
-            lineWidth = baseWidth - eased * (baseWidth * 0.75);
+            lineWidth = baseWidth - eased * (baseWidth * 0.5);
         }
 
         const blend = Math.max(0.3, Math.min(0.85, 1 - dist / (baseWidth * 3)));
