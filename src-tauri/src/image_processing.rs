@@ -107,35 +107,28 @@ pub fn image_update_rotation(image_data: String, direction: String) -> Result<St
 /// brightness: integer -100..100, contrast: float multiplier (e.g. 1.0 normal)
 #[tauri::command]
 pub fn image_update_adjustments(image_data: String, brightness: i32, contrast: f32) -> Result<String, String> {
-    // No need to import GenericImageView/Pixel here
     let img = image_load_base64(&image_data)?;
-
-    let (w, h) = (img.width(), img.height());
     let mut rgba = img.to_rgba8();
 
-    // Map brightness (-100..100) to additive value (-255..255)
     let add = (brightness as f32) * 255.0 / 100.0;
-    let c = contrast;
 
-    for y in 0..h {
-        for x in 0..w {
-            let channels = rgba.get_pixel(x, y).0;
-            let r = channels[0] as f32 / 255.0;
-            let g = channels[1] as f32 / 255.0;
-            let b = channels[2] as f32 / 255.0;
-            let a = channels[3];
+    // Precompute 256-entry LUT: for each possible u8 input, compute the output byte.
+    // This replaces per-pixel float divisions, multiplications, round(), and clamp()
+    // with a single table lookup per channel.
+    let mut lut = [0u8; 256];
+    for (i, entry) in lut.iter_mut().enumerate() {
+        let v = (i as f32) / 255.0;
+        let out = ((v - 0.5) * contrast + 0.5) * 255.0 + add;
+        *entry = out.round().clamp(0.0, 255.0) as u8;
+    }
 
-            // Apply contrast then brightness (brightness applied as additive after scaling)
-            let r2 = ((r - 0.5) * c + 0.5) * 255.0 + add;
-            let g2 = ((g - 0.5) * c + 0.5) * 255.0 + add;
-            let b2 = ((b - 0.5) * c + 0.5) * 255.0 + add;
-
-            let nr = r2.round().clamp(0.0, 255.0) as u8;
-            let ng = g2.round().clamp(0.0, 255.0) as u8;
-            let nb = b2.round().clamp(0.0, 255.0) as u8;
-
-            rgba.put_pixel(x, y, image::Rgba([nr, ng, nb, a]));
-        }
+    // Bulk-process the raw RGBA buffer via mutable slice chunks
+    // This avoids per-pixel get_pixel/put_pixel dispatch overhead
+    for chunk in rgba.chunks_exact_mut(4) {
+        chunk[0] = lut[chunk[0] as usize]; // R
+        chunk[1] = lut[chunk[1] as usize]; // G
+        chunk[2] = lut[chunk[2] as usize]; // B
+        // chunk[3] = alpha — unchanged
     }
 
     let dyn_img = image::DynamicImage::ImageRgba8(rgba);
