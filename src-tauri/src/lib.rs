@@ -198,11 +198,21 @@ fn cache_validate_auto_clear(app: tauri::AppHandle) -> Result<bool, String> {
         return Ok(false);
     }
     
-    let config_content = std::fs::read_to_string(&config_file)
-        .map_err(|e| format!("Failed to read config: {}", e))?;
+    let config_content = match std::fs::read_to_string(&config_file) {
+        Ok(c) => c,
+        Err(e) => {
+            log::warn!("cache_validate_auto_clear 读取配置文件失败: {}，跳过自动清除", e);
+            return Ok(false);
+        }
+    };
     
-    let config: serde_json::Value = serde_json::from_str(&config_content)
-        .map_err(|e| format!("Failed to parse config: {}", e))?;
+    let config: serde_json::Value = match serde_json::from_str(&config_content) {
+        Ok(v) => v,
+        Err(e) => {
+            log::warn!("cache_validate_auto_clear 解析配置文件失败: {}，跳过自动清除", e);
+            return Ok(false);
+        }
+    };
     
     let auto_clear_days = config.get("autoClearCacheDays")
         .and_then(|v| v.as_u64())
@@ -227,10 +237,8 @@ fn cache_validate_auto_clear(app: tauri::AppHandle) -> Result<bool, String> {
     if last_clear_date.is_empty() {
         let mut updated_config = config.clone();
         updated_config["lastCacheClearDate"] = serde_json::json!(today);
-        let updated_content = serde_json::to_string_pretty(&updated_config)
-            .map_err(|e| format!("Failed to serialize config: {}", e))?;
-        std::fs::write(&config_file, updated_content)
-            .map_err(|e| format!("Failed to write config: {}", e))?;
+        let temp_path = config_file.with_extension("json.tmp");
+        write_atomic(&temp_path, &config_file, &updated_config)?;
         log::info!("首次设置自动清除缓存日期");
         return Ok(false);
     }
@@ -265,10 +273,8 @@ fn cache_validate_auto_clear(app: tauri::AppHandle) -> Result<bool, String> {
         
         let mut updated_config = config.clone();
         updated_config["lastCacheClearDate"] = serde_json::json!(today);
-        let updated_content = serde_json::to_string_pretty(&updated_config)
-            .map_err(|e| format!("Failed to serialize config: {}", e))?;
-        std::fs::write(&config_file, updated_content)
-            .map_err(|e| format!("Failed to write config: {}", e))?;
+        let temp_path = config_file.with_extension("json.tmp");
+        write_atomic(&temp_path, &config_file, &updated_config)?;
         
         log::info!("自动清除缓存完成");
         return Ok(true);
@@ -1230,128 +1236,22 @@ async fn update_fetch_check() -> Result<UpdateCheckResult, String> {
     })
 }
 
-/// 当前配置版本号，用于增量迁移
-const CURRENT_CONFIG_VERSION: u32 = 2;
-
-type MigrationFn = fn(&mut serde_json::Value) -> Result<(), String>;
-
-/// 获取所有注册的迁移函数，key 为源版本号
-fn migration_fetch_all() -> std::collections::HashMap<u32, MigrationFn> {
-    let mut migrations: std::collections::HashMap<u32, MigrationFn> = std::collections::HashMap::new();
-    
-    migrations.insert(0u32, migration_v0_to_v1 as MigrationFn);
-    migrations.insert(1u32, migration_v1_to_v2 as MigrationFn);
-    
-    migrations
-}
-
-/// 配置迁移：v0 -> v1，新增 theme / denoiseFrameCount / denoiseStrength 字段
-fn migration_v0_to_v1(config: &mut serde_json::Value) -> Result<(), String> {
-    log::info!("执行配置迁移: v0 -> v1");
-    
-    if let Some(obj) = config.as_object_mut() {
-        if !obj.contains_key("theme") {
-            obj.insert("theme".to_string(), serde_json::json!("simplify"));
-        }
-        
-        if !obj.contains_key("denoiseFrameCount") {
-            obj.insert("denoiseFrameCount".to_string(), serde_json::json!(3));
-        }
-        
-        if !obj.contains_key("denoiseStrength") {
-            obj.insert("denoiseStrength".to_string(), serde_json::json!("medium"));
-        }
-        
-        obj.insert("config_version".to_string(), serde_json::json!(1));
-    }
-    
-    Ok(())
-}
-
-/// 配置迁移：v1 -> v2，新增 penEffectMode 字段
-fn migration_v1_to_v2(config: &mut serde_json::Value) -> Result<(), String> {
-    log::info!("执行配置迁移: v1 -> v2");
-    
-    if let Some(obj) = config.as_object_mut() {
-        if !obj.contains_key("penEffectMode") {
-            obj.insert("penEffectMode".to_string(), serde_json::json!("limited"));
-        }
-        
-        obj.insert("config_version".to_string(), serde_json::json!(2));
-    }
-    
-    Ok(())
-}
-
-/// 在迁移前备份旧配置，备份文件名含版本号和时间戳
-fn config_backup_create(config_path: &std::path::Path, version: u32) -> Result<std::path::PathBuf, String> {
+/// 备份损坏的配置文件，文件名带时间戳
+fn config_backup_corrupted(config_path: &std::path::Path) {
+    let parent = config_path.parent().unwrap_or_else(|| std::path::Path::new("."));
     let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
-    let backup_filename = format!("config.json.backup_v{}_{}", version, timestamp);
-    let backup_path = config_path.parent().unwrap().join(backup_filename);
-    
-    std::fs::copy(config_path, &backup_path)
-        .map_err(|e| format!("备份配置文件失败: {}", e))?;
-    
-    log::info!("配置已备份到: {:?}", backup_path);
-    Ok(backup_path)
-}
-
-/// 清理旧备份，仅保留最近的 keep_count 个
-fn config_backup_cleanup_old(config_dir: &std::path::Path, keep_count: usize) {
-    if let Ok(entries) = std::fs::read_dir(config_dir) {
-        let mut backups: Vec<std::path::PathBuf> = entries
-            .filter_map(|e| e.ok())
-            .filter(|e| {
-                let name = e.file_name().to_string_lossy().to_string();
-                name.starts_with("config.json.backup_v")
-            })
-            .map(|e| e.path())
-            .collect();
-        
-        backups.sort_by(|a, b| {
-            let a_time = std::fs::metadata(a).and_then(|m| m.modified()).unwrap_or(std::time::SystemTime::UNIX_EPOCH);
-            let b_time = std::fs::metadata(b).and_then(|m| m.modified()).unwrap_or(std::time::SystemTime::UNIX_EPOCH);
-            b_time.cmp(&a_time)
-        });
-        
-        for old_backup in backups.iter().skip(keep_count) {
-            if let Err(e) = std::fs::remove_file(old_backup) {
-                log::warn!("删除旧备份失败 {:?}: {}", old_backup, e);
-            }
-        }
+    let backup_name = format!("config.json.corrupted_{}", timestamp);
+    let backup_path = parent.join(&backup_name);
+    if let Err(e) = std::fs::copy(config_path, &backup_path) {
+        log::warn!("备份损坏的配置文件失败: {}", e);
+    } else {
+        log::info!("损坏的配置文件已备份到: {:?}", backup_path);
     }
-}
-
-/// 顺序执行配置迁移，从当前版本逐步升至最新版
-fn config_migrate_run(config: &mut serde_json::Value, migrations: &std::collections::HashMap<u32, MigrationFn>) -> Result<(), String> {
-    let current_version = config
-        .get("config_version")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(0) as u32;
-    
-    if current_version >= CURRENT_CONFIG_VERSION {
-        log::info!("配置版本已是最新: v{}", current_version);
-        return Ok(());
-    }
-    
-    log::info!("开始配置迁移: v{} -> v{}", current_version, CURRENT_CONFIG_VERSION);
-    
-    let mut version = current_version;
-    while version < CURRENT_CONFIG_VERSION {
-        if let Some(migration_fn) = migrations.get(&version) {
-            migration_fn(config)?;
-        }
-        version += 1;
-    }
-    
-    log::info!("配置迁移完成: v{} -> v{}", current_version, CURRENT_CONFIG_VERSION);
-    Ok(())
 }
 
 /// 生成默认配置（各字段均设初始值）
 fn config_fetch_default() -> serde_json::Value {
     serde_json::json!({
-        "config_version": CURRENT_CONFIG_VERSION,
         "width": 1920,
         "height": 1080,
         "language": "zh-CN",
@@ -1360,7 +1260,8 @@ fn config_fetch_default() -> serde_json::Value {
         "cameraHeight": 720,
         "moveFps": 30,
         "drawFps": 10,
-        "pdfScale": 1.5,
+        "frameRateMode": "adaptive",
+        "pdfScale": 2,
         "defaultRotation": 0,
         "contrast": 1.4,
         "brightness": 10,
@@ -1392,7 +1293,7 @@ fn config_fetch_default() -> serde_json::Value {
         "wordAssociations": false,
         "autoClearCacheDays": 15,
         "lastCacheClearDate": "",
-        "theme": "simplify",
+        "theme": "com.viewstage.theme.simplify",
         "denoiseFrameCount": 3,
         "denoiseStrength": "medium",
         "penEffectMode": "limited"
@@ -1448,9 +1349,9 @@ struct SettingsResult {
     recovered: Vec<String>,
 }
 
-/// Tauri IPC 命令：读取配置文件，按需执行版本迁移后返回完整配置
+/// Tauri IPC 命令：读取配置文件，校验并合并后返回完整配置。
 ///
-/// 配置文件不存在时返回默认配置；版本过旧时先备份再逐级迁移；
+/// 配置文件不存在时返回默认配置；读取/解析失败时备份损坏文件并返回默认配置；
 /// 字段类型异常时自动恢复为默认值并记录到 recovered 列表。
 #[tauri::command]
 async fn settings_fetch_all(app: tauri::AppHandle) -> Result<SettingsResult, String> {
@@ -1468,88 +1369,29 @@ async fn settings_fetch_all(app: tauri::AppHandle) -> Result<SettingsResult, Str
         Ok(c) => c,
         Err(e) => {
             log::warn!("读取配置文件失败: {}，使用默认配置", e);
-            let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
-            let backup_name = format!("config.json.corrupted_{}", timestamp);
-            let backup_path = config_path.parent().unwrap().join(&backup_name);
-            let _ = std::fs::copy(&config_path, &backup_path);
-            log::info!("损坏的配置文件已备份到: {:?}", backup_path);
+            config_backup_corrupted(&config_path);
             return Ok(SettingsResult { settings: default_config, recovered: Vec::new() });
         }
     };
     
-    let mut existing_config = match serde_json::from_str::<serde_json::Value>(&config_content) {
+    let existing_config = match serde_json::from_str::<serde_json::Value>(&config_content) {
         Ok(v) => v,
         Err(e) => {
             log::warn!("解析配置文件失败: {}，使用默认配置", e);
-            let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
-            let backup_name = format!("config.json.corrupted_{}", timestamp);
-            let backup_path = config_path.parent().unwrap().join(&backup_name);
-            let _ = std::fs::copy(&config_path, &backup_path);
-            log::info!("损坏的配置文件已备份到: {:?}", backup_path);
+            config_backup_corrupted(&config_path);
             return Ok(SettingsResult { settings: default_config, recovered: Vec::new() });
         }
     };
     
     let mut recovered: Vec<String> = Vec::new();
+    let merged_config = config_validate_and_merge(&existing_config, &default_config, &mut recovered);
     
-    let current_version = existing_config
-        .get("config_version")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(0) as u32;
-    
-    let merged_config = if current_version < CURRENT_CONFIG_VERSION {
-        log::info!("检测到配置版本过旧: v{} < v{}", current_version, CURRENT_CONFIG_VERSION);
-        
-        let backup_path = config_backup_create(&config_path, current_version)?;
-        
-        let migrations = migration_fetch_all();
-        
-        match config_migrate_run(&mut existing_config, &migrations) {
-            Ok(_) => {
-                let result = config_validate_and_merge(&existing_config, &default_config, &mut recovered);
-                
-                let merged_str = serde_json::to_string_pretty(&result)
-                    .map_err(|e| format!("序列化配置失败: {}", e))?;
-                
-                std::fs::write(&config_path, merged_str)
-                    .map_err(|e| {
-                        log::error!("保存迁移后的配置失败，尝试回滚: {}", e);
-                        if let Err(rollback_err) = std::fs::copy(&backup_path, &config_path) {
-                            log::error!("回滚失败: {}", rollback_err);
-                        }
-                        format!("保存配置失败: {}", e)
-                    })?;
-                
-                config_backup_cleanup_old(&paths.config_dir, 3);
-                
-                log::info!("配置迁移成功");
-                result
-            }
-            Err(e) => {
-                log::error!("配置迁移失败: {}", e);
-                
-                if let Err(rollback_err) = std::fs::copy(&backup_path, &config_path) {
-                    log::error!("回滚失败: {}", rollback_err);
-                    return Err(format!("配置迁移失败且回滚失败: {} (回滚错误: {})", e, rollback_err));
-                }
-                
-                log::info!("已回滚到迁移前的配置");
-                config_validate_and_merge(&existing_config, &default_config, &mut recovered)
-            }
-        }
-    } else {
-        let result = config_validate_and_merge(&existing_config, &default_config, &mut recovered);
-        
-        let merged_str = serde_json::to_string_pretty(&result)
-            .map_err(|e| format!("序列化配置失败: {}", e))?;
-        std::fs::write(&config_path, merged_str)
-            .map_err(|e| format!("保存配置失败: {}", e))?;
-        
-        result
-    };
+    let merged_str = serde_json::to_string_pretty(&merged_config)
+        .map_err(|e| format!("序列化配置失败: {}", e))?;
+    std::fs::write(&config_path, merged_str)
+        .map_err(|e| format!("保存配置失败: {}", e))?;
     
     if !recovered.is_empty() {
-        // 备份异常配置
         let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
         let backup_name = format!("config.json.before_recovery_{}", timestamp);
         let backup_path = config_path.parent().unwrap().join(&backup_name);
@@ -1564,6 +1406,7 @@ async fn settings_fetch_all(app: tauri::AppHandle) -> Result<SettingsResult, Str
 ///
 /// 现有配置与传入设置按 key 合并，先写临时文件再 rename 实现原子替换。
 /// 写入前校验传入值类型，类型不匹配的字段将被跳过。
+/// 配置文件损坏时备份并回退默认配置。
 #[tauri::command]
 async fn settings_save_all(app: tauri::AppHandle, settings: serde_json::Value) -> Result<(), String> {
     let paths = AppPaths::new(&app)?;
@@ -1578,8 +1421,26 @@ async fn settings_save_all(app: tauri::AppHandle, settings: serde_json::Value) -
     let default_config = config_fetch_default();
     
     let existing_settings = if config_path.exists() {
-        if let Ok(config_content) = std::fs::read_to_string(&config_path) {
-            if let Ok(mut existing) = serde_json::from_str::<serde_json::Value>(&config_content) {
+        let config_content = match std::fs::read_to_string(&config_path) {
+            Ok(c) => c,
+            Err(e) => {
+                log::warn!("保存时读取配置文件失败: {}，使用默认配置", e);
+                config_backup_corrupted(&config_path);
+                // 从默认配置 + 传入设置合并
+                let mut base = default_config.clone();
+                if let Some(obj) = base.as_object_mut() {
+                    if let Some(new_obj) = settings.as_object() {
+                        for (key, value) in new_obj {
+                            obj.insert(key.clone(), value.clone());
+                        }
+                    }
+                }
+                write_atomic(&temp_path, &config_path, &base)?;
+                return Ok(());
+            }
+        };
+        match serde_json::from_str::<serde_json::Value>(&config_content) {
+            Ok(mut existing) => {
                 if let Some(obj) = existing.as_object_mut() {
                     if let Some(new_obj) = settings.as_object() {
                         for (key, value) in new_obj {
@@ -1599,11 +1460,21 @@ async fn settings_save_all(app: tauri::AppHandle, settings: serde_json::Value) -
                     }
                 }
                 existing
-            } else {
-                settings
             }
-        } else {
-            settings
+            Err(e) => {
+                log::warn!("保存时解析配置文件失败: {}，使用默认配置", e);
+                config_backup_corrupted(&config_path);
+                let mut base = default_config.clone();
+                if let Some(obj) = base.as_object_mut() {
+                    if let Some(new_obj) = settings.as_object() {
+                        for (key, value) in new_obj {
+                            obj.insert(key.clone(), value.clone());
+                        }
+                    }
+                }
+                write_atomic(&temp_path, &config_path, &base)?;
+                return Ok(());
+            }
         }
     } else {
         settings
@@ -1617,6 +1488,17 @@ async fn settings_save_all(app: tauri::AppHandle, settings: serde_json::Value) -
         format!("Failed to rename config file: {}", e)
     })?;
     
+    Ok(())
+}
+
+/// 原子写入 JSON 到文件（临时文件 + rename）
+fn write_atomic(temp_path: &std::path::Path, config_path: &std::path::Path, value: &serde_json::Value) -> Result<(), String> {
+    let config_str = serde_json::to_string_pretty(value).map_err(|e| e.to_string())?;
+    std::fs::write(&temp_path, &config_str).map_err(|e| e.to_string())?;
+    std::fs::rename(&temp_path, &config_path).map_err(|e| {
+        let _ = std::fs::remove_file(&temp_path);
+        format!("Failed to rename config file: {}", e)
+    })?;
     Ok(())
 }
 

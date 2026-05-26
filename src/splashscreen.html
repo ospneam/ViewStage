@@ -196,9 +196,9 @@
             console.log('[splash] loadTheme start, hasInvoke:', !!invoke);
             if (invoke) {
                 try {
-                    const settings = await invoke('settings_fetch_all');
-                    console.log('[splash] settings loaded:', settings?.theme);
-                    const themeName = settings.theme || 'com.viewstage.theme.simplify';
+                    const result = await invoke('settings_fetch_all');
+                    console.log('[splash] settings loaded:', result.settings?.theme);
+                    const themeName = result.settings?.theme || 'com.viewstage.theme.simplify';
                     splash_apply_theme(themeName);
                 } catch (e) {
                     console.log('[splash] 加载主题设置失败:', e?.message || e);
