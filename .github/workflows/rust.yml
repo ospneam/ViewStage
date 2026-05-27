@@ -104,21 +104,13 @@ jobs:
           esac
           if [ -n "$suffix" ]; then
             find src-tauri/target/release/bundle -maxdepth 2 -type f \
-              \( -name '*.deb' -o -name '*.AppImage' -o -name '*.tar.gz' -o -name '*.msi' -o -name '*.exe' \) \
+              \( -name '*.deb' -o -name '*.AppImage' -o -name '*.msi' -o -name '*.exe' \) \
               -exec sh -c '
                 s="$1"; shift
                 for f; do
-                  case "$f" in
-                    *.tar.gz)
-                      d="${f%.tar.gz}"
-                      mv "$f" "${d}${s}.tar.gz"
-                      ;;
-                    *)
-                      d="${f%.*}"
-                      e="${f##*.}"
-                      mv "$f" "${d}${s}.${e}"
-                      ;;
-                  esac
+                  d="${f%.*}"
+                  e="${f##*.}"
+                  mv "$f" "${d}${s}.${e}"
                 done
               ' sh "$suffix" {} +
           fi
@@ -160,7 +152,6 @@ jobs:
             ! -name '*.exe' \
             ! -name '*.deb' \
             ! -name '*.AppImage' \
-            ! -name '*.tar.gz' \
             -delete
 
       - name: Generate release notes
