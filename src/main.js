@@ -669,9 +669,28 @@ let cachedVisibleRectY = null;
 
 const OFFSCREEN_MAX_PHYSICAL = 3840;
 const OFFSCREEN_POOL_MAX = 2;
+const OFFSCREEN_POOL_IDLE_MS = 30000;
 const _offscreenPool = [];
+let _offscreenPoolTimer = null;
+
+function main_clear_offscreen_pool() {
+    for (const entry of _offscreenPool) {
+        entry.canvas = null;
+        entry.ctx = null;
+    }
+    _offscreenPool.length = 0;
+}
+
+function main_schedule_offscreen_pool_evict() {
+    clearTimeout(_offscreenPoolTimer);
+    _offscreenPoolTimer = setTimeout(() => {
+        _offscreenPoolTimer = null;
+        main_clear_offscreen_pool();
+    }, OFFSCREEN_POOL_IDLE_MS);
+}
 
 function main_fetch_offscreen_canvas() {
+    clearTimeout(_offscreenPoolTimer);
     let w = DRAW_CONFIG.canvasW * DRAW_CONFIG.dpr;
     let h = DRAW_CONFIG.canvasH * DRAW_CONFIG.dpr;
     if (w > OFFSCREEN_MAX_PHYSICAL || h > OFFSCREEN_MAX_PHYSICAL) {
@@ -704,6 +723,7 @@ function main_release_offscreen_canvas(offscreen) {
     if (_offscreenPool.length < OFFSCREEN_POOL_MAX) {
         _offscreenPool.push(offscreen);
     }
+    main_schedule_offscreen_pool_evict();
 }
 
 function main_delete_cached_rect() {
@@ -2653,10 +2673,11 @@ async function main_submit_stroke() {
                 window.tileRenderer.mark_all();
             }
         } else {
+            const strokeBounds = state.currentStroke && state.currentStroke.bounds ? { ...state.currentStroke.bounds } : null;
             const cmd = new DrawCommand({
                 stroke: state.currentStroke,
                 strokeHistoryRef: state.strokeHistory,
-                redrawFn: () => main_render_all_strokes()
+                redrawFn: () => main_render_all_strokes(strokeBounds)
             });
             await history_execute_command(cmd, false);
             
@@ -2698,10 +2719,30 @@ async function main_handle_eraser_stroke(eraserStroke) {
         }
         
         if (splitResults.length > 0) {
+            const combinedBounds = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
+            for (const pair of splitResults) {
+                const b = pair.originalStroke.bounds;
+                if (b) {
+                    combinedBounds.minX = Math.min(combinedBounds.minX, b.minX);
+                    combinedBounds.minY = Math.min(combinedBounds.minY, b.minY);
+                    combinedBounds.maxX = Math.max(combinedBounds.maxX, b.maxX);
+                    combinedBounds.maxY = Math.max(combinedBounds.maxY, b.maxY);
+                }
+                for (const sub of pair.subStrokes) {
+                    const sb = sub.bounds;
+                    if (sb) {
+                        combinedBounds.minX = Math.min(combinedBounds.minX, sb.minX);
+                        combinedBounds.minY = Math.min(combinedBounds.minY, sb.minY);
+                        combinedBounds.maxX = Math.max(combinedBounds.maxX, sb.maxX);
+                        combinedBounds.maxY = Math.max(combinedBounds.maxY, sb.maxY);
+                    }
+                }
+            }
+            const penEraseBounds = isFinite(combinedBounds.minX) ? combinedBounds : null;
             const cmd = new PenEraseCommand({
                 pairs: splitResults,
                 strokeHistoryRef: state.strokeHistory,
-                redrawFn: () => main_render_all_strokes()
+                redrawFn: () => main_render_all_strokes(penEraseBounds)
             });
             await history_execute_command(cmd, false);
             
@@ -2719,10 +2760,11 @@ async function main_handle_eraser_stroke(eraserStroke) {
     const hasIntersection = main_validate_eraser_intersection(eraserStroke);
     
     if (hasIntersection) {
+        const eraserBounds = eraserStroke && eraserStroke.bounds ? { ...eraserStroke.bounds } : null;
         const cmd = new EraseCommand({
             stroke: eraserStroke,
             strokeHistoryRef: state.strokeHistory,
-            redrawFn: () => main_render_all_strokes()
+            redrawFn: () => main_render_all_strokes(eraserBounds)
         });
         await history_execute_command(cmd, false);
         console.log('橡皮擦擦除了内容，记录撤销步骤');
@@ -2932,7 +2974,7 @@ function main_calc_split_strokes_by_eraser(drawStroke, eraserStroke, penEffectMo
     };
 }
 
-async function main_render_all_strokes() {
+async function main_render_all_strokes(bounds) {
     main_reset_context_state();
     const tr = window.tileRenderer;
     if (!tr) return;
@@ -2952,7 +2994,20 @@ async function main_render_all_strokes() {
     }
 
     tr.mark_strokes_changed();
-    tr.mark_all();
+
+    if (bounds && isFinite(bounds.minX) && isFinite(bounds.minY) &&
+                  isFinite(bounds.maxX) && isFinite(bounds.maxY)) {
+        const infos = tr.infos_for_segment(
+            bounds.minX, bounds.minY,
+            bounds.maxX, bounds.maxY
+        );
+        for (const info of infos) {
+            tr.dirty.add(info.key);
+        }
+    } else {
+        tr.mark_all();
+    }
+
     tr.rebuild_all();
 }
 

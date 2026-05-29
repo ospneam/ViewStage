@@ -9,13 +9,12 @@ class TileRenderer {
         this._pendingDpr = null;
         this._rebuildRafId = null;
         this._quadtree = null;
-        this._baseCacheCanvas = null;
-        this._baseCacheCtx = null;
+        this._baseCaches = new Map();
         this._baseCacheLoadId = 0;
         this._dprSettleTimerId = null;
         this._DPR_SETTLE_MS = 300;
         this._idleShrinkTimerId = null;
-        this._IDLE_SHRINK_MS = 5000;
+        this._IDLE_SHRINK_MS = 2000;
         this._strokeVersion = 0;
         this._builtStrokeVersion = -1;
         for (let r = 0; r < TILE_ROWS; r++) {
@@ -70,32 +69,41 @@ class TileRenderer {
     _update_base_cache() {
         const img = window.state.baseImageObj;
         const loadId = window.state.baseImageLoadId || 0;
-        const cw = window.DRAW_CONFIG.canvasW;
-        const ch = window.DRAW_CONFIG.canvasH;
         if (!img) {
-            this._baseCacheCanvas = null;
-            this._baseCacheCtx = null;
+            this._clear_base_caches();
             this._baseCacheLoadId = loadId;
             return;
         }
-        if (this._baseCacheLoadId === loadId && this._baseCacheCanvas) return;
-        if (!this._baseCacheCanvas) {
-            this._baseCacheCanvas = document.createElement('canvas');
-            this._baseCacheCtx = this._baseCacheCanvas.getContext('2d');
+        if (this._baseCacheLoadId === loadId && this._baseCaches.size > 0) return;
+        for (const info of this.tileInfos) {
+            const rect = info.rect;
+            let entry = this._baseCaches.get(info.key);
+            if (!entry) {
+                const canvas = document.createElement('canvas');
+                const ctx = canvas.getContext('2d');
+                canvas.width = rect.width;
+                canvas.height = rect.height;
+                entry = { canvas, ctx };
+                this._baseCaches.set(info.key, entry);
+            }
+            const ctx = entry.ctx;
+            ctx.setTransform(1, 0, 0, 1, 0, 0);
+            ctx.clearRect(0, 0, rect.width, rect.height);
+            ctx.drawImage(img, rect.x, rect.y, rect.width, rect.height, 0, 0, rect.width, rect.height);
         }
-        if (this._baseCacheCanvas.width !== cw || this._baseCacheCanvas.height !== ch) {
-            this._baseCacheCanvas.width = cw;
-            this._baseCacheCanvas.height = ch;
-        }
-        this._baseCacheCtx.setTransform(1, 0, 0, 1, 0, 0);
-        this._baseCacheCtx.clearRect(0, 0, cw, ch);
-        this._baseCacheCtx.drawImage(img, 0, 0, cw, ch);
         this._baseCacheLoadId = loadId;
     }
 
+    _clear_base_caches() {
+        for (const entry of this._baseCaches.values()) {
+            entry.canvas = null;
+            entry.ctx = null;
+        }
+        this._baseCaches.clear();
+    }
+
     invalidate_base_cache() {
-        this._baseCacheCanvas = null;
-        this._baseCacheCtx = null;
+        this._clear_base_caches();
     }
 
     mark_strokes_changed() {
@@ -342,10 +350,11 @@ class TileRenderer {
         ctx.setTransform(dpr, 0, 0, dpr, -rect.x * dpr, -rect.y * dpr);
         ctx.clearRect(rect.x, rect.y, rect.width, rect.height);
 
-        if (this._baseCacheCanvas) {
+        const cacheEntry = this._baseCaches.get(info.key);
+        if (cacheEntry) {
             ctx.drawImage(
-                this._baseCacheCanvas,
-                rect.x, rect.y, rect.width, rect.height,
+                cacheEntry.canvas,
+                0, 0, rect.width, rect.height,
                 rect.x, rect.y, rect.width, rect.height
             );
         }
@@ -424,8 +433,7 @@ class TileRenderer {
             info.canvas = null;
             info.ctx = null;
         }
-        this._baseCacheCanvas = null;
-        this._baseCacheCtx = null;
+        this._clear_base_caches();
         this._baseCacheLoadId = 0;
         this.dirty.clear();
     }
