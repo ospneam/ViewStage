@@ -319,10 +319,6 @@ class RealtimeBatchDrawManager {
 
         const drawStart = performance.now();
 
-        if (window.main_reset_context_state) {
-            window.main_reset_context_state();
-        }
-
         this._sync_overlay_transform();
 
         const commands = this.pendingCommands;
@@ -341,6 +337,12 @@ class RealtimeBatchDrawManager {
         const batchTimeSpan = Math.max(1, curTime - lastMoveTime);
         const perSegTime = Math.min(batchTimeSpan / count, 8);
         lastMoveTime = curTime;
+
+        if (this._overlayCtx) {
+            this._overlayCtx.globalCompositeOperation = 'source-over';
+            this._overlayCtx.lineCap = 'round';
+            this._overlayCtx.lineJoin = 'round';
+        }
 
         const eraseByTile = new Map();
 
@@ -394,9 +396,6 @@ class RealtimeBatchDrawManager {
                 }
             } else if (this._overlayCtx) {
                 const ctx = this._overlayCtx;
-                ctx.globalCompositeOperation = 'source-over';
-                ctx.lineCap = 'round';
-                ctx.lineJoin = 'round';
                 if (cmd.color) {
                     ctx.strokeStyle = cmd.color;
                 }
@@ -556,15 +555,6 @@ class RealtimeBatchDrawManager {
         }
 
         this.clear_overlay();
-
-        this._each_visible_tile((ctx, info) => {
-            const cfg = window.DRAW_CONFIG || {};
-            ctx.globalCompositeOperation = 'source-over';
-            ctx.strokeStyle = cfg.penColor || '#3498db';
-            ctx.lineWidth = cfg.penWidth || 5;
-            ctx.lineCap = 'round';
-            ctx.lineJoin = 'round';
-        });
 
         if (this.is_adaptive) {
             this.drawTimes = [];

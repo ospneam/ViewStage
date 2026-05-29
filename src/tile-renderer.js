@@ -23,6 +23,14 @@ class TileRenderer {
                 this.tileInfos.push({ col: c, row: r, key: `${c}_${r}`, dpr: 1 });
             }
         }
+        this._init_tile_map();
+    }
+
+    _init_tile_map() {
+        this._tileMap = new Map();
+        for (const info of this.tileInfos) {
+            this._tileMap.set(info.key, info);
+        }
     }
 
     _cancel_dpr_settle() {
@@ -303,8 +311,7 @@ class TileRenderer {
         const { w, h } = this.get_tile_dimensions();
         const col = Math.min(TILE_COLS - 1, Math.max(0, Math.floor(x / w)));
         const row = Math.min(TILE_ROWS - 1, Math.max(0, Math.floor(y / h)));
-        const key = this.tile_key(col, row);
-        return this.tileInfos.find(i => i.key === key);
+        return this._tileMap.get(this.tile_key(col, row));
     }
 
     infos_for_segment(x1, y1, x2, y2) {
@@ -320,8 +327,7 @@ class TileRenderer {
         const result = [];
         for (let r = sr; r <= er; r++) {
             for (let c = sc; c <= ec; c++) {
-                const key = this.tile_key(c, r);
-                const info = this.tileInfos.find(i => i.key === key);
+                const info = this._tileMap.get(this.tile_key(c, r));
                 if (info) result.push(info);
             }
         }
