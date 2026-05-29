@@ -954,6 +954,26 @@ button {
     color: var(--color-brand-accent, #4a9eff);
 }
 
+.mini-select {
+    min-width: 70px;
+}
+
+.mini-select .select-selected {
+    font-size: 11px;
+    padding: 6px 10px;
+}
+
+.range-group {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.range-sep {
+    color: var(--color-muted, rgba(255, 255, 255, 0.4));
+    font-size: 13px;
+}
+
 .btn-reset {
     display: inline-flex;
     align-items: center;

@@ -110,6 +110,40 @@
                         </div>
                     </div>
                     <div class="setting-item flex-start">
+                        <span class="setting-label" data-i18n="settings.dynamicResolution">动态分辨率</span>
+                        <div style="display:flex;flex-direction:column;gap:4px;">
+                            <div class="option-group" id="dynamicDprGroup">
+                                <button class="option-btn" data-value="true" data-i18n="common.yes">开启</button>
+                                <button class="option-btn" data-value="false" data-i18n="common.no">关闭</button>
+                            </div>
+                            <span class="setting-hint" data-i18n="settings.dynamicResolutionHint">放大时自动提高画布分辨率以获得更清晰的显示</span>
+                        </div>
+                    </div>
+                    <div class="setting-item" id="dprRangeItem">
+                        <span class="setting-label">DPR <span data-i18n="settings.range">范围</span></span>
+                        <div class="range-group">
+                            <div class="custom-select mini-select" id="dprMinSelect">
+                                <div class="select-selected" id="dprMinSelected">1x</div>
+                                <div class="select-options" id="dprMinOptions">
+                                    <div class="select-option" data-value="0.5">0.5x</div>
+                                    <div class="select-option" data-value="1">1x</div>
+                                    <div class="select-option" data-value="1.5">1.5x</div>
+                                    <div class="select-option" data-value="2">2x</div>
+                                </div>
+                            </div>
+                            <span class="range-sep">~</span>
+                            <div class="custom-select mini-select" id="dprMaxSelect">
+                                <div class="select-selected" id="dprMaxSelected">4x</div>
+                                <div class="select-options" id="dprMaxOptions">
+                                    <div class="select-option" data-value="2">2x</div>
+                                    <div class="select-option" data-value="3">3x</div>
+                                    <div class="select-option" data-value="4">4x</div>
+                                    <div class="select-option" data-value="6">6x</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="setting-item flex-start">
                         <span class="setting-label" data-i18n="settings.penColors">画笔颜色</span>
                         <div class="color-editor" id="colorEditor">
                             <div class="color-editor-row">

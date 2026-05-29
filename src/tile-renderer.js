@@ -5,9 +5,12 @@ class TileRenderer {
     constructor() {
         this.dirty = new Set();
         this.tileInfos = [];
+        this._lastDprUpdateScale = 0;
+        this._pendingDpr = null;
+        this._rebuildRafId = null;
         for (let r = 0; r < TILE_ROWS; r++) {
             for (let c = 0; c < TILE_COLS; c++) {
-                this.tileInfos.push({ col: c, row: r, key: `${c}_${r}` });
+                this.tileInfos.push({ col: c, row: r, key: `${c}_${r}`, dpr: 1 });
             }
         }
     }
@@ -35,32 +38,106 @@ class TileRenderer {
 
     tile_key(col, row) { return `${col}_${row}`; }
 
+    _calc_target_dpr(scale) {
+        const cfg = window.DRAW_CONFIG;
+        if (cfg.dynamicDprEnabled === false) return cfg.dpr;
+        const baseDpr = cfg.baseDpr || window.devicePixelRatio || 1;
+        const minDpr = cfg.dprMin || 1;
+        const maxDpr = cfg.dprMax || 4;
+        const step = cfg.dprStep || 0.5;
+        let dpr = baseDpr * scale;
+        dpr = Math.round(dpr / step) * step;
+        return Math.max(minDpr, Math.min(maxDpr, dpr));
+    }
+
+    _create_tile_canvas(info, dpr) {
+        const rect = info.rect;
+        const canvas = document.createElement('canvas');
+        canvas.className = 'canvas-tile';
+        canvas.width = Math.ceil(rect.width * dpr);
+        canvas.height = Math.ceil(rect.height * dpr);
+        canvas.style.width = rect.width + 'px';
+        canvas.style.height = rect.height + 'px';
+        canvas.style.left = rect.x + 'px';
+        canvas.style.top = rect.y + 'px';
+
+        const ctx = canvas.getContext('2d', { alpha: true });
+        ctx.imageSmoothingEnabled = false;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+
+        return { canvas, ctx };
+    }
+
+    _recreate_tile(info, newDpr) {
+        const canvas = info.canvas;
+        const ctx = info.ctx;
+        if (!canvas || !ctx) return;
+
+        canvas.width = Math.ceil(info.rect.width * newDpr);
+        canvas.height = Math.ceil(info.rect.height * newDpr);
+        ctx.imageSmoothingEnabled = false;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+
+        info.dpr = newDpr;
+        this.dirty.add(info.key);
+    }
+
+    update_visible_tile_dpr(scale) {
+        const targetDpr = this._calc_target_dpr(scale);
+        const keys = this.get_visible_keys();
+        let changed = false;
+        for (const info of this.tileInfos) {
+            if (keys.has(info.key) && info.dpr !== targetDpr) {
+                changed = true;
+                break;
+            }
+        }
+        if (!changed) return;
+
+        const cfg = window.DRAW_CONFIG;
+        const hysteresis = (cfg.dprStep || 0.5) / Math.max(0.5, cfg.baseDpr || window.devicePixelRatio || 1);
+        if (Math.abs(scale - this._lastDprUpdateScale) < hysteresis) {
+            return;
+        }
+        this._lastDprUpdateScale = scale;
+
+        this._pendingDpr = targetDpr;
+        if (!this._rebuildRafId) {
+            this._rebuildRafId = requestAnimationFrame(() => this._apply_dpr_update());
+        }
+    }
+
+    _apply_dpr_update() {
+        this._rebuildRafId = null;
+        const targetDpr = this._pendingDpr;
+        this._pendingDpr = null;
+        if (targetDpr == null) return;
+
+        const keys = this.get_visible_keys();
+        for (const info of this.tileInfos) {
+            if (keys.has(info.key) && info.dpr !== targetDpr) {
+                this._recreate_tile(info, targetDpr);
+            }
+        }
+        this.rebuild_visible(keys);
+    }
+
     init_tiles(wrapper) {
-        const dpr = window.DRAW_CONFIG.dpr;
+        const scale = window.state ? (window.state.scale || 1) : 1;
         const existing = wrapper.querySelectorAll('.canvas-tile');
         for (const el of existing) el.remove();
 
         for (const info of this.tileInfos) {
-            const rect = this.get_tile_rect(info.col, info.row);
-            const canvas = document.createElement('canvas');
-            canvas.className = 'canvas-tile';
-            canvas.width = Math.ceil(rect.width * dpr);
-            canvas.height = Math.ceil(rect.height * dpr);
-            canvas.style.width = rect.width + 'px';
-            canvas.style.height = rect.height + 'px';
-            canvas.style.left = rect.x + 'px';
-            canvas.style.top = rect.y + 'px';
-
-            const ctx = canvas.getContext('2d', { alpha: true });
-            ctx.scale(dpr, dpr);
-            ctx.imageSmoothingEnabled = false;
-            ctx.lineCap = 'round';
-            ctx.lineJoin = 'round';
+            info.rect = this.get_tile_rect(info.col, info.row);
+            const dpr = this._calc_target_dpr(scale);
+            const { canvas, ctx } = this._create_tile_canvas(info, dpr);
 
             wrapper.appendChild(canvas);
             info.canvas = canvas;
             info.ctx = ctx;
-            info.rect = rect;
+            info.dpr = dpr;
             this.dirty.add(info.key);
         }
     }
@@ -128,7 +205,7 @@ class TileRenderer {
     rebuild_tile(info) {
         const ctx = info.ctx;
         const rect = info.rect;
-        const dpr = window.DRAW_CONFIG.dpr;
+        const dpr = info.dpr;
         ctx.save();
         ctx.setTransform(dpr, 0, 0, dpr, -rect.x * dpr, -rect.y * dpr);
         ctx.clearRect(rect.x, rect.y, rect.width, rect.height);
@@ -169,8 +246,8 @@ class TileRenderer {
         this.dirty.delete(info.key);
     }
 
-    rebuild_visible() {
-        const keys = this.get_visible_keys();
+    rebuild_visible(keys) {
+        if (!keys) keys = this.get_visible_keys();
         for (const info of this.tileInfos) {
             if (keys.has(info.key) && this.dirty.has(info.key)) {
                 this.rebuild_tile(info);
@@ -193,6 +270,11 @@ class TileRenderer {
     }
 
     destroy() {
+        if (this._rebuildRafId !== null) {
+            cancelAnimationFrame(this._rebuildRafId);
+            this._rebuildRafId = null;
+        }
+        this._pendingDpr = null;
         for (const info of this.tileInfos) {
             if (info.canvas && info.canvas.parentNode) {
                 info.canvas.parentNode.removeChild(info.canvas);
@@ -218,9 +300,9 @@ class TileRenderer {
             if (uniqueKeys.has(info.key)) {
                 const ctx = info.ctx;
                 const rect = info.rect;
+                const dpr = info.dpr;
                 ctx.save();
-                ctx.setTransform(window.DRAW_CONFIG.dpr, 0, 0, window.DRAW_CONFIG.dpr,
-                    -rect.x * window.DRAW_CONFIG.dpr, -rect.y * window.DRAW_CONFIG.dpr);
+                ctx.setTransform(dpr, 0, 0, dpr, -rect.x * dpr, -rect.y * dpr);
                 ctx.beginPath();
                 ctx.rect(rect.x, rect.y, rect.width, rect.height);
                 ctx.clip();

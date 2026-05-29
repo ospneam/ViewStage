@@ -256,6 +256,34 @@ document.addEventListener('DOMContentLoaded', async () => {
                     });
                 }
 
+                const dynamicDprEnabled = settings.dynamicDprEnabled !== undefined ? settings.dynamicDprEnabled : true;
+                const dprEnabledBtns = document.querySelectorAll('#dynamicDprGroup .option-btn');
+                dprEnabledBtns.forEach(btn => {
+                    btn.classList.toggle('active', btn.dataset.value === String(dynamicDprEnabled));
+                });
+                const dprRangeItem = document.getElementById('dprRangeItem');
+                if (dprRangeItem) {
+                    dprRangeItem.style.display = dynamicDprEnabled ? '' : 'none';
+                }
+
+                function settings_load_dpr_select(id, key, defaultVal) {
+                    const selSelected = document.getElementById(id.replace('Select', 'Selected'));
+                    const selOptions = document.getElementById(id.replace('Select', 'Options'));
+                    if (selSelected && selOptions) {
+                        const saved = settings[key] !== undefined ? parseFloat(settings[key]) : defaultVal;
+                        selOptions.querySelectorAll('.select-option').forEach(opt => {
+                            if (parseFloat(opt.dataset.value) === saved) {
+                                selSelected.textContent = opt.textContent;
+                                opt.classList.add('selected');
+                            } else {
+                                opt.classList.remove('selected');
+                            }
+                        });
+                    }
+                }
+                settings_load_dpr_select('dprMinSelect', 'dprMin', 1);
+                settings_load_dpr_select('dprMaxSelect', 'dprMax', 4);
+
                 const DEFAULT_COLORS = [
                     '#ef4444', '#f97316', '#eab308', '#22c55e', '#06b6d4',
                     '#3b82f6', '#6366f1', '#a855f7', '#ec4899', '#f43f5e',
@@ -872,6 +900,39 @@ document.addEventListener('DOMContentLoaded', async () => {
             } else {
                 settings_show_dialog(window.i18n?.format_translate('settings.saveFailed') || '保存失败', window.i18n?.format_translate('settings.saveFailedRetry') || '保存设置失败，请重试', 'error');
             }
+        });
+    }
+
+    function settings_bind_select_save(id, settingsKey) {
+        const sel = document.getElementById(id);
+        const selSelected = document.getElementById(id.replace('Select', 'Selected'));
+        if (!sel || !selSelected) return;
+        selSelected.addEventListener('click', () => sel.classList.toggle('open'));
+        document.addEventListener('click', (e) => { if (!sel.contains(e.target)) sel.classList.remove('open'); });
+        sel.addEventListener('click', async (e) => {
+            const option = e.target.closest('.select-option');
+            if (!option) return;
+            const value = parseFloat(option.dataset.value);
+            selSelected.textContent = option.textContent;
+            sel.querySelectorAll('.select-option').forEach(opt => opt.classList.remove('selected'));
+            option.classList.add('selected');
+            sel.classList.remove('open');
+            await settings_save_all_local({ [settingsKey]: value });
+        });
+    }
+    settings_bind_select_save('dprMinSelect', 'dprMin');
+    settings_bind_select_save('dprMaxSelect', 'dprMax');
+
+    const dynamicDprGroup = document.getElementById('dynamicDprGroup');
+    if (dynamicDprGroup) {
+        dynamicDprGroup.addEventListener('click', async (e) => {
+            const btn = e.target.closest('.option-btn');
+            if (!btn) return;
+            const value = btn.dataset.value === 'true';
+            dynamicDprGroup.querySelectorAll('.option-btn').forEach(b => b.classList.toggle('active', b === btn));
+            const dprRangeItem = document.getElementById('dprRangeItem');
+            if (dprRangeItem) dprRangeItem.style.display = value ? '' : 'none';
+            await settings_save_all_local({ dynamicDprEnabled: value });
         });
     }
     

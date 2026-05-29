@@ -17,7 +17,9 @@
     "retry": "重試",
     "close": "關閉",
     "download": "下載",
-    "import": "匯入"
+    "import": "匯入",
+    "yes": "是",
+    "no": "否"
   },
   "loading": {
     "detectingOffice": "正在偵測 Office 軟體...",
@@ -180,6 +182,7 @@
     "resolutionUltra": "極致",
     "resolutionExtreme": "極限",
     "maximum": "最大",
+    "range": "範圍",
     "colorN": "顏色{n}",
     "pdfDefaultSetSuccess": "PDF 已設為預設開啟方式",
     "pdfDefaultSetFailed": "設定 PDF 預設開啟方式失敗",

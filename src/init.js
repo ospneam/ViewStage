@@ -164,6 +164,19 @@ async function settings_load_camera_config() {
                 DRAW_CONFIG.dpr = window.main_calc_capped_dpr(DRAW_CONFIG.baseDpr, DRAW_CONFIG.dprLimit);
             }
 
+            if (settings.dynamicDprEnabled !== undefined) {
+                DRAW_CONFIG.dynamicDprEnabled = settings.dynamicDprEnabled;
+            }
+            if (settings.dprMin !== undefined) {
+                DRAW_CONFIG.dprMin = settings.dprMin;
+            }
+            if (settings.dprMax !== undefined) {
+                DRAW_CONFIG.dprMax = settings.dprMax;
+            }
+            if (settings.dprStep !== undefined) {
+                DRAW_CONFIG.dprStep = settings.dprStep;
+            }
+
             if (settings.pdfScale) {
                 DRAW_CONFIG.pdfScale = settings.pdfScale;
             }

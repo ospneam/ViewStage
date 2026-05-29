@@ -17,7 +17,9 @@
     "retry": "Retry",
     "close": "Close",
     "download": "Download",
-    "import": "Import"
+    "import": "Import",
+    "yes": "Yes",
+    "no": "No"
   },
   "loading": {
     "detectingOffice": "Detecting Office software...",
@@ -162,6 +164,7 @@
     "resolutionUltra": "Ultra",
     "resolutionExtreme": "Extreme",
     "maximum": "Max",
+    "range": "Range",
     "colorN": "Color {n}",
     "update": "Update",
     "updateAvailable": "Update Available",

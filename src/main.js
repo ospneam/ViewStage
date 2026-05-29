@@ -45,6 +45,9 @@ function main_update_transform_schedule(x, y, scale) {
                 last_canvas_transform.x = pt.x;
                 last_canvas_transform.y = pt.y;
                 last_canvas_transform.scale = pt.scale;
+                if (window.tileRenderer) {
+                    window.tileRenderer.update_visible_tile_dpr(pt.scale);
+                }
             }
             transform_raf_id = null;
         });
@@ -89,6 +92,10 @@ const DRAW_CONFIG = {
     screenH: 0,
     dprLimit: 2,
     dpr: 1,
+    dynamicDprEnabled: true,
+    dprMin: 1,
+    dprMax: 4,
+    dprStep: 0.5,
     pdfScale: 2,
     imageSmoothingQuality: 'high',
     baseDpr: window.devicePixelRatio || 1,
@@ -795,7 +802,26 @@ function main_setup_pdf_file_open() {
             DRAW_CONFIG.pdfScale = settings.pdfScale;
             console.log('PDF 输出分辨率已更改:', settings.pdfScale);
         }
-        
+
+        if (settings.dynamicDprEnabled !== undefined) {
+            DRAW_CONFIG.dynamicDprEnabled = settings.dynamicDprEnabled;
+        }
+        if (settings.dprMin !== undefined) {
+            DRAW_CONFIG.dprMin = settings.dprMin;
+        }
+        if (settings.dprMax !== undefined) {
+            DRAW_CONFIG.dprMax = settings.dprMax;
+        }
+        if (settings.dprStep !== undefined) {
+            DRAW_CONFIG.dprStep = settings.dprStep;
+        }
+        if (settings.dynamicDprEnabled !== undefined || settings.dprMin !== undefined ||
+            settings.dprMax !== undefined || settings.dprStep !== undefined) {
+            if (window.tileRenderer) {
+                window.tileRenderer.update_visible_tile_dpr(state.scale);
+            }
+        }
+
         if (settings.penColors && Array.isArray(settings.penColors)) {
             DRAW_CONFIG.penColors = settings.penColors.map(color => {
                 if (typeof color === 'object' && color.r !== undefined) {
@@ -2434,8 +2460,11 @@ async function main_handle_touch_end(e) {
             state.isDrawing = false;
             main_hide_drawing_mode();
             await main_submit_stroke();
-        } else if (state.isScaling && window.tileRenderer) {
-            window.tileRenderer.mark_all();
+        } else if (state.isScaling) {
+            if (window.tileRenderer) {
+                window.tileRenderer.update_visible_tile_dpr(state.scale);
+                window.tileRenderer.mark_all();
+            }
         }
         state.isScaling = false;
     } else if (e.touches.length === 1) {
@@ -2472,6 +2501,10 @@ function main_update_canvas_transform() {
     
     const transform = `translate3d(${state.canvasX}px, ${state.canvasY}px, 0) scale(${state.scale})`;
     dom.canvasWrapper.style.transform = transform;
+
+    if (window.tileRenderer) {
+        window.tileRenderer.update_visible_tile_dpr(state.scale);
+    }
 }
 
 function main_update_canvas_transform_smooth(targetX, targetY, targetScale, duration = 250) {
@@ -2493,6 +2526,10 @@ function main_update_canvas_transform_smooth(targetX, targetY, targetScale, dura
     
     dom.canvasWrapper.classList.add('smooth-transform');
     dom.canvasWrapper.style.transform = `translate3d(${state.canvasX}px, ${state.canvasY}px, 0) scale(${state.scale})`;
+
+    if (window.tileRenderer) {
+        window.tileRenderer.update_visible_tile_dpr(state.scale);
+    }
     
     currentAnimationId = setTimeout(() => {
         currentAnimationId = null;
@@ -2859,7 +2896,7 @@ async function main_render_all_strokes() {
     if (state.strokeHistory.length === 0 && !state.baseImageObj) {
         tr.for_each((info) => {
             const ctx = info.ctx;
-            const dpr = DRAW_CONFIG.dpr;
+            const dpr = info.dpr;
             ctx.save();
             ctx.setTransform(dpr, 0, 0, dpr, -info.rect.x * dpr, -info.rect.y * dpr);
             ctx.clearRect(info.rect.x, info.rect.y, info.rect.width, info.rect.height);
@@ -2894,7 +2931,6 @@ async function main_render_eraser_stroke(stroke) {
     const maxY = Math.max(pts[0].fromY, pts[pts.length - 1].toY);
     
     const infos = tr.infos_for_segment(minX, minY, maxX, maxY);
-    const dpr = DRAW_CONFIG.dpr;
     
     const path = new Path2D();
     path.moveTo(pts[0].fromX, pts[0].fromY);
@@ -2906,6 +2942,7 @@ async function main_render_eraser_stroke(stroke) {
     
     for (const info of infos) {
         const ctx = info.ctx;
+        const dpr = info.dpr;
         ctx.save();
         ctx.setTransform(dpr, 0, 0, dpr,
             -info.rect.x * dpr, -info.rect.y * dpr);

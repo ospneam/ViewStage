@@ -103,9 +103,9 @@ class RealtimeBatchDrawManager {
         const tr = window.tileRenderer;
         if (!tr) return;
         const infos = tr.infos_for_segment(x1, y1, x2, y2);
-        const dpr = window.DRAW_CONFIG.dpr;
         for (const info of infos) {
             const ctx = info.ctx;
+            const dpr = info.dpr;
             ctx.save();
             ctx.setTransform(dpr, 0, 0, dpr,
                 -info.rect.x * dpr, -info.rect.y * dpr);
@@ -120,10 +120,10 @@ class RealtimeBatchDrawManager {
         const tr = window.tileRenderer;
         if (!tr) return;
         const keys = tr.get_visible_keys();
-        const dpr = window.DRAW_CONFIG.dpr;
         for (const info of tr.tileInfos) {
             if (keys.has(info.key)) {
                 const ctx = info.ctx;
+                const dpr = info.dpr;
                 ctx.save();
                 ctx.setTransform(dpr, 0, 0, dpr,
                     -info.rect.x * dpr, -info.rect.y * dpr);

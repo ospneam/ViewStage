@@ -17,7 +17,9 @@
     "retry": "重试",
     "close": "关闭",
     "download": "下载",
-    "import": "导入"
+    "import": "导入",
+    "yes": "是",
+    "no": "否"
   },
   "loading": {
     "detectingOffice": "正在检测 Office 软件...",
@@ -162,6 +164,7 @@
     "resolutionUltra": "极致",
     "resolutionExtreme": "极限",
     "maximum": "最大",
+    "range": "范围",
     "colorN": "颜色{n}",
     "update": "更新",
     "updateAvailable": "发现新版本",
