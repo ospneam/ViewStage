@@ -105,8 +105,8 @@ class TileRenderer {
         }
         this._lastDprUpdateScale = scale;
 
-        this._pendingDpr = targetDpr;
         this._cancel_pending_rebuild();
+        this._pendingDpr = targetDpr;
         this._rebuildRafId = requestAnimationFrame(() => this._apply_dpr_update());
     }
 
