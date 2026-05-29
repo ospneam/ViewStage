@@ -8,11 +8,100 @@ class TileRenderer {
         this._lastDprUpdateScale = 0;
         this._pendingDpr = null;
         this._rebuildRafId = null;
+        this._quadtree = null;
+        this._baseCacheCanvas = null;
+        this._baseCacheCtx = null;
+        this._baseCacheLoadId = 0;
+        this._dprSettleTimerId = null;
+        this._DPR_SETTLE_MS = 300;
+        this._idleShrinkTimerId = null;
+        this._IDLE_SHRINK_MS = 5000;
         for (let r = 0; r < TILE_ROWS; r++) {
             for (let c = 0; c < TILE_COLS; c++) {
                 this.tileInfos.push({ col: c, row: r, key: `${c}_${r}`, dpr: 1 });
             }
         }
+    }
+
+    _cancel_dpr_settle() {
+        if (this._dprSettleTimerId !== null) {
+            clearTimeout(this._dprSettleTimerId);
+            this._dprSettleTimerId = null;
+        }
+    }
+
+    _schedule_dpr_update(scale, force) {
+        const targetDpr = this._calc_target_dpr(scale);
+        const keys = this.get_visible_keys();
+        let changed = false;
+        for (const info of this.tileInfos) {
+            if (keys.has(info.key)) {
+                if (info.dpr !== targetDpr) { changed = true; break; }
+            } else if (info.dpr > 1) {
+                changed = true; break;
+            }
+        }
+        if (!changed) return;
+
+        if (!force) {
+            const cfg = window.DRAW_CONFIG;
+            const hysteresis = (cfg.dprStep || 0.5) / Math.max(0.5, cfg.baseDpr || window.devicePixelRatio || 1);
+            if (Math.abs(scale - this._lastDprUpdateScale) < hysteresis) {
+                return;
+            }
+        }
+        this._lastDprUpdateScale = scale;
+
+        this._cancel_pending_rebuild();
+        this._pendingDpr = targetDpr;
+        this._rebuildRafId = requestAnimationFrame(() => this._apply_dpr_update());
+    }
+
+    _update_base_cache() {
+        const img = window.state.baseImageObj;
+        const loadId = window.state.baseImageLoadId || 0;
+        const cw = window.DRAW_CONFIG.canvasW;
+        const ch = window.DRAW_CONFIG.canvasH;
+        if (!img) {
+            this._baseCacheCanvas = null;
+            this._baseCacheCtx = null;
+            this._baseCacheLoadId = loadId;
+            return;
+        }
+        if (this._baseCacheLoadId === loadId && this._baseCacheCanvas) return;
+        if (!this._baseCacheCanvas) {
+            this._baseCacheCanvas = document.createElement('canvas');
+            this._baseCacheCtx = this._baseCacheCanvas.getContext('2d');
+        }
+        if (this._baseCacheCanvas.width !== cw || this._baseCacheCanvas.height !== ch) {
+            this._baseCacheCanvas.width = cw;
+            this._baseCacheCanvas.height = ch;
+        }
+        this._baseCacheCtx.setTransform(1, 0, 0, 1, 0, 0);
+        this._baseCacheCtx.clearRect(0, 0, cw, ch);
+        this._baseCacheCtx.drawImage(img, 0, 0, cw, ch);
+        this._baseCacheLoadId = loadId;
+    }
+
+    invalidate_base_cache() {
+        this._baseCacheCanvas = null;
+        this._baseCacheCtx = null;
+    }
+
+    _build_quadtree() {
+        const strokes = window.state.strokeHistory;
+        if (!strokes || strokes.length === 0) {
+            this._quadtree = null;
+            return;
+        }
+        const boundary = {
+            x: 0,
+            y: 0,
+            width: window.DRAW_CONFIG.canvasW,
+            height: window.DRAW_CONFIG.canvasH
+        };
+        this._quadtree = new window.StrokeQuadTree(boundary);
+        this._quadtree.build(strokes);
     }
 
     get_tile_dimensions() {
@@ -84,38 +173,56 @@ class TileRenderer {
         this.dirty.add(info.key);
     }
 
-    update_visible_tile_dpr(scale, force) {
-        const targetDpr = this._calc_target_dpr(scale);
-        const keys = this.get_visible_keys();
-        let changed = false;
-        for (const info of this.tileInfos) {
-            if (keys.has(info.key) && info.dpr !== targetDpr) {
-                changed = true;
-                break;
-            }
+    update_visible_tile_dpr(scale, force, skipSettle) {
+        if (skipSettle) {
+            this._cancel_dpr_settle();
+            this._schedule_dpr_update(scale, force);
+            return;
         }
-        if (!changed) return;
+        this._cancel_dpr_settle();
+        this._dprSettleTimerId = setTimeout(() => {
+            this._dprSettleTimerId = null;
+            this._schedule_dpr_update(scale, force);
+        }, this._DPR_SETTLE_MS);
+    }
 
-        if (!force) {
-            const cfg = window.DRAW_CONFIG;
-            const hysteresis = (cfg.dprStep || 0.5) / Math.max(0.5, cfg.baseDpr || window.devicePixelRatio || 1);
-            if (Math.abs(scale - this._lastDprUpdateScale) < hysteresis) {
-                return;
-            }
-        }
-        this._lastDprUpdateScale = scale;
-
-        this._cancel_pending_rebuild();
-        this._pendingDpr = targetDpr;
-        this._rebuildRafId = requestAnimationFrame(() => this._apply_dpr_update());
+    cancel_idle_shrink() {
+        this._cancel_idle_shrink();
     }
 
     _cancel_pending_rebuild() {
+        this._cancel_dpr_settle();
         if (this._rebuildRafId !== null) {
             cancelAnimationFrame(this._rebuildRafId);
             this._rebuildRafId = null;
         }
         this._pendingDpr = null;
+    }
+
+    _cancel_idle_shrink() {
+        if (this._idleShrinkTimerId != null) {
+            clearTimeout(this._idleShrinkTimerId);
+            this._idleShrinkTimerId = null;
+        }
+    }
+
+    _schedule_idle_shrink() {
+        this._cancel_idle_shrink();
+        this._idleShrinkTimerId = setTimeout(() => {
+            this._idleShrinkTimerId = null;
+            const keys = this.get_visible_keys();
+            let anyShrunk = false;
+            for (const info of this.tileInfos) {
+                if (!keys.has(info.key) && info.dpr > 1) {
+                    this._recreate_tile(info, 1);
+                    anyShrunk = true;
+                }
+            }
+            if (anyShrunk) {
+                this.mark_all();
+                this.rebuild_visible(keys);
+            }
+        }, this._IDLE_SHRINK_MS);
     }
 
     _apply_dpr_update() {
@@ -126,11 +233,15 @@ class TileRenderer {
 
         const keys = this.get_visible_keys();
         for (const info of this.tileInfos) {
-            if (keys.has(info.key) && info.dpr !== targetDpr) {
-                this._recreate_tile(info, targetDpr);
+            if (keys.has(info.key)) {
+                if (info.dpr !== targetDpr) {
+                    this._recreate_tile(info, targetDpr);
+                }
             }
         }
+        this.mark_all();
         this.rebuild_visible(keys);
+        this._schedule_idle_shrink();
     }
 
     init_tiles(wrapper) {
@@ -219,9 +330,9 @@ class TileRenderer {
         ctx.setTransform(dpr, 0, 0, dpr, -rect.x * dpr, -rect.y * dpr);
         ctx.clearRect(rect.x, rect.y, rect.width, rect.height);
 
-        if (window.state.baseImageObj) {
+        if (this._baseCacheCanvas) {
             ctx.drawImage(
-                window.state.baseImageObj,
+                this._baseCacheCanvas,
                 rect.x, rect.y, rect.width, rect.height,
                 rect.x, rect.y, rect.width, rect.height
             );
@@ -229,16 +340,24 @@ class TileRenderer {
 
         const strokes = window.state.strokeHistory;
         if (strokes.length > 0) {
-            const relevant = [];
-            for (let i = 0; i < strokes.length; i++) {
-                const s = strokes[i];
-                if (!s.bounds) { relevant.push(s); continue; }
-                const b = s.bounds;
-                if (b.maxX < rect.x || b.minX > rect.x + rect.width ||
-                    b.maxY < rect.y || b.minY > rect.y + rect.height) {
-                    continue;
+            let relevant;
+            if (this._quadtree) {
+                relevant = Array.from(this._quadtree.query({
+                    x: rect.x, y: rect.y,
+                    width: rect.width, height: rect.height
+                }));
+            } else {
+                relevant = [];
+                for (let i = 0; i < strokes.length; i++) {
+                    const s = strokes[i];
+                    if (!s.bounds) { relevant.push(s); continue; }
+                    const b = s.bounds;
+                    if (b.maxX < rect.x || b.minX > rect.x + rect.width ||
+                        b.maxY < rect.y || b.minY > rect.y + rect.height) {
+                        continue;
+                    }
+                    relevant.push(s);
                 }
-                relevant.push(s);
             }
             if (relevant.length > 0) {
                 ctx.save();
@@ -257,6 +376,8 @@ class TileRenderer {
 
     rebuild_visible(keys) {
         if (!keys) keys = this.get_visible_keys();
+        this._build_quadtree();
+        this._update_base_cache();
         for (const info of this.tileInfos) {
             if (keys.has(info.key) && this.dirty.has(info.key)) {
                 this.rebuild_tile(info);
@@ -265,6 +386,8 @@ class TileRenderer {
     }
 
     rebuild_all() {
+        this._build_quadtree();
+        this._update_base_cache();
         for (const info of this.tileInfos) {
             if (this.dirty.has(info.key)) {
                 this.rebuild_tile(info);
@@ -280,6 +403,8 @@ class TileRenderer {
 
     destroy() {
         this._cancel_pending_rebuild();
+        this._cancel_dpr_settle();
+        this._cancel_idle_shrink();
         for (const info of this.tileInfos) {
             if (info.canvas && info.canvas.parentNode) {
                 info.canvas.parentNode.removeChild(info.canvas);
@@ -287,6 +412,9 @@ class TileRenderer {
             info.canvas = null;
             info.ctx = null;
         }
+        this._baseCacheCanvas = null;
+        this._baseCacheCtx = null;
+        this._baseCacheLoadId = 0;
         this.dirty.clear();
     }
 
@@ -296,6 +424,9 @@ class TileRenderer {
 
     add_stroke(stroke) {
         if (!stroke || !stroke.points || stroke.points.length < 2) return;
+        if (this._quadtree) {
+            this._quadtree.insert(stroke);
+        }
         const infos = this.infos_for_segment(
             stroke.bounds.minX, stroke.bounds.minY,
             stroke.bounds.maxX, stroke.bounds.maxY

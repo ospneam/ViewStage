@@ -46,6 +46,7 @@ function main_update_transform_schedule(x, y, scale) {
                 last_canvas_transform.y = pt.y;
                 last_canvas_transform.scale = pt.scale;
                 if (window.tileRenderer) {
+                    window.tileRenderer.cancel_idle_shrink();
                     window.tileRenderer.update_visible_tile_dpr(pt.scale);
                 }
             }
@@ -434,10 +435,14 @@ class StrokeQuadTree {
     
     intersects(bounds) {
         const padding = 5;
-        return !(bounds.maxX + padding < this.boundary.x ||
-                 bounds.minX - padding > this.boundary.x + this.boundary.width ||
-                 bounds.maxY + padding < this.boundary.y ||
-                 bounds.minY - padding > this.boundary.y + this.boundary.height);
+        const bMinX = bounds.minX != null ? bounds.minX : bounds.x;
+        const bMaxX = bounds.maxX != null ? bounds.maxX : bounds.x + bounds.width;
+        const bMinY = bounds.minY != null ? bounds.minY : bounds.y;
+        const bMaxY = bounds.maxY != null ? bounds.maxY : bounds.y + bounds.height;
+        return !(bMaxX + padding < this.boundary.x ||
+                 bMinX - padding > this.boundary.x + this.boundary.width ||
+                 bMaxY + padding < this.boundary.y ||
+                 bMinY - padding > this.boundary.y + this.boundary.height);
     }
     
     stroke_intersects(stroke, range) {
@@ -663,9 +668,10 @@ let cachedVisibleRectX = null;
 let cachedVisibleRectY = null;
 
 const OFFSCREEN_MAX_PHYSICAL = 3840;
+const OFFSCREEN_POOL_MAX = 2;
+const _offscreenPool = [];
 
 function main_fetch_offscreen_canvas() {
-    const canvas = document.createElement('canvas');
     let w = DRAW_CONFIG.canvasW * DRAW_CONFIG.dpr;
     let h = DRAW_CONFIG.canvasH * DRAW_CONFIG.dpr;
     if (w > OFFSCREEN_MAX_PHYSICAL || h > OFFSCREEN_MAX_PHYSICAL) {
@@ -673,15 +679,31 @@ function main_fetch_offscreen_canvas() {
         w = Math.round(w * s);
         h = Math.round(h * s);
     }
-    canvas.width = w;
-    canvas.height = h;
-    const ctx = canvas.getContext('2d', { alpha: true });
-    ctx.scale(w / DRAW_CONFIG.canvasW, h / DRAW_CONFIG.canvasH);
-    return { canvas, ctx };
+    let entry;
+    for (let i = _offscreenPool.length - 1; i >= 0; i--) {
+        if (_offscreenPool[i].canvas.width >= w && _offscreenPool[i].canvas.height >= h) {
+            entry = _offscreenPool.splice(i, 1)[0];
+            break;
+        }
+    }
+    if (!entry) {
+        const canvas = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext('2d', { alpha: true });
+        entry = { canvas, ctx };
+    }
+    entry.canvas.width = w;
+    entry.canvas.height = h;
+    entry.ctx.setTransform(1, 0, 0, 1, 0, 0);
+    entry.ctx.scale(w / DRAW_CONFIG.canvasW, h / DRAW_CONFIG.canvasH);
+    return entry;
 }
 
 function main_release_offscreen_canvas(offscreen) {
-    // 不缓存，直接丢弃，由 GC 回收
+    if (_offscreenPool.length < OFFSCREEN_POOL_MAX) {
+        _offscreenPool.push(offscreen);
+    }
 }
 
 function main_delete_cached_rect() {
@@ -819,7 +841,7 @@ function main_setup_pdf_file_open() {
         if (settings.dynamicDprEnabled !== undefined || settings.dprMin !== undefined ||
             settings.dprMax !== undefined || settings.dprStep !== undefined) {
             if (window.tileRenderer) {
-                window.tileRenderer.update_visible_tile_dpr(state.scale, true);
+                window.tileRenderer.update_visible_tile_dpr(state.scale, true, true);
             }
         }
 
@@ -2072,6 +2094,7 @@ function main_setup_canvas_mouse_events() {
  * Pointer 按下处理
  */
 function main_handle_pointer_down(e) {
+    if (window.tileRenderer) window.tileRenderer.cancel_idle_shrink();
     e.preventDefault();
     state.drawCanvasRect = dom.canvasWrapper.getBoundingClientRect();
     
@@ -2273,6 +2296,7 @@ async function main_handle_mouse_leave(e) {
 }
 
 function main_handle_wheel(e) {
+    if (window.tileRenderer) window.tileRenderer.cancel_idle_shrink();
     const delta = e.deltaY > 0 ? -0.1 : 0.1;
     const maxScale = state.isCameraOpen ? DRAW_CONFIG.maxScaleCamera : DRAW_CONFIG.maxScaleImage;
     const newScale = Math.max(DRAW_CONFIG.minScale, Math.min(maxScale, state.scale + delta));
@@ -2375,6 +2399,7 @@ async function main_handle_touch_start(e) {
 
 function main_handle_touch_move(e) {
     e.preventDefault();
+    if (window.tileRenderer) window.tileRenderer.cancel_idle_shrink();
     const touches = e.touches;
     
     // 在支持 PointerEvent 的设备上，TouchEvent 只处理多指手势
@@ -2481,7 +2506,7 @@ async function main_handle_touch_end(e) {
             await main_submit_stroke();
         } else if (state.isScaling) {
             if (window.tileRenderer) {
-                window.tileRenderer.update_visible_tile_dpr(state.scale);
+                window.tileRenderer.update_visible_tile_dpr(state.scale, false, true);
                 window.tileRenderer.mark_all();
             }
         }
@@ -2522,7 +2547,7 @@ function main_update_canvas_transform() {
     dom.canvasWrapper.style.transform = transform;
 
     if (window.tileRenderer) {
-        window.tileRenderer.update_visible_tile_dpr(state.scale);
+        window.tileRenderer.update_visible_tile_dpr(state.scale, false, true);
     }
 }
 
@@ -5443,3 +5468,4 @@ window.main_render_all_strokes = main_render_all_strokes;
 window.main_reset_context_state = main_reset_context_state;
 window.main_fetch_visible_rect = main_fetch_visible_rect;
 window.main_render_strokes_to_context = main_render_strokes_to_context;
+window.StrokeQuadTree = StrokeQuadTree;

@@ -54,8 +54,9 @@ class RealtimeBatchDrawManager {
     init_overlay(container, screenW, screenH, dpr) {
         this._overlayCanvas = document.createElement('canvas');
         this._overlayCanvas.className = 'canvas-tile draw-overlay';
-        this._overlayCanvas.width = Math.ceil(screenW * dpr);
-        this._overlayCanvas.height = Math.ceil(screenH * dpr);
+        const capped = Math.min(dpr, 1);
+        this._overlayCanvas.width = Math.ceil(screenW * capped);
+        this._overlayCanvas.height = Math.ceil(screenH * capped);
         this._overlayCanvas.style.width = screenW + 'px';
         this._overlayCanvas.style.height = screenH + 'px';
         container.appendChild(this._overlayCanvas);
@@ -66,8 +67,9 @@ class RealtimeBatchDrawManager {
 
     resize_overlay(screenW, screenH, dpr) {
         if (this._overlayCanvas) {
-            this._overlayCanvas.width = Math.ceil(screenW * dpr);
-            this._overlayCanvas.height = Math.ceil(screenH * dpr);
+            const capped = Math.min(dpr, 1);
+            this._overlayCanvas.width = Math.ceil(screenW * capped);
+            this._overlayCanvas.height = Math.ceil(screenH * capped);
             this._overlayCanvas.style.width = screenW + 'px';
             this._overlayCanvas.style.height = screenH + 'px';
         }
@@ -84,7 +86,7 @@ class RealtimeBatchDrawManager {
 
     _sync_overlay_transform() {
         if (!this._overlayCtx) return;
-        const dpr = window.DRAW_CONFIG.dpr;
+        const dpr = Math.min(window.DRAW_CONFIG.dpr, 1);
         const scale = window.state.scale || 1;
         const canvasX = window.state.canvasX || 0;
         const canvasY = window.state.canvasY || 0;
