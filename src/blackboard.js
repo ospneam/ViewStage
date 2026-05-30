@@ -328,6 +328,13 @@ class BlackboardManager {
     async open() {
         if (this.is_open) return;
 
+        if (window.main_update_camera_state && window.state.isCameraOpen) {
+            this._was_camera_open_before = true;
+            await window.main_update_camera_state(false);
+        } else {
+            this._was_camera_open_before = false;
+        }
+
         if (window.main_submit_stroke) {
             await window.main_submit_stroke();
         }
@@ -405,6 +412,11 @@ class BlackboardManager {
         dom.blackboardPanel.classList.remove('active');
 
         this._switch_toolbar(false);
+
+        if (this._was_camera_open_before && window.main_update_camera_state) {
+            this._was_camera_open_before = false;
+            await window.main_update_camera_state(true);
+        }
     }
 
     _switch_toolbar(bb_active) {
