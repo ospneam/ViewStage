@@ -459,6 +459,12 @@ document.addEventListener('DOMContentLoaded', async () => {
                         }
                     });
                 }
+
+                const blackboardEnabled = settings.blackboardEnabled !== false;
+                const blackboardToggle = document.getElementById('blackboardEnabledToggle');
+                if (blackboardToggle) {
+                    blackboardToggle.checked = blackboardEnabled;
+                }
                 
                 return settings;
             } catch (error) {
@@ -1822,6 +1828,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     
     // 打开日志目录
     const btnOpenLogDir = document.getElementById('btnOpenLogDir');
+
+    // 小黑板开关
+    const blackboardToggle = document.getElementById('blackboardEnabledToggle');
+    if (blackboardToggle) {
+        blackboardToggle.addEventListener('change', async () => {
+            await settings_save_all_local({ blackboardEnabled: blackboardToggle.checked });
+        });
+    }
     if (btnOpenLogDir && window.__TAURI__) {
         btnOpenLogDir.addEventListener('click', async () => {
             try {
