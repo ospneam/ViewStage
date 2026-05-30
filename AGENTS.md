@@ -22,7 +22,6 @@ Frontend lives in `src/` and is served directly (no bundler). No `package.json`.
 - All Tauri commands registered in `lib.rs:2928-2971` — check there before adding new ones.
 - Logging: `simplelog` writes to `%APPDATA%/SECTL/ViewStage/log/viewstage_{date}.log`.
 - Config: `%APPDATA%/SECTL/ViewStage/config.json`, with a config version migration system (`migrate_config`/`get_migrations`).
-- ONNX Runtime AI models (DexiNed edge detection, DBNet text detection) use `ort` crate (`2.0.0-rc.10`) with `directml` feature.
 - Image save path: `~/Pictures/ViewStage/`.
 
 ## Frontend (`src/`)

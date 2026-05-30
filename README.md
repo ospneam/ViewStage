@@ -1,95 +1,114 @@
 <div align="center">
    <img src="https://github.com/ospneam/ViewStage/blob/main/src-tauri/icons/Square1024x1024Logo.png" width=15%>
    <h1>ViewStage</h1>
-   <p>一个基于 Tauri 构建的摄像头及PDF展台应用，采用原生 HTML、CSS 和 JavaScript 开发，提供简洁高效的课堂及其他用途的全屏展台。</p>
+   <p>基于 <strong>Tauri v2</strong> 构建的桌面实物展台与演示批注应用，适用于教学、会议、产品展示等多种场景。</p>
+   <p>无需 Node.js 构建前端 — 原生 ES Module 直接加载，零 bundler 依赖。</p>
 </div>
+
+<p align="center">
+    <img src="https://img.shields.io/badge/version-0.17.5-blue.svg" alt="版本">
+    <img src="https://img.shields.io/badge/Tauri-2-ffc131.svg" alt="Tauri v2">
+    <img src="https://img.shields.io/badge/license-MIT-green.svg" alt="许可证">
+</p>
+
+## 功能概览
+
+| 类别 | 功能 |
+|------|------|
+| 📷 **摄像头** | 实时画面采集，多设备/分辨率切换，旋转/镜像/黑白/亮度对比度调节，降噪，最小化自动关开 |
+| 🖼 **图片** | 导入本地图片，缩略图侧边栏，旋转/居中/删除 |
+| 📄 **文档** | PDF.js 渲染 PDF；PowerShell COM 自动转换 Word（Office/WPS/LibreOffice）为 PDF；系统文件关联 |
+| ✏️ **批注** | 移动/批注/橡皮擦三模式，压感笔锋，Catmull-Rom 平滑，自定义颜色粗细，笔画分割擦除 |
+| ↩️ **撤销** | Command 模式撤销重做，上限 50 步，超限自动压缩快照 |
+| 🎨 **主题** | 深色/浅色双内置主题，支持 .vst 自定义导入，实时切换 |
+| 🌐 **国际化** | 简体中文、繁体中文、英文 |
+| ⚙️ **设置** | 画布/画笔/信号源/文件关联/缓存/日志管理，设置导入导出 JSON |
+| 🔄 **更新** | 检查 GitHub Release，多镜像下载，进度条，自动安装 |
+| 📸 **截图** | 画布合并导出 PNG，摄像头帧捕获，源切换自动保存批注快照 |
+| 🧩 **源管理** | 摄像头/图片/文档三源统一管理，缩放状态与批注自动保存恢复 |
+| 🖥 **渲染** | 双图层 + 平铺渲染 + 动态 DPR + 四叉树索引 + 自适应帧率 |
+| 🚀 **其他** | OOBE 首次引导、Splashscreen 启动屏、无框全屏窗口 |
 
 ## 技术栈
 
-- **前端**：Vanilla HTML 5 + CSS 3 + JavaScript
-- **后端**：Rust + Tauri
-- **构建工具**：Cargo
+| 层级 | 技术 |
+|------|------|
+| **前端** | Vanilla HTML5 + CSS3 + JavaScript (ES Module) — 无 bundler、无 Node.js 构建 |
+| **后端** | Rust |
+| **桌面框架** | Tauri v2 |
+| **PDF 渲染** | PDF.js |
+| **Word 转换** | PowerShell COM 互操作 (Office/WPS/LibreOffice) |
+| **日志** | simplelog |
 
-> \[!IMPORTANT]
-> 这个应用部分使用了Trae编写与进行性能优化、检测代码问题
->
-> > 若您介意或排斥，请无视次项目，感谢(❁´◡\`❁)
 
-## 功能特点
-
-### 核心功能
-
-- � **摄像头展台**：实时采集摄像头画面，支持拍照保存
-- 📄 **文档展示**：支持 PDF、Word 文档打开与展示
-- 🖊 **批注功能**：在画面上自由绘制批注，支持撤销与清空
-
-### 画笔工具
-
-- 🎨 **多色画笔**：15种预设颜色，支持自定义增删
-- � **无级调节**：画笔 1-20px，橡皮擦 1-50px
-
-### 其他特性
-
-- 🚀 **轻量高效**：基于 Tauri，体积小、启动快
-- � **高度可配置**：摄像头选择、文件关联等设置
-- 🌐 **多语言支持**：简体中文、繁体中文、English
+> 项目无需 `npm` / `package.json`，前端直接以 ES Module 方式加载。
 
 ## 运行条件
 
 ### 系统要求
 
-- **操作系统**：Windows 10 或更高版本
-- **运行时**：WebView2 运行时（[下载地址](https://developer.microsoft.com/en-us/microsoft-edge/webview2/#download-section)）
+- **操作系统**：Windows 10 或更高版本（当前仅支持 Windows）
+- **运行时**：WebView2（[下载地址](https://developer.microsoft.com/en-us/microsoft-edge/webview2/#download-section)）
 
 ### 硬件要求
 
-- **摄像头**：支持视频采集的摄像头设备（用于展台功能）
+- **摄像头**：用于展台功能（可选）
 - **内存**：建议 4GB 以上
-- **存储**：约 50MB 可用空间
+- **存储**：约 100MB（含运行时）
 
 ### 可选依赖
 
-- **Microsoft Office** 或 **WPS Office**：用于打开 Word 文档（.doc/.docx）
+- **Microsoft Office** / **WPS Office** / **LibreOffice**：用于 Word 文档转换
 
 ## 开发环境要求
 
-- Node.js（推荐 20.x）
-- Rust（稳定版）
-- Tauri CLI
+- **Rust**（稳定版，[安装](https://rustup.rs/)）
+- **Tauri CLI**：`cargo install tauri-cli --locked`
+- **Cargo**（随 Rust 一起安装）
 
-## **许可证**
+## 构建与运行
 
-本项目采用开源许可证，详见 [LICENSE](https://github.com/ospneam/ViewStage/blob/main/LICENSE) 文件。同时如果有使用到本仓库代码构建的应用也必须开源。
+```bash
+# 开发模式（热重载）
+cargo tauri dev
+
+# 生产构建
+cargo tauri build
+```
+
+CI 触发器：推送 `v*` 标签或手动触发。
+
+## 许可证
+
+本项目采用开源许可证，详见 [LICENSE](LICENSE) 文件。使用本仓库代码构建的应用也必须开源。
 
 ## 致谢
 
-本项目使用了以下开源项目，感谢这些项目的开发者们：
-
 ### 核心框架
 
-- [Tauri](https://tauri.app/) - 构建更小、更快、更安全的桌面应用框架
-- [Tokio](https://tokio.rs/) - Rust异步运行时
+- [Tauri](https://tauri.app/) — 构建更安全、更轻量的桌面应用
+- [Tokio](https://tokio.rs/) — Rust 异步运行时
 
 ### 前端库
 
-- [PDF.js](https://mozilla.github.io/pdf.js/) - Mozilla开发的PDF渲染库，用于在浏览器中显示PDF文档
-- [mammoth.js](https://github.com/mwilliamson/mammoth.js) - 将Word文档(.docx)转换为HTML的库
-- [html2canvas](https://html2canvas.hertzen.com/) - 将HTML元素渲染为Canvas的库
+- [PDF.js](https://mozilla.github.io/pdf.js/) — Mozilla 的 PDF 渲染库
+- [mammoth.js](https://github.com/mwilliamson/mammoth.js) — Word 文档转为 HTML
+- [html2canvas](https://html2canvas.hertzen.com/) — HTML 元素渲染为 Canvas
 
-### Rust库
+### Rust 库
 
-- [image](https://github.com/image-rs/image) - Rust图像处理库
-- [imageproc](https://github.com/image-rs/imageproc) - Rust图像处理算法库
-- [serde](https://serde.rs/) - Rust序列化框架
-- [rayon](https://github.com/rayon-rs/rayon) - Rust数据并行库
-- [chrono](https://github.com/chronotope/chrono) - Rust日期时间库
-- [ort](https://github.com/pykeio/ort) - ONNX Runtime的Rust绑定，用于AI模型推理
+- [image](https://github.com/image-rs/image) — 图像编解码与处理
+- [imageproc](https://github.com/image-rs/imageproc) — 图像处理算法
+- [serde](https://serde.rs/) — 序列化框架
+- [rayon](https://github.com/rayon-rs/rayon) — 数据并行计算
+- [chrono](https://github.com/chronotope/chrono) — 日期时间库
+- [reqwest](https://github.com/seanmonstar/reqwest) — HTTP 客户端
 
-### Tauri插件
+### Tauri 插件
 
-- [tauri-plugin-opener](https://github.com/tauri-apps/plugins-workspace) - 文件打开插件
-- [tauri-plugin-fs](https://github.com/tauri-apps/plugins-workspace) - 文件系统插件
-- [tauri-plugin-dialog](https://github.com/tauri-apps/plugins-workspace) - 对话框插件
-- [tauri-plugin-single-instance](https://github.com/tauri-apps/plugins-workspace) - 单实例控制插件
+- [tauri-plugin-opener](https://github.com/tauri-apps/plugins-workspace) — 文件打开
+- [tauri-plugin-fs](https://github.com/tauri-apps/plugins-workspace) — 文件系统
+- [tauri-plugin-dialog](https://github.com/tauri-apps/plugins-workspace) — 对话框
+- [tauri-plugin-single-instance](https://github.com/tauri-apps/plugins-workspace) — 单实例
 
-感谢所有开源社区的贡献者们！
+感谢所有开源社区的贡献！
