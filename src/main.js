@@ -1,4 +1,4 @@
-/**
+﻿/**
  * ViewStage 主逻辑 —— 摄像头及展台应用核心
  * 架构: 图像层(img) + 批注层(canvas)，批注系统含笔画记录/压缩/撤销，图像处理由Rust后端并行
  * 性能: RAF批量绘制减少重绘；Blob URL替代Data URL节省内存
@@ -20,6 +20,7 @@ import {
     history_format_compact,
     MAX_HISTORY_STEPS
 } from './history.js';
+import { DocLoader } from './modules/pdf/document_loader.js';
 
 // === 全局变量 ===
 let last_canvas_transform = { x: null, y: null, scale: null };
@@ -55,24 +56,11 @@ function main_update_transform_schedule(x, y, scale) {
 
 // === PDF.js 配置 ===
 function main_init_pdfjs() {
-    if (window.pdfjsLib) {
-        window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'JS/pdf.worker.min.js';
-        return true;
-    }
-    console.warn('PDF.js 库未加载');
-    return false;
+    return DocLoader.init_pdfjs();
 }
 
 async function main_wait_pdfjs(maxWait = 5000) {
-    const startTime = Date.now();
-    while (!window.pdfjsLib && (Date.now() - startTime) < maxWait) {
-        await new Promise(resolve => setTimeout(resolve, 100));
-    }
-    if (window.pdfjsLib) {
-        main_init_pdfjs();
-        return true;
-    }
-    return false;
+    return DocLoader.wait_pdfjs(maxWait);
 }
 
 // === 全局配置 ===
@@ -899,6 +887,18 @@ function main_setup_pdf_file_open() {
                 console.log('主题已更改:', settings.theme);
             });
         }
+
+        if (settings.blackboardEnabled !== undefined) {
+            const bb = window.blackboardManager;
+            if (settings.blackboardEnabled === false) {
+                if (bb && bb.is_open) {
+                    bb.close();
+                }
+                dom.btnBlackboard.style.display = 'none';
+            } else {
+                dom.btnBlackboard.style.display = '';
+            }
+        }
         
         if (needRestartCamera && state.isCameraOpen) {
             console.log('摄像头设置已更改，重新初始化摄像头...');
@@ -915,164 +915,15 @@ function main_setup_pdf_file_open() {
 }
 
 async function main_render_pdf_pages_lazy(pdf, totalPages, initialPages = 3, docNumber = null) {
-    const pages = [];
-    
-    async function render_page(pageNum) {
-        const page = await pdf.getPage(pageNum);
-        const viewport = page.getViewport({ scale: DRAW_CONFIG.pdfScale });
-        
-        const canvas = document.createElement('canvas');
-        canvas.width = viewport.width;
-        canvas.height = viewport.height;
-        const ctx = canvas.getContext('2d');
-        
-        await page.render({
-            canvasContext: ctx,
-            viewport: viewport
-        }).promise;
-        
-        const fullBlob = await new Promise((resolve, reject) => {
-            canvas.toBlob(blob => {
-                if (blob) resolve(blob);
-                else reject(new Error('Failed to create blob'));
-            }, 'image/jpeg', 0.85);
-        });
-        const fullUrl = URL.createObjectURL(fullBlob);
-        
-        let sourceId = null;
-        if (docNumber !== null) {
-            sourceId = `doc-${docNumber}-${pageNum}`;
-        }
-        
-        return {
-            full: fullUrl,
-            fullBlob: fullBlob,
-            thumbnail: fullUrl,
-            pageNum: pageNum,
-            sourceId: sourceId,
-            loaded: true
-        };
-    }
-    
-    const pagesToLoad = Math.min(initialPages, totalPages);
-    for (let i = 1; i <= pagesToLoad; i++) {
-        main_update_loading_progress(window.i18n?.format_translate('loading.processingPage', { current: i, total: totalPages }) || `正在处理 ${i}/${totalPages} 页`);
-        const pageData = await render_page(i);
-        pages.push(pageData);
-        state.loadedPages.add(pageData.sourceId);
-    }
-    
-    for (let i = pagesToLoad + 1; i <= totalPages; i++) {
-        let sourceId = null;
-        if (docNumber !== null) {
-            sourceId = `doc-${docNumber}-${i}`;
-        }
-        pages.push({
-            full: null,
-            fullBlob: null,
-            thumbnail: null,
-            pageNum: i,
-            sourceId: sourceId,
-            loaded: false
-        });
-    }
-    
-    return pages;
+    return DocLoader.render_pdf_pages_lazy(pdf, totalPages, initialPages, docNumber);
 }
 
 async function main_load_pdf_page(pdf, pageNum, docNumber) {
-    const page = await pdf.getPage(pageNum);
-    const viewport = page.getViewport({ scale: DRAW_CONFIG.pdfScale });
-    
-    const canvas = document.createElement('canvas');
-    canvas.width = viewport.width;
-    canvas.height = viewport.height;
-    const ctx = canvas.getContext('2d');
-    
-    await page.render({
-        canvasContext: ctx,
-        viewport: viewport
-    }).promise;
-    
-    const fullBlob = await new Promise((resolve, reject) => {
-        canvas.toBlob(blob => {
-            if (blob) resolve(blob);
-            else reject(new Error('Failed to create blob'));
-        }, 'image/jpeg', 0.85);
-    });
-    const fullUrl = URL.createObjectURL(fullBlob);
-    
-    let sourceId = null;
-    if (docNumber !== null) {
-        sourceId = `doc-${docNumber}-${pageNum}`;
-    }
-    
-    return {
-        full: fullUrl,
-        fullBlob: fullBlob,
-        thumbnail: fullUrl,
-        pageNum: pageNum,
-        loaded: true
-    };
+    return DocLoader.render_pdf_page(pdf, pageNum, docNumber);
 }
 
 async function main_render_pdf_pages_parallel(pdf, totalPages, batchSize = 4, docNumber = null) {
-    const pages = [];
-    let processedCount = 0;
-    
-    async function render_page(pageNum) {
-        const page = await pdf.getPage(pageNum);
-        const viewport = page.getViewport({ scale: DRAW_CONFIG.pdfScale });
-        
-        const canvas = document.createElement('canvas');
-        canvas.width = viewport.width;
-        canvas.height = viewport.height;
-        const ctx = canvas.getContext('2d');
-        
-        await page.render({
-            canvasContext: ctx,
-            viewport: viewport
-        }).promise;
-        
-        const fullBlob = await new Promise((resolve, reject) => {
-            canvas.toBlob(blob => {
-                if (blob) resolve(blob);
-                else reject(new Error('Failed to create blob'));
-            }, 'image/jpeg', 0.85);
-        });
-        const fullUrl = URL.createObjectURL(fullBlob);
-        
-        processedCount++;
-        main_update_loading_progress(window.i18n?.format_translate('loading.processingPage', { current: processedCount, total: totalPages }) || `正在处理 ${processedCount}/${totalPages} 页`);
-        
-        let sourceId = null;
-        if (docNumber !== null) {
-            sourceId = `doc-${docNumber}-${pageNum}`;
-        }
-        
-        return {
-            full: fullUrl,
-            fullBlob: fullBlob,
-            thumbnail: fullUrl,
-            pageNum: pageNum,
-            sourceId: sourceId
-        };
-    }
-    
-    for (let i = 1; i <= totalPages; i += batchSize) {
-        const batch = [];
-        for (let j = i; j <= Math.min(i + batchSize - 1, totalPages); j++) {
-            batch.push(render_page(j));
-        }
-        const batchResults = await Promise.all(batch);
-        pages.push(...batchResults);
-        
-        await new Promise(resolve => setTimeout(resolve, 0));
-    }
-    
-    pages.sort((a, b) => a.pageNum - b.pageNum);
-    
-    return pages;
+    return DocLoader.render_pdf_pages_parallel(pdf, totalPages, batchSize, docNumber);
 }
 
 async function main_load_pdf_from_path(filePath) {
@@ -1227,26 +1078,10 @@ async function main_load_pdf_from_path(filePath) {
             main_update_file_sidebar_content();
             main_show_file_sidebar();
             
-            if (folder.pages.length > 0) {
-                const firstPage = folder.pages[0];
-                const img = new Image();
-                img.onload = async () => {
-                    state.currentImage = img;
-                    state.currentFolderIndex = state.fileList.length - 1;
-                    state.currentFolderPageIndex = 0;
-                    
-                    if (firstPage.sourceId) {
-                        await main_update_source(firstPage.sourceId);
-                    }
-                    
-                    main_render_image_centered(img);
-                    main_update_photo_button_state();
-                };
-                img.src = firstPage.full;
-            }
-            
             main_hide_loading_overlay();
             console.log(`文件已导入: ${folder.name}，共${folder.pages.length}页`);
+            
+            if (wasCameraOpen) await main_update_camera_state(true);
             
             try {
                 await fs.remove(pdfPath);
@@ -1318,7 +1153,10 @@ async function main_load_pdf_from_path(filePath) {
         const folder = {
             name: fileName,
             pages: [],
-            isWord: false
+            isWord: false,
+            pdfDoc: pdf,
+            totalPages: totalPages,
+            docNumber: sourceIdCounters.doc
         };
         
         sourceIdCounters.doc++;
@@ -1331,26 +1169,10 @@ async function main_load_pdf_from_path(filePath) {
         main_update_file_sidebar_content();
         main_show_file_sidebar();
         
-        if (folder.pages.length > 0) {
-            const firstPage = folder.pages[0];
-            const img = new Image();
-            img.onload = async () => {
-                state.currentImage = img;
-                state.currentFolderIndex = state.fileList.length - 1;
-                state.currentFolderPageIndex = 0;
-                
-                if (firstPage.sourceId) {
-                    await main_update_source(firstPage.sourceId);
-                }
-                
-                main_render_image_centered(img);
-                main_update_photo_button_state();
-            };
-            img.src = firstPage.full;
-        }
-        
         main_hide_loading_overlay();
         console.log(`文件已导入: ${folder.name}，共${folder.pages.length}页`);
+        
+        if (wasCameraOpen) await main_update_camera_state(true);
     } catch (error) {
         main_hide_loading_overlay();
         console.error('文件导入失败:', error);
@@ -3242,7 +3064,6 @@ function main_save_photo() {
                 if (!state.isCameraOpen) {
                     await main_update_camera_state(true);
                 }
-                main_update_folder_page_selection(-1, -1);
                 main_update_photo_button_state();
             } catch (error) {
                 console.error('返回摄像头失败:', error);
@@ -3908,7 +3729,10 @@ function main_show_file_sidebar() {
     document.querySelectorAll('.sidebar-folder-item').forEach(item => {
         item.addEventListener('click', () => {
             const index = parseInt(item.dataset.index);
-            main_show_folder(index);
+            if (window.documentReaderManager) {
+                main_hide_file_sidebar();
+                window.documentReaderManager.open(index);
+            }
         });
     });
     
@@ -3918,156 +3742,9 @@ function main_show_file_sidebar() {
         ${showText ? collapseText : ''}
     `;
     console.log('展开文件侧边栏');
-    
-    if (state.currentFolderIndex >= 0 && state.currentFolderPageIndex >= 0) {
-        main_show_folder(state.currentFolderIndex);
-    }
 }
 
-function main_show_folder(folderIndex) {
-    if (folderIndex < 0 || folderIndex >= state.fileList.length) return;
-    
-    const folder = state.fileList[folderIndex];
-    
-    const sidebarContent = document.querySelector('.file-sidebar .sidebar-content');
-    const sidebarHeader = document.querySelector('.file-sidebar .sidebar-header');
-    
-    if (!sidebarContent || !sidebarHeader) return;
-    
-    sidebarHeader.innerHTML = `
-        <button class="folder-back-btn" id="btnBackFolder">←</button>
-        <span class="sidebar-header-text">${folder.name}</span>
-    `;
-    sidebarHeader.classList.add('has-back');
-    
-    let pagesHTML = '';
-    folder.pages.forEach((page, index) => {
-        const isActive = (state.currentFolderIndex === folderIndex && state.currentFolderPageIndex === index) ? 'active' : '';
-        const pageLabel = window.i18n?.format_translate('sidebar.page', { n: index + 1 }) || `第${index + 1}页`;
-        pagesHTML += `
-            <div class="sidebar-image-item ${isActive}" data-folder="${folderIndex}" data-page="${index}">
-                <img src="${page.thumbnail}" class="sidebar-thumbnail" alt="${pageLabel}">
-                <div class="sidebar-page-label">${pageLabel}</div>
-            </div>
-        `;
-    });
-    
-    sidebarContent.innerHTML = pagesHTML;
-    
-    document.getElementById('btnBackFolder')?.addEventListener('click', () => {
-        main_hide_folder();
-    });
-    
-    document.querySelectorAll('.file-sidebar .sidebar-image-item').forEach(item => {
-        item.addEventListener('click', () => {
-            const folderIdx = parseInt(item.dataset.folder);
-            const pageIdx = parseInt(item.dataset.page);
-            main_show_folder_page(folderIdx, pageIdx);
-        });
-    });
-    
-    console.log(`打开文件夹: ${folder.name}`);
-}
 
-function main_hide_folder() {
-    const fileListText = window.i18n?.format_translate('sidebar.fileList') || '文件列表';
-    const sidebarHeader = document.querySelector('.file-sidebar .sidebar-header');
-    if (sidebarHeader) {
-        sidebarHeader.innerHTML = `<span class="sidebar-header-text">${fileListText}</span>`;
-        sidebarHeader.classList.remove('has-back');
-    }
-    
-    main_update_file_sidebar_content();
-    console.log('关闭文件夹');
-}
-
-function main_show_folder_page(folderIndex, pageIndex) {
-    if (folderIndex < 0 || folderIndex >= state.fileList.length) return;
-    
-    const folder = state.fileList[folderIndex];
-    if (pageIndex < 0 || pageIndex >= folder.pages.length) return;
-    
-    (async () => {
-        try {
-            if (state.isCameraOpen) {
-                await main_update_camera_state(false);
-            }
-            
-            const page = folder.pages[pageIndex];
-            
-            // 使用源ID切换源（自动保存当前并加载目标源的数据）
-            if (!page.sourceId) {
-                page.sourceId = main_create_source_id('doc', pageIndex);
-            }
-            
-            await main_update_source(page.sourceId);
-            
-            const img = new Image();
-            img.onload = async () => {
-                state.currentImage = img;
-                state.currentImageIndex = -1;
-                state.currentFolderIndex = folderIndex;
-                state.currentFolderPageIndex = pageIndex;
-                main_render_image_centered(img);
-                
-                await main_render_all_strokes();
-                
-                main_update_folder_page_selection(folderIndex, pageIndex);
-                main_update_photo_button_state();
-            };
-            img.src = page.full;
-            
-            console.log(`选择: ${folder.name} 第${pageIndex + 1}页`);
-        } catch (error) {
-            console.error('选择文件夹页面失败:', error);
-        }
-    })();
-}
-
-function main_update_folder_page_selection(folderIndex, pageIndex) {
-    document.querySelectorAll('.file-sidebar .sidebar-image-item').forEach((item, idx) => {
-        const itemFolder = parseInt(item.dataset.folder);
-        const itemPage = parseInt(item.dataset.page);
-        if (itemFolder === folderIndex && itemPage === pageIndex) {
-            item.classList.add('active');
-        } else {
-            item.classList.remove('active');
-        }
-    });
-    
-    document.querySelectorAll('.sidebar:not(.file-sidebar) .sidebar-image-item').forEach(item => {
-        item.classList.remove('active');
-    });
-    state.currentImageIndex = -1;
-}
-
-function main_save_folder_page_draw_data() {
-    if (state.currentFolderIndex >= 0 && state.currentFolderPageIndex >= 0) {
-        if (state.currentFolderIndex < state.fileList.length) {
-            const folder = state.fileList[state.currentFolderIndex];
-            if (state.currentFolderPageIndex < folder.pages.length) {
-                const page = folder.pages[state.currentFolderPageIndex];
-                
-                if (page.sourceId) {
-                    main_save_current_source_data();
-                }
-            }
-        }
-    }
-}
-
-async function main_load_folder_page_draw_data(folderIndex, pageIndex) {
-    if (folderIndex >= 0 && folderIndex < state.fileList.length) {
-        const folder = state.fileList[folderIndex];
-        if (pageIndex >= 0 && pageIndex < folder.pages.length) {
-            const page = folder.pages[pageIndex];
-            
-            if (page.sourceId) {
-                await main_update_source(page.sourceId);
-            }
-        }
-    }
-}
 
 function main_update_file_sidebar_content() {
     const sidebarContent = document.querySelector('.file-sidebar .sidebar-content');
@@ -4100,7 +3777,10 @@ function main_update_file_sidebar_content() {
     document.querySelectorAll('.sidebar-folder-item').forEach(item => {
         item.addEventListener('click', () => {
             const index = parseInt(item.dataset.index);
-            main_show_folder(index);
+            if (window.documentReaderManager) {
+                main_hide_file_sidebar();
+                window.documentReaderManager.open(index);
+            }
         });
     });
 }
@@ -4216,7 +3896,10 @@ function main_load_pdf() {
                 const folder = {
                     name: file.name.replace(/\.(pdf|docx|doc)$/i, ''),
                     pages: [],
-                    isWord: true
+                    isWord: true,
+                    pdfDoc: pdf,
+                    totalPages: totalPages,
+                    docNumber: sourceIdCounters.doc
                 };
                 
                 sourceIdCounters.doc++;
@@ -4232,26 +3915,10 @@ function main_load_pdf() {
                     main_show_file_sidebar();
                 }
                 
-                if (folder.pages.length > 0) {
-                    const firstPage = folder.pages[0];
-                    const img = new Image();
-                    img.onload = async () => {
-                        state.currentImage = img;
-                        state.currentFolderIndex = state.fileList.length - 1;
-                        state.currentFolderPageIndex = 0;
-                        
-                        if (firstPage.sourceId) {
-                            await main_update_source(firstPage.sourceId);
-                        }
-                        
-                        main_render_image_centered(img);
-                        main_update_photo_button_state();
-                    };
-                    img.src = firstPage.full;
-                }
-                
                 main_hide_loading_overlay();
                 console.log(`文件已导入: ${folder.name}，共${folder.pages.length}页`);
+                
+                if (wasCameraOpen) await main_update_camera_state(true);
                 
                 try {
                     await remove(pdfPath);
@@ -4288,7 +3955,10 @@ function main_load_pdf() {
                 const totalPages = pdf.numPages;
                 const folder = {
                     name: file.name.replace('.pdf', ''),
-                    pages: []
+                    pages: [],
+                    pdfDoc: pdf,
+                    totalPages: totalPages,
+                    docNumber: sourceIdCounters.doc
                 };
                 
                 sourceIdCounters.doc++;
@@ -4304,26 +3974,10 @@ function main_load_pdf() {
                     main_show_file_sidebar();
                 }
                 
-                if (folder.pages.length > 0) {
-                    const firstPage = folder.pages[0];
-                    const img = new Image();
-                    img.onload = async () => {
-                        state.currentImage = img;
-                        state.currentFolderIndex = state.fileList.length - 1;
-                        state.currentFolderPageIndex = 0;
-                        
-                        if (firstPage.sourceId) {
-                            await main_update_source(firstPage.sourceId);
-                        }
-                        
-                        main_render_image_centered(img);
-                        main_update_photo_button_state();
-                    };
-                    img.src = firstPage.full;
-                }
-                
                 main_hide_loading_overlay();
                 console.log(`文件已导入: ${folder.name}，共${folder.pages.length}页`);
+                
+                if (wasCameraOpen) await main_update_camera_state(true);
             } catch (error) {
                 main_hide_loading_overlay();
                 console.error('文件导入失败:', error);
@@ -4340,72 +3994,19 @@ function main_load_pdf() {
 }
 
 function main_show_loading_overlay(message) {
-    const overlay = document.createElement('div');
-    overlay.id = 'loadingOverlay';
-    overlay.className = 'loading-overlay';
-    overlay.innerHTML = `
-        <div class="loading-content">
-            <div class="loading-spinner"></div>
-            <div class="loading-message" id="loadingMessage">${message}</div>
-        </div>
-    `;
-    document.body.appendChild(overlay);
+    DocLoader.show_loading_overlay(message);
 }
 
 function main_update_loading_progress(message) {
-    const loadingMessage = document.getElementById('loadingMessage');
-    if (loadingMessage) {
-        loadingMessage.textContent = message;
-    }
+    DocLoader.update_loading_progress(message);
 }
 
 function main_hide_loading_overlay() {
-    const overlay = document.getElementById('loadingOverlay');
-    if (overlay) {
-        overlay.remove();
-    }
+    DocLoader.hide_loading_overlay();
 }
 
 function main_show_error_dialog(title, message, retryCallback = null) {
-    const existing = document.getElementById('errorDialog');
-    if (existing) existing.remove();
-    
-    const retryText = window.i18n?.format_translate('common.retry') || '重试';
-    const closeText = window.i18n?.format_translate('common.close') || '关闭';
-    
-    const dialog = document.createElement('div');
-    dialog.id = 'errorDialog';
-    dialog.className = 'error-dialog-overlay';
-    dialog.innerHTML = `
-        <div class="error-dialog">
-            <div class="error-icon">⚠️</div>
-            <div class="error-title">${title}</div>
-            <div class="error-message">${message}</div>
-            <div class="error-buttons">
-                ${retryCallback ? `<button class="error-btn error-btn-retry" id="errorRetry">${retryText}</button>` : ''}
-                <button class="error-btn error-btn-close" id="errorClose">${closeText}</button>
-            </div>
-        </div>
-    `;
-    document.body.appendChild(dialog);
-    
-    const closeBtn = document.getElementById('errorClose');
-    const retryBtn = document.getElementById('errorRetry');
-    
-    closeBtn?.addEventListener('click', () => {
-        dialog.remove();
-    });
-    
-    retryBtn?.addEventListener('click', () => {
-        dialog.remove();
-        if (retryCallback) retryCallback();
-    });
-    
-    dialog.addEventListener('click', (e) => {
-        if (e.target === dialog) {
-            dialog.remove();
-        }
-    });
+    DocLoader.show_error_dialog(title, message, retryCallback);
 }
 
 function main_hide_file_sidebar() {
@@ -5223,16 +4824,7 @@ function main_delete_pdf_blob_urls(docNumber) {
 }
 
 function main_delete_all_pdf_blob_urls() {
-    state.fileList.forEach(folder => {
-        folder.pages.forEach(page => {
-            if (page.full && page.full.startsWith('blob:')) {
-                URL.revokeObjectURL(page.full);
-            }
-            if (page.thumbnail && page.thumbnail.startsWith('blob:') && page.thumbnail !== page.full) {
-                URL.revokeObjectURL(page.thumbnail);
-            }
-        });
-    });
+    DocLoader.revoke_all_document_blob_urls();
 }
 
 window.main_setup_all_events = main_setup_all_events;
