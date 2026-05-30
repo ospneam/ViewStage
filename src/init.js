@@ -72,6 +72,19 @@ function dom_init_all() {
     dom.blackboardCanvas = document.getElementById('blackboardCanvas');
     dom.bbClose = document.getElementById('bbClose');
 
+    dom.documentReaderPanel = document.getElementById('documentReaderPanel');
+    dom.docReaderScrollContainer = document.getElementById('docReaderScrollContainer');
+    dom.drPagePrev = document.getElementById('drPagePrev');
+    dom.drPageNext = document.getElementById('drPageNext');
+    dom.drPageIndicator = document.getElementById('drPageIndicator');
+    dom.drBtnMove = document.getElementById('drBtnMove');
+    dom.drBtnComment = document.getElementById('drBtnComment');
+    dom.drBtnEraser = document.getElementById('drBtnEraser');
+    dom.drBtnUndo = document.getElementById('drBtnUndo');
+    dom.drBtnClear = document.getElementById('drBtnClear');
+    dom.drBtnClose = document.getElementById('drBtnClose');
+    dom.drToolGroup = document.getElementById('drToolGroup');
+
     if (!dom.imageElement || !dom.canvasContainer) {
         console.error('必需的元素未找到');
         return false;
@@ -215,6 +228,12 @@ async function settings_load_camera_config() {
             const canvasBgColor = ThemeManager.theme_fetch_canvas_bg_color();
             DRAW_CONFIG.canvasBgColor = canvasBgColor;
             window.main_update_canvas_bg_color(canvasBgColor);
+
+            if (settings.blackboardEnabled === false && dom.btnBlackboard) {
+                dom.btnBlackboard.style.display = 'none';
+            } else if (dom.btnBlackboard) {
+                dom.btnBlackboard.style.display = '';
+            }
         } catch (error) {
             console.error('加载摄像头设置失败:', error);
         }
@@ -290,6 +309,10 @@ async function main_init_all() {
         if (window.blackboardManager) {
             window.blackboardManager.init(dom.canvasContainer);
         }
+        console.log('[init] document reader init');
+        if (window.documentReaderManager) {
+            window.documentReaderManager.init();
+        }
         console.log('[init] history_init_manager');
         history_init_manager({
             on_state_change: () => {
@@ -308,6 +331,11 @@ async function main_init_all() {
                 const w = dom.canvasContainer.clientWidth;
                 const h = dom.canvasContainer.clientHeight;
                 window.blackboardManager.resize(w, h);
+            }
+            if (window.documentReaderManager && dom.canvasContainer) {
+                const w = dom.canvasContainer.clientWidth;
+                const h = dom.canvasContainer.clientHeight;
+                window.documentReaderManager.resize(w, h);
             }
         });
 
@@ -437,6 +465,9 @@ if (document.readyState === 'loading') {
 document.addEventListener('beforeunload', () => {
     window.main_delete_image_blob_urls?.();
     window.main_delete_all_pdf_blob_urls?.();
+    if (window.documentReaderManager) {
+        window.documentReaderManager.destroy();
+    }
 });
 
 // 为按钮添加触摸缩放反馈，并初始化窗口最小化监听

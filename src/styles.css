@@ -176,6 +176,8 @@ body {
     background-color: transparent;
     pointer-events: none;
     image-rendering: auto;
+    backface-visibility: hidden;
+    -webkit-backface-visibility: hidden;
 }
 
 .draw-overlay {
@@ -930,4 +932,220 @@ body {
     white-space: nowrap;
     user-select: none;
     -webkit-user-select: none;
+}
+
+/* ===== 文档阅读器面板 ===== */
+.document-reader-panel {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 5;
+    background: var(--color-surface-card);
+    transform: translateY(-100%);
+    transition: transform 0.35s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+    will-change: transform;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+.document-reader-panel.active {
+    transform: translateY(0);
+}
+
+.doc-reader-scroll-container {
+    flex: 1;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 16px;
+    overscroll-behavior: contain;
+}
+
+.doc-reader-page {
+    flex-shrink: 0;
+    position: relative;
+    background: #fff;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+    border-radius: 2px;
+    contain: layout style;
+    will-change: transform;
+    backface-visibility: hidden;
+    -webkit-backface-visibility: hidden;
+}
+
+.doc-reader-page img {
+    display: block;
+    width: 100%;
+    height: auto;
+    object-fit: contain;
+    pointer-events: none;
+    user-select: none;
+    contain: layout style;
+    -webkit-user-select: none;
+}
+
+.doc-reader-page-placeholder {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--color-surface-card);
+    color: var(--color-muted);
+    font-size: 16px;
+    font-weight: 500;
+    min-height: 400px;
+}
+
+/* 缩放包装器 — CSS transform 统一缩放，内部页面固定宽度 */
+.dr-zoom-wrapper {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+    padding: 16px 0;
+    will-change: transform;
+    transform-origin: 0 0;
+}
+
+.doc-reader-page-tiles {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    contain: strict;
+}
+
+.doc-reader-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    pointer-events: none;
+    contain: strict;
+    image-rendering: auto;
+}
+
+/* 文档阅读器全局覆盖层（实时绘制预览） */
+.doc-reader-overlay-global {
+    contain: strict;
+}
+
+/* 翻页器指示器 */
+.dr-page-indicator {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 48px;
+    min-height: 40px;
+    padding: 0 8px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--color-body);
+    user-select: none;
+    white-space: nowrap;
+}
+
+/* 文档阅读器页面侧边栏 */
+.dr-page-sidebar {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
+    gap: var(--spacing-sm);
+    position: absolute;
+    right: 10px;
+    top: 10px;
+    z-index: 100;
+    width: 220px;
+    max-height: calc(100vh - 80px);
+    background: var(--color-surface-elevated);
+    border: 1px solid var(--color-hairline);
+    border-radius: var(--rounded-lg);
+    box-shadow: var(--shadow-lg);
+    overflow: hidden;
+    opacity: 0;
+    animation: sidebarExpand 0.25s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+@keyframes sidebarExpand {
+    0% {
+        opacity: 0;
+        transform: translateX(20px) scale(0.95);
+    }
+    100% {
+        opacity: 1;
+        transform: translateX(0) scale(1);
+    }
+}
+
+.dr-page-sidebar-header {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--color-ink);
+    padding: var(--spacing-xs) var(--spacing-sm);
+    border-bottom: 1px solid var(--color-hairline);
+    width: 100%;
+    text-align: center;
+}
+
+.dr-page-sidebar-content {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-xs);
+    width: 100%;
+    padding: var(--spacing-xs);
+}
+
+.dr-page-sidebar-item {
+    position: relative;
+    border-radius: var(--rounded-md);
+    overflow: hidden;
+    cursor: pointer;
+    border: 2px solid transparent;
+    flex-shrink: 0;
+    width: 100%;
+    transition: all 0.15s ease;
+}
+
+.dr-page-sidebar-item:hover {
+    border-color: var(--color-brand-accent);
+}
+
+.dr-page-sidebar-item.active {
+    border-color: var(--color-brand-accent);
+    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.3);
+}
+
+.dr-page-sidebar-item img {
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    object-fit: contain;
+    display: block;
+    background: var(--color-surface-card);
+}
+
+.dr-page-sidebar-item span {
+    position: absolute;
+    bottom: 4px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--color-primary);
+    color: var(--color-on-primary);
+    font-size: 12px;
+    font-weight: 500;
+    padding: 2px 8px;
+    border-radius: var(--rounded-xs);
+    white-space: nowrap;
 }

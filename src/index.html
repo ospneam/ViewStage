@@ -20,6 +20,8 @@
                 await import('./pen_tessellator.js');
                 await import('./main.js');
                 await import('./blackboard.js');
+                await import('./modules/pdf/document_reader_page.js');
+                await import('./modules/pdf/document_reader.js');
                 await import('./init.js');
             } catch(e) {
                 console.error('[boot] module load error:', e);
@@ -119,6 +121,10 @@
                     <canvas id="blackboardCanvas"></canvas>
                 </div>
             </div>
+
+            <div class="document-reader-panel" id="documentReaderPanel">
+                <div class="doc-reader-scroll-container" id="docReaderScrollContainer"></div>
+            </div>
             
             <div class="toolbar">
                 <div class="toolbar-left">
@@ -191,6 +197,37 @@
                 </div>
                 
                 <div class="toolbar-right">
+                    <div class="toolbar-dr-group" id="drToolGroup" style="display:none">
+                        <button class="toolbar-btn function-btn" id="drBtnClose">
+                            <img data-icon="dismiss" width="16" height="16" alt="关闭">
+                            <span>关闭</span>
+                        </button>
+                        <div class="toolbar-separator"></div>
+                        <button class="toolbar-btn function-btn" id="drBtnMove" data-mode="move">
+                            <img data-icon="move" width="16" height="16" alt="移动">
+                        </button>
+                        <button class="toolbar-btn function-btn active" id="drBtnComment" data-mode="comment">
+                            <img data-icon="pen" width="16" height="16" alt="批注">
+                        </button>
+                        <button class="toolbar-btn function-btn" id="drBtnEraser" data-mode="eraser">
+                            <img data-icon="eraser" width="16" height="16" alt="橡皮">
+                        </button>
+                        <button class="toolbar-btn function-btn" id="drBtnUndo">
+                            <img data-icon="undo" width="16" height="16" alt="撤销">
+                        </button>
+                        <button class="toolbar-btn function-btn" id="drBtnClear">
+                            <img data-icon="clear" width="16" height="16" alt="清空">
+                        </button>
+                        <div class="toolbar-separator"></div>
+                        <button class="toolbar-btn function-btn" id="drPagePrev" disabled>
+                            <img data-icon="chevron-left" width="16" height="16" alt="上一页">
+                        </button>
+                        <span class="dr-page-indicator" id="drPageIndicator">1 / 1</span>
+                        <button class="toolbar-btn function-btn" id="drPageNext">
+                            <img data-icon="chevron-right" width="16" height="16" alt="下一页">
+                        </button>
+                    </div>
+
                     <button class="toolbar-btn" id="btnExpand">
                         <img data-icon="image" width="16" height="16" alt="图片">
                         <span data-i18n="toolbar.image">图片</span>
