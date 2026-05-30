@@ -66,6 +66,11 @@ function dom_init_all() {
     dom.btnSave = document.getElementById('btnSave');
     dom.btnMinimize = document.getElementById('btnMinimize');
     dom.btnMenu = document.getElementById('btnMenu');
+    dom.btnBlackboard = document.getElementById('btnBlackboard');
+    dom.blackboardPanel = document.getElementById('blackboardPanel');
+    dom.blackboardCanvasWrap = document.getElementById('blackboardCanvasWrap');
+    dom.blackboardCanvas = document.getElementById('blackboardCanvas');
+    dom.bbClose = document.getElementById('bbClose');
 
     if (!dom.imageElement || !dom.canvasContainer) {
         console.error('必需的元素未找到');
@@ -281,6 +286,10 @@ async function main_init_all() {
 
         console.log('[init] calling canvas_init_all');
         canvas_init_all();
+        console.log('[init] blackboard init');
+        if (window.blackboardManager) {
+            window.blackboardManager.init(dom.canvasContainer);
+        }
         console.log('[init] history_init_manager');
         history_init_manager({
             on_state_change: () => {
@@ -294,6 +303,13 @@ async function main_init_all() {
 
         console.log('[init] resize listener');
         window.addEventListener('resize', window.main_handle_resize);
+        window.addEventListener('resize', () => {
+            if (window.blackboardManager && dom.canvasContainer) {
+                const w = dom.canvasContainer.clientWidth;
+                const h = dom.canvasContainer.clientHeight;
+                window.blackboardManager.resize(w, h);
+            }
+        });
 
         app_emit_splash_progress(2, '正在加载主题...');
         console.log('[init] progress 2 emitted');

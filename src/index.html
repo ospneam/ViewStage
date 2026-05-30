@@ -19,6 +19,7 @@
                 await import('./themes/theme.js');
                 await import('./pen_tessellator.js');
                 await import('./main.js');
+                await import('./blackboard.js');
                 await import('./init.js');
             } catch(e) {
                 console.error('[boot] module load error:', e);
@@ -113,6 +114,11 @@
                 </div>
             </div>
             
+            <div class="blackboard-panel" id="blackboardPanel">
+                <div class="blackboard-canvas-wrap" id="blackboardCanvasWrap">
+                    <canvas id="blackboardCanvas"></canvas>
+                </div>
+            </div>
             
             <div class="toolbar">
                 <div class="toolbar-left">
@@ -148,6 +154,11 @@
                         <span data-i18n="toolbar.clearAnnotations">清空</span>
                     </button>
                     
+                    <button class="toolbar-btn function-btn" id="btnBlackboard">
+                        <img data-icon="blackboard" width="16" height="16" alt="小黑板">
+                        <span>黑板</span>
+                    </button>
+                    
                     <div class="toolbar-separator"></div>
                     
                     <button class="toolbar-btn function-btn" id="btnPhoto">
@@ -160,6 +171,23 @@
                         <span data-i18n="toolbar.settings">设置</span>
                     </button>
                     
+                    <div class="toolbar-bb-group" id="bbToolGroup" style="display:none">
+                        <button class="toolbar-btn function-btn" id="bbPagePrev" disabled>
+                            <img data-icon="chevron-left" width="16" height="16" alt="上一页">
+                        </button>
+                        <span class="bb-page-indicator" id="bbPageIndicator">1 / 1</span>
+                        <button class="toolbar-btn function-btn" id="bbPageNext">
+                            <img data-icon="chevron-right" width="16" height="16" alt="下一页">
+                        </button>
+                        <button class="toolbar-btn function-btn" id="bbPageAdd">
+                            <img data-icon="add" width="16" height="16" alt="添加页面">
+                        </button>
+                        <div class="toolbar-separator"></div>
+                        <button class="toolbar-btn function-btn" id="bbClose">
+                            <img data-icon="dismiss" width="16" height="16" alt="关闭">
+                            <span>关闭</span>
+                        </button>
+                    </div>
                 </div>
                 
                 <div class="toolbar-right">

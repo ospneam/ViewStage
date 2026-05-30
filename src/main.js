@@ -1533,6 +1533,9 @@ function main_setup_all_events() {
     main_setup_canvas_touch_events();
     main_setup_settings_events();
     main_setup_click_outside();
+    if (window.blackboardManager) {
+        window.blackboardManager.setup_toolbar_events();
+    }
 }
 
 // 设置面板事件
@@ -1633,9 +1636,15 @@ function main_setup_click_outside() {
 
 // 模式切换事件
 function main_setup_mode_events() {
-    dom.btnMove.addEventListener('click', () => main_update_mode('move'));
-    dom.btnComment.addEventListener('click', () => main_update_mode('comment'));
-    dom.btnEraser.addEventListener('click', () => main_update_mode('eraser'));
+    dom.btnMove.addEventListener('click', () => {
+        main_update_mode('move');
+    });
+    dom.btnComment.addEventListener('click', () => {
+        main_update_mode('comment');
+    });
+    dom.btnEraser.addEventListener('click', () => {
+        main_update_mode('eraser');
+    });
     
     dom.btnComment.addEventListener('dblclick', (e) => {
         e.preventDefault();
@@ -1650,6 +1659,42 @@ function main_setup_mode_events() {
 
 // 切换模式
 async function main_update_mode(mode) {
+    const bb = window.blackboardManager;
+    if (bb?.is_open) {
+        if (bb.is_drawing) {
+            bb.is_drawing = false;
+            await bb._submit_stroke();
+        }
+        bb.draw_mode = mode;
+
+        [dom.btnMove, dom.btnComment, dom.btnEraser].forEach(btn => {
+            btn.classList.remove('primary-btn');
+        });
+
+        switch (mode) {
+            case 'move':
+                if (dom.btnMove) dom.btnMove.classList.add('primary-btn');
+                if (bb.bb_wrapper) bb.bb_wrapper.style.cursor = 'grab';
+                main_hide_eraser_hint();
+                break;
+            case 'comment':
+                if (dom.btnComment) dom.btnComment.classList.add('primary-btn');
+                if (bb.bb_wrapper) bb.bb_wrapper.style.cursor = 'crosshair';
+                main_hide_eraser_hint();
+                main_update_pen_style();
+                break;
+            case 'eraser':
+                if (dom.btnEraser) dom.btnEraser.classList.add('primary-btn');
+                if (bb.bb_wrapper) bb.bb_wrapper.style.cursor = 'none';
+                main_show_eraser_hint();
+                main_update_eraser_style();
+                break;
+        }
+
+        console.log(`[黑板] 切换到 ${mode} 模式`);
+        return;
+    }
+
     // 切换模式前提交当前未完成的笔画并重置绘制状态
     if (state.isDrawing) {
         state.isDrawing = false;
@@ -1697,14 +1742,36 @@ async function main_update_mode(mode) {
 
 // 工具按钮事件
 function main_setup_tool_events() {
-    dom.btnUndo.addEventListener('click', main_handle_undo);
-    dom.btnClear.addEventListener('click', main_delete_all_drawings);
+    dom.btnUndo.addEventListener('click', () => {
+        if (window.blackboardManager?.is_open) {
+            window.blackboardManager.handle_undo();
+        } else {
+            main_handle_undo();
+        }
+    });
+    dom.btnClear.addEventListener('click', () => {
+        if (window.blackboardManager?.is_open) {
+            window.blackboardManager.handle_clear();
+        } else {
+            main_delete_all_drawings();
+        }
+    });
     dom.btnPhoto.addEventListener('click', main_save_photo);
     dom.btnSettings.addEventListener('click', main_show_settings);
     dom.btnSave.addEventListener('click', main_handle_file_sidebar_toggle);
     dom.btnMinimize.addEventListener('click', main_hide_window);
     dom.btnMenu.addEventListener('click', main_handle_menu_toggle);
     dom.btnExpand.addEventListener('click', main_handle_sidebar_toggle);
+    dom.btnBlackboard.addEventListener('click', () => {
+        const bb = window.blackboardManager;
+        if (bb) {
+            if (bb.is_open) {
+                bb.close();
+            } else {
+                bb.open();
+            }
+        }
+    });
 }
 
 // 菜单弹出
@@ -3075,6 +3142,7 @@ function main_reset_context_state() {
     currentContextState.lineJoin = null;
     currentContextState.globalCompositeOperation = null;
 }
+window.main_reset_context_state = main_reset_context_state;
 
 // === 批注绘制系统 ===
 // Canvas上下文状态缓存、笔画绘制、批注压缩
@@ -3130,6 +3198,8 @@ window.main_update_context_state = main_update_context_state;
 async function main_render_strokes_to_context(ctx, strokes) {
     if (strokes.length === 0) return;
     
+    main_reset_context_state();
+    
     main_update_context_state(ctx, {
         lineCap: 'round',
         lineJoin: 'round'
@@ -3157,7 +3227,9 @@ async function main_render_strokes_to_context(ctx, strokes) {
             }
             ctx.stroke(path);
         } else {
-            ctx.globalCompositeOperation = 'source-over';
+            main_update_context_state(ctx, {
+                globalCompositeOperation: 'source-over'
+            });
             
             if (pen_effect !== 'off') {
                 const tessellated = realPenManager.build_tessellated_stroke(stroke, pen_effect);
@@ -5506,6 +5578,7 @@ window.main_init_without_camera = main_init_without_camera;
 window.main_show_error_dialog = main_show_error_dialog;
 window.main_handle_resize = main_handle_resize;
 window.main_submit_stroke = main_submit_stroke;
+window.main_update_mode = main_update_mode;
 window.main_update_canvas_bg_color = main_update_canvas_bg_color;
 window.main_calc_rgb_to_hex = main_calc_rgb_to_hex;
 window.main_update_color_buttons = main_update_color_buttons;
@@ -5521,6 +5594,7 @@ window.main_wait_pdfjs = main_wait_pdfjs;
 window.main_hide_pen_control_panel = main_hide_pen_control_panel;
 window.main_hide_settings_panel = main_hide_settings_panel;
 window.main_render_image_centered = main_render_image_centered;
+window.main_handle_eraser_stroke = main_handle_eraser_stroke;
 window.main_render_all_strokes = main_render_all_strokes;
 window.main_reset_context_state = main_reset_context_state;
 window.main_fetch_visible_rect = main_fetch_visible_rect;

@@ -49,6 +49,8 @@ class RealtimeBatchDrawManager {
         this._overlayTransformScale = 0;
         this._overlayTransformX = 0;
         this._overlayTransformY = 0;
+
+        this._tileRenderer = null;
     }
 
     init_overlay(container, screenW, screenH, dpr) {
@@ -116,7 +118,7 @@ class RealtimeBatchDrawManager {
     }
 
     _each_tile(x1, y1, x2, y2, fn) {
-        const tr = window.tileRenderer;
+        const tr = this._tileRenderer || window.tileRenderer;
         if (!tr) return;
         const infos = tr.infos_for_segment(x1, y1, x2, y2);
         for (const info of infos) {
@@ -133,7 +135,7 @@ class RealtimeBatchDrawManager {
     }
 
     _each_visible_tile(fn) {
-        const tr = window.tileRenderer;
+        const tr = this._tileRenderer || window.tileRenderer;
         if (!tr) return;
         const keys = tr.get_visible_keys();
         for (const info of tr.tileInfos) {
@@ -381,7 +383,7 @@ class RealtimeBatchDrawManager {
             }
 
             if (cmd.type === 'erase') {
-                const tr = window.tileRenderer;
+                const tr = this._tileRenderer || window.tileRenderer;
                 if (tr) {
                     const infos = tr.infos_for_segment(fromX, fromY, toX, toY);
                     for (const info of infos) {
@@ -429,7 +431,7 @@ class RealtimeBatchDrawManager {
         }
 
         if (eraseByTile.size > 0) {
-            const tr = window.tileRenderer;
+            const tr = this._tileRenderer || window.tileRenderer;
             if (tr) {
                 for (const info of tr.tileInfos) {
                     const entry = eraseByTile.get(info.key);
@@ -567,4 +569,5 @@ class RealtimeBatchDrawManager {
     }
 }
 
+window.RealtimeBatchDrawManager = RealtimeBatchDrawManager;
 window.batchDrawManager = new RealtimeBatchDrawManager();

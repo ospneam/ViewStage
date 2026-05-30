@@ -845,3 +845,89 @@ body {
 .toggle-switch input:checked + .toggle-slider:before {
     transform: translateX(20px);
 }
+
+/* ===== 小黑板面板 ===== */
+.blackboard-panel {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 5;
+    background: #111;
+    transform: translateY(-100%);
+    transition: transform 0.35s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+    will-change: transform;
+    overflow: hidden;
+}
+
+.blackboard-panel.active {
+    transform: translateY(0);
+}
+
+.blackboard-canvas-wrap {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    touch-action: none;
+}
+
+#blackboardCanvas {
+    position: absolute;
+    top: 0;
+    left: 0;
+    background: #1a1a1a;
+    touch-action: none;
+    pointer-events: none;
+}
+
+.bb-canvas-wrapper {
+    position: absolute;
+    top: 0;
+    left: 0;
+    transform-origin: 0 0;
+    touch-action: none;
+}
+
+.bb-canvas-wrapper.smooth-transform {
+    transition: transform 0.25s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+.bb-canvas-wrapper .canvas-tile {
+    position: absolute;
+    pointer-events: none;
+}
+
+.blackboard-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 2;
+    pointer-events: none;
+    background: transparent;
+}
+
+/* ===== 小黑板工具栏按钮组 ===== */
+.toolbar-bb-group {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    height: 100%;
+}
+
+.bb-page-indicator {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 48px;
+    padding: 0 8px;
+    height: 100%;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--color-muted);
+    white-space: nowrap;
+    user-select: none;
+    -webkit-user-select: none;
+}

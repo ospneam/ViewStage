@@ -2,7 +2,7 @@ const TILE_COLS = 4;
 const TILE_ROWS = 4;
 
 class TileRenderer {
-    constructor() {
+    constructor(options) {
         this.dirty = new Set();
         this.tileInfos = [];
         this._lastDprUpdateScale = 0;
@@ -17,12 +17,31 @@ class TileRenderer {
         this._IDLE_SHRINK_MS = 2000;
         this._strokeVersion = 0;
         this._builtStrokeVersion = -1;
+
+        this._strokeHistoryRef = options?.strokeHistoryRef || null;
+        this._getVisibleRectFn = options?.getVisibleRect || null;
+        this._canvasW = options?.canvasW || null;
+        this._canvasH = options?.canvasH || null;
+        this._skipBaseCache = options?.skipBaseCache || false;
+
         for (let r = 0; r < TILE_ROWS; r++) {
             for (let c = 0; c < TILE_COLS; c++) {
                 this.tileInfos.push({ col: c, row: r, key: `${c}_${r}`, dpr: 1 });
             }
         }
         this._init_tile_map();
+    }
+
+    _get_stroke_history() {
+        return this._strokeHistoryRef || window.state.strokeHistory;
+    }
+
+    _get_canvas_w() {
+        return this._canvasW || window.DRAW_CONFIG.canvasW;
+    }
+
+    _get_canvas_h() {
+        return this._canvasH || window.DRAW_CONFIG.canvasH;
     }
 
     _init_tile_map() {
@@ -67,6 +86,7 @@ class TileRenderer {
     }
 
     _update_base_cache() {
+        if (this._skipBaseCache) return;
         const img = window.state.baseImageObj;
         const loadId = window.state.baseImageLoadId || 0;
         if (!img) {
@@ -113,7 +133,7 @@ class TileRenderer {
     _build_quadtree() {
         if (this._strokeVersion === this._builtStrokeVersion) return;
         this._builtStrokeVersion = this._strokeVersion;
-        const strokes = window.state.strokeHistory;
+        const strokes = this._get_stroke_history();
         if (!strokes || strokes.length === 0) {
             this._quadtree = null;
             return;
@@ -121,16 +141,16 @@ class TileRenderer {
         const boundary = {
             x: 0,
             y: 0,
-            width: window.DRAW_CONFIG.canvasW,
-            height: window.DRAW_CONFIG.canvasH
+            width: this._get_canvas_w(),
+            height: this._get_canvas_h()
         };
         this._quadtree = new window.StrokeQuadTree(boundary);
         this._quadtree.build(strokes);
     }
 
     get_tile_dimensions() {
-        const cw = window.DRAW_CONFIG.canvasW;
-        const ch = window.DRAW_CONFIG.canvasH;
+        const cw = this._get_canvas_w();
+        const ch = this._get_canvas_h();
         return {
             w: Math.ceil(cw / TILE_COLS),
             h: Math.ceil(ch / TILE_ROWS)
@@ -139,8 +159,8 @@ class TileRenderer {
 
     get_tile_rect(col, row) {
         const { w, h } = this.get_tile_dimensions();
-        const cw = window.DRAW_CONFIG.canvasW;
-        const ch = window.DRAW_CONFIG.canvasH;
+        const cw = this._get_canvas_w();
+        const ch = this._get_canvas_h();
         return {
             x: col * w,
             y: row * h,
@@ -266,8 +286,8 @@ class TileRenderer {
         this._schedule_idle_shrink();
     }
 
-    init_tiles(wrapper) {
-        const scale = window.state ? (window.state.scale || 1) : 1;
+    init_tiles(wrapper, initialScale) {
+        const scale = initialScale || (window.state ? (window.state.scale || 1) : 1);
         const existing = wrapper.querySelectorAll('.canvas-tile');
         for (const el of existing) el.remove();
 
@@ -300,7 +320,7 @@ class TileRenderer {
     }
 
     get_visible_keys() {
-        const vr = window.main_fetch_visible_rect();
+        const vr = this._getVisibleRectFn ? this._getVisibleRectFn() : window.main_fetch_visible_rect();
         const { w, h } = this.get_tile_dimensions();
         const keys = new Set();
         const sc = Math.max(0, Math.floor(vr.x / w));
@@ -359,7 +379,7 @@ class TileRenderer {
             );
         }
 
-        const strokes = window.state.strokeHistory;
+        const strokes = this._get_stroke_history();
         if (strokes.length > 0) {
             let relevant;
             if (this._quadtree) {
@@ -367,6 +387,15 @@ class TileRenderer {
                     x: rect.x, y: rect.y,
                     width: rect.width, height: rect.height
                 }));
+                // 四叉树 Set 不保证插入顺序，必须按原始 strokes 顺序排序
+                // 确保橡皮擦 destination-out 在绘制 stroke 之后执行
+                if (relevant.length > 1) {
+                    const stroke_index = new Map();
+                    for (let i = 0; i < strokes.length; i++) {
+                        stroke_index.set(strokes[i], i);
+                    }
+                    relevant.sort((a, b) => stroke_index.get(a) - stroke_index.get(b));
+                }
             } else {
                 relevant = [];
                 for (let i = 0; i < strokes.length; i++) {
@@ -470,4 +499,5 @@ class TileRenderer {
     }
 }
 
+window.TileRenderer = TileRenderer;
 window.tileRenderer = new TileRenderer();
