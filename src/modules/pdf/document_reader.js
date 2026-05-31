@@ -1101,13 +1101,15 @@ class DocumentReaderManager {
     _calculate_adaptive_dpr(base_dpr, scale) {
         if (!this._adaptive_dpr_enabled) return Math.min(base_dpr, 2);
 
-        // 极端缩放时降低 DPR：放大查看细节不需要高分辨率，缩小时细节不可见
-        if (scale > 2 || scale < 0.5) return 1;
+        // 缩小查看时降低 DPR 节约显存
+        if (scale < 0.5) return 1;
 
         // 内存压力检测：堆内存超 500MB 时降级 DPR
         if (performance.memory?.usedJSHeapSize > 500 * 1024 * 1024) return 1;
 
-        return Math.min(base_dpr, 2);
+        // 放大时按比例提升渲染 DPR，确保文字清晰
+        // 基础 DPR * 缩放倍数，上限 4x 防止 OOM
+        return Math.min(base_dpr * scale, 4);
     }
 
     async _render_pdf_page_direct(page_index, force = false, is_prerender = false) {
