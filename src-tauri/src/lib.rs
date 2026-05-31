@@ -3321,6 +3321,7 @@ fn memreduct_start_monitor() {
 
             match std::process::Command::new(&memreduct_path)
                 .arg("-clean")
+                .arg("-silent")
                 .creation_flags(CREATE_NO_WINDOW)
                 .spawn()
             {
