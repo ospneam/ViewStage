@@ -449,6 +449,22 @@ document.addEventListener('DOMContentLoaded', async () => {
                 if (blackboardToggle) {
                     blackboardToggle.checked = blackboardEnabled;
                 }
+
+                // Mem Reduct 自动清理开关
+                const memreductCleanToggle = document.getElementById('memreductCleanToggle');
+                const memreductCleanItem = document.getElementById('memreductCleanItem');
+                if (memreductCleanToggle) {
+                    memreductCleanToggle.checked = settings.memreductCleanEnabled !== false;
+                }
+                // 非 Windows 平台隐藏此开关
+                if (memreductCleanItem && window.__TAURI__) {
+                    try {
+                        const platform = await window.__TAURI__.core.invoke('app_fetch_platform');
+                        if (platform !== 'windows') {
+                            memreductCleanItem.style.display = 'none';
+                        }
+                    } catch (_) { /* 忽略平台检测失败 */ }
+                }
                 
                 return settings;
             } catch (error) {
@@ -1786,6 +1802,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (blackboardToggle) {
         blackboardToggle.addEventListener('change', async () => {
             await settings_save_all_local({ blackboardEnabled: blackboardToggle.checked });
+        });
+    }
+
+    // Mem Reduct 自动清理开关
+    const memreductCleanToggle = document.getElementById('memreductCleanToggle');
+    if (memreductCleanToggle) {
+        memreductCleanToggle.addEventListener('change', async () => {
+            await settings_save_all_local({ memreductCleanEnabled: memreductCleanToggle.checked });
         });
     }
     if (btnOpenLogDir && window.__TAURI__) {

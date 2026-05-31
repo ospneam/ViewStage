@@ -85,6 +85,7 @@
     "importSettings": "导入设置",
     "resetApp": "重置应用",
     "blackboardEnabled": "小黑板",
+    "memreductClean": "内存自动清理",
     "canvasScale": "画布缩放倍数",
     "backgroundColor": "画布背景颜色",
     "dprLimit": "画面精度",

@@ -85,6 +85,7 @@
     "importSettings": "Import",
     "resetApp": "Reset",
     "blackboardEnabled": "Blackboard",
+    "memreductClean": "Auto Memory Cleanup",
     "canvasScale": "Canvas Scale",
     "backgroundColor": "Background",
     "dprLimit": "Display Quality",
