@@ -39,9 +39,10 @@ export async function wait_pdfjs(max_wait = 5000) {
  * @param {number} page_num - 页码（1-based）
  * @param {number} doc_number - 文档编号（用于生成 sourceId）
  * @param {number} [scale] - 渲染缩放比例，默认取 DRAW_CONFIG.pdfScale
- * @returns {Promise<{full: string, fullBlob: Blob, thumbnail: string, pageNum: number, sourceId: string, loaded: boolean}>}
+ * @param {number} [quality] - JPEG 输出质量
+ * @returns {Promise<{full: string, thumbnail: string, pageNum: number, sourceId: string, loaded: boolean}>}
  */
-export async function render_pdf_page(pdf, page_num, doc_number, scale) {
+export async function render_pdf_page(pdf, page_num, doc_number, scale, quality = 0.85) {
     const render_scale = scale || window.DRAW_CONFIG?.pdfScale || 2;
     const page = await pdf.getPage(page_num);
     const viewport = page.getViewport({ scale: render_scale });
@@ -51,25 +52,33 @@ export async function render_pdf_page(pdf, page_num, doc_number, scale) {
     canvas.height = viewport.height;
     const ctx = canvas.getContext('2d');
 
-    await page.render({ canvasContext: ctx, viewport: viewport }).promise;
+    let full_blob;
+    try {
+        await page.render({ canvasContext: ctx, viewport: viewport }).promise;
 
-    const full_blob = await new Promise((resolve, reject) => {
-        canvas.toBlob(blob => {
-            if (blob) resolve(blob);
-            else reject(new Error('Failed to create blob'));
-        }, 'image/jpeg', 0.85);
-    });
+        full_blob = await new Promise((resolve, reject) => {
+            canvas.toBlob(blob => {
+                if (blob) resolve(blob);
+                else reject(new Error('Failed to create blob'));
+            }, 'image/jpeg', quality);
+        });
+    } finally {
+        canvas.width = 0;
+        canvas.height = 0;
+        page.cleanup?.();
+    }
     const full_url = URL.createObjectURL(full_blob);
 
     const source_id = doc_number !== null ? `doc-${doc_number}-${page_num}` : null;
 
     return {
         full: full_url,
-        fullBlob: full_blob,
         thumbnail: full_url,
         pageNum: page_num,
         sourceId: source_id,
-        loaded: true
+        loaded: true,
+        width: viewport.width,
+        height: viewport.height
     };
 }
 
@@ -98,7 +107,6 @@ export async function render_pdf_pages_lazy(pdf, total_pages, initial_pages = 3,
         const source_id = doc_number !== null ? `doc-${doc_number}-${i}` : null;
         pages.push({
             full: null,
-            fullBlob: null,
             thumbnail: null,
             pageNum: i,
             sourceId: source_id,

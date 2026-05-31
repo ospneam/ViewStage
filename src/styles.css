@@ -971,10 +971,9 @@ body {
     background: #fff;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
     border-radius: 2px;
-    contain: layout style;
-    will-change: transform;
-    backface-visibility: hidden;
-    -webkit-backface-visibility: hidden;
+    contain: layout style paint;
+    content-visibility: auto;
+    contain-intrinsic-size: 800px 1132px;
 }
 
 .doc-reader-page img {
@@ -1002,6 +1001,10 @@ body {
     font-size: 16px;
     font-weight: 500;
     min-height: 400px;
+}
+
+.doc-reader-page.virtualized {
+    box-shadow: none;
 }
 
 /* 缩放包装器 — CSS transform 统一缩放，内部页面固定宽度 */
@@ -1108,6 +1111,25 @@ body {
     padding: var(--spacing-xs);
 }
 
+.dr-page-sidebar-content.virtualized {
+    display: block;
+    position: relative;
+    gap: 0;
+    padding: 0;
+}
+
+.dr-page-sidebar-virtual-spacer {
+    position: relative;
+    width: 100%;
+}
+
+.dr-page-sidebar-content.virtualized .dr-page-sidebar-item {
+    position: absolute;
+    left: var(--spacing-xs);
+    right: var(--spacing-xs);
+    width: auto;
+}
+
 .dr-page-sidebar-item {
     position: relative;
     border-radius: var(--rounded-md);
@@ -1128,12 +1150,47 @@ body {
     box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.3);
 }
 
-.dr-page-sidebar-item img {
+.dr-page-sidebar-thumb {
     width: 100%;
     aspect-ratio: 16 / 9;
-    object-fit: contain;
     display: block;
     background: var(--color-surface-card);
+}
+
+.dr-page-sidebar-item img.dr-page-sidebar-thumb {
+    object-fit: contain;
+}
+
+.dr-page-sidebar-thumb.is-loading {
+    background:
+        linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.08), transparent),
+        var(--color-surface-card);
+    background-size: 200% 100%;
+    animation: sidebarThumbLoading 1.2s linear infinite;
+}
+
+@keyframes sidebarThumbLoading {
+    from { background-position: 200% 0; }
+    to { background-position: -200% 0; }
+}
+
+.dr-page-sidebar-item.loading::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 20px;
+    height: 20px;
+    margin: -10px 0 0 -10px;
+    border: 2px solid rgba(255, 255, 255, 0.35);
+    border-top-color: var(--color-brand-accent);
+    border-radius: 50%;
+    animation: sidebarThumbSpin 0.8s linear infinite;
+    pointer-events: none;
+}
+
+@keyframes sidebarThumbSpin {
+    to { transform: rotate(360deg); }
 }
 
 .dr-page-sidebar-item span {

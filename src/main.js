@@ -530,6 +530,89 @@ let sourceIdCounters = {
     doc: 0
 };
 
+function main_calculate_md5(bytes) {
+    const data = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+    const original_len = data.length;
+    const padded_len = (((original_len + 8) >> 6) + 1) << 6;
+    const buffer = new Uint8Array(padded_len);
+    buffer.set(data);
+    buffer[original_len] = 0x80;
+
+    const bit_len = original_len * 8;
+    for (let i = 0; i < 8; i++) {
+        buffer[padded_len - 8 + i] = Math.floor(bit_len / Math.pow(256, i)) & 0xff;
+    }
+
+    const shifts = [
+        7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22,
+        5, 9, 14, 20, 5, 9, 14, 20, 5, 9, 14, 20, 5, 9, 14, 20,
+        4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23,
+        6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21
+    ];
+    const table = Array.from({ length: 64 }, (_, i) =>
+        Math.floor(Math.abs(Math.sin(i + 1)) * 0x100000000) >>> 0
+    );
+
+    let a0 = 0x67452301;
+    let b0 = 0xefcdab89;
+    let c0 = 0x98badcfe;
+    let d0 = 0x10325476;
+
+    const add32 = (a, b) => (a + b) >>> 0;
+    const left_rotate = (x, c) => ((x << c) | (x >>> (32 - c))) >>> 0;
+
+    for (let offset = 0; offset < padded_len; offset += 64) {
+        const m = new Uint32Array(16);
+        for (let i = 0; i < 16; i++) {
+            const j = offset + i * 4;
+            m[i] = (buffer[j] | (buffer[j + 1] << 8) | (buffer[j + 2] << 16) | (buffer[j + 3] << 24)) >>> 0;
+        }
+
+        let a = a0;
+        let b = b0;
+        let c = c0;
+        let d = d0;
+
+        for (let i = 0; i < 64; i++) {
+            let f;
+            let g;
+            if (i < 16) {
+                f = (b & c) | (~b & d);
+                g = i;
+            } else if (i < 32) {
+                f = (d & b) | (~d & c);
+                g = (5 * i + 1) % 16;
+            } else if (i < 48) {
+                f = b ^ c ^ d;
+                g = (3 * i + 5) % 16;
+            } else {
+                f = c ^ (b | ~d);
+                g = (7 * i) % 16;
+            }
+            const tmp = d;
+            d = c;
+            c = b;
+            b = add32(b, left_rotate(add32(add32(a, f >>> 0), add32(table[i], m[g])), shifts[i]));
+            a = tmp;
+        }
+
+        a0 = add32(a0, a);
+        b0 = add32(b0, b);
+        c0 = add32(c0, c);
+        d0 = add32(d0, d);
+    }
+
+    const word_to_hex = (word) => {
+        let out = '';
+        for (let i = 0; i < 4; i++) {
+            out += ((word >>> (i * 8)) & 0xff).toString(16).padStart(2, '0');
+        }
+        return out;
+    };
+
+    return word_to_hex(a0) + word_to_hex(b0) + word_to_hex(c0) + word_to_hex(d0);
+}
+
 let currentSourceId = null;
 
 let sourceDataStore = {};
@@ -918,6 +1001,8 @@ async function main_render_pdf_pages_lazy(pdf, totalPages, initialPages = 3, doc
     return DocLoader.render_pdf_pages_lazy(pdf, totalPages, initialPages, docNumber);
 }
 
+const PDF_INITIAL_RENDER_PAGES = 20;
+
 async function main_load_pdf_page(pdf, pageNum, docNumber) {
     return DocLoader.render_pdf_page(pdf, pageNum, docNumber);
 }
@@ -996,14 +1081,16 @@ async function main_load_pdf_from_path(filePath) {
         }
         
         console.log('文件大小:', uint8Array.length, '字节');
+        const fileMd5 = main_calculate_md5(uint8Array);
+        fileData = null;
+        uint8Array = null;
         
         main_update_loading_progress(window.i18n?.format_translate('loading.processingWord') || '正在处理 Word 文档...');
         
         let pdfPath = null;
         try {
-            pdfPath = await invoke('office_convert_docx_to_pdf_bytes', { 
-                fileData: Array.from(uint8Array),
-                fileName: filePath.split(/[/\\]/).pop()
+            pdfPath = await invoke('office_convert_docx_to_pdf', {
+                docxPath: filePath
             });
             console.log('Word 文档已转换为 PDF:', pdfPath);
         } catch (convertError) {
@@ -1042,13 +1129,16 @@ async function main_load_pdf_from_path(filePath) {
                 return;
             }
             
-            const pdfBytes = await fs.readFile(pdfPath);
-            const pdfArrayBuffer = pdfBytes.buffer;
+            let pdfBytes = await fs.readFile(pdfPath);
+            let pdfArrayBuffer = pdfBytes.buffer;
             const pdf = await pdfjsLib.getDocument({ data: pdfArrayBuffer }).promise;
+            pdfBytes = null;
+            pdfArrayBuffer = null;
             console.log('PDF加载成功，页数:', pdf.numPages);
             
             const totalPages = pdf.numPages;
             const fileName = filePath.split(/[/\\]/).pop().replace(/\.(pdf|docx|doc)$/i, '');
+            const docNumber = sourceIdCounters.doc++;
             
             const folder = {
                 name: fileName,
@@ -1056,11 +1146,9 @@ async function main_load_pdf_from_path(filePath) {
                 isPdf: true,
                 pdfDoc: pdf,
                 totalPages: totalPages,
-                docNumber: sourceIdCounters.doc
+                docNumber: docNumber,
+                fileMd5: fileMd5
             };
-            
-            sourceIdCounters.doc++;
-            const docNumber = sourceIdCounters.doc;
             
             if (state.pdfDocuments.size >= MAX_PDF_CACHE) {
                 const firstKey = state.pdfDocuments.keys().next().value;
@@ -1071,7 +1159,7 @@ async function main_load_pdf_from_path(filePath) {
             
             state.pdfDocuments.set(docNumber, pdf);
             
-            const processedPages = await main_render_pdf_pages_lazy(pdf, totalPages, 3, docNumber);
+            const processedPages = await main_render_pdf_pages_lazy(pdf, totalPages, PDF_INITIAL_RENDER_PAGES, docNumber);
             folder.pages = processedPages;
             
             state.fileList.push(folder);
@@ -1143,12 +1231,16 @@ async function main_load_pdf_from_path(filePath) {
         }
         
         console.log('PDF数据大小:', uint8Array.length);
+        const fileMd5 = main_calculate_md5(uint8Array);
         
         const pdf = await pdfjsLib.getDocument({ data: uint8Array }).promise;
+        fileData = null;
+        uint8Array = null;
         console.log('PDF加载成功，页数:', pdf.numPages);
         
         const totalPages = pdf.numPages;
         const fileName = filePath.split(/[/\\]/).pop().replace(/\.(pdf|docx|doc)$/i, '');
+        const docNumber = sourceIdCounters.doc++;
         
         const folder = {
             name: fileName,
@@ -1156,13 +1248,11 @@ async function main_load_pdf_from_path(filePath) {
             isWord: false,
             pdfDoc: pdf,
             totalPages: totalPages,
-            docNumber: sourceIdCounters.doc
+            docNumber: docNumber,
+            fileMd5: fileMd5
         };
         
-        sourceIdCounters.doc++;
-        const docNumber = sourceIdCounters.doc;
-        
-        const processedPages = await main_render_pdf_pages_parallel(pdf, totalPages, 4, docNumber);
+        const processedPages = await main_render_pdf_pages_lazy(pdf, totalPages, PDF_INITIAL_RENDER_PAGES, docNumber);
         folder.pages = processedPages;
         
         state.fileList.push(folder);
@@ -1716,6 +1806,7 @@ async function main_init_camera_if_needed() {
 // 关闭窗口
 async function main_submit_close_window() {
     if (window.__TAURI__?.window?.getCurrentWindow) {
+        await window.documentReaderManager?.delete_annotation_cache_files?.();
         const appWindow = window.__TAURI__.window.getCurrentWindow();
         await appWindow.close();
         console.log('窗口已关闭');
@@ -3838,8 +3929,9 @@ function main_load_pdf() {
             
             main_update_loading_progress(window.i18n?.format_translate('loading.readingFile') || '正在读取文件...');
             
-            const arrayBuffer = await file.arrayBuffer();
-            const uint8Array = new Uint8Array(arrayBuffer);
+            let arrayBuffer = await file.arrayBuffer();
+            let uint8Array = new Uint8Array(arrayBuffer);
+            const fileMd5 = main_calculate_md5(uint8Array);
             
             console.log('文件大小:', uint8Array.length, '字节');
             
@@ -3847,10 +3939,22 @@ function main_load_pdf() {
             
             let pdfPath = null;
             try {
-                pdfPath = await invoke('office_convert_docx_to_pdf_bytes', { 
-                    fileData: Array.from(uint8Array),
-                    fileName: file.name
-                });
+                const nativeFilePath = file.path || file._path || null;
+                if (nativeFilePath) {
+                    arrayBuffer = null;
+                    uint8Array = null;
+                    pdfPath = await invoke('office_convert_docx_to_pdf', {
+                        docxPath: nativeFilePath
+                    });
+                } else {
+                    const fileDataForConvert = Array.from(uint8Array);
+                    arrayBuffer = null;
+                    uint8Array = null;
+                    pdfPath = await invoke('office_convert_docx_to_pdf_bytes', {
+                        fileData: fileDataForConvert,
+                        fileName: file.name
+                    });
+                }
                 console.log('Word 文档已转换为 PDF:', pdfPath);
             } catch (convertError) {
                 main_hide_loading_overlay();
@@ -3888,24 +3992,25 @@ function main_load_pdf() {
                 }
                 
                 const { readFile, remove } = window.__TAURI__.fs;
-                const pdfBytes = await readFile(pdfPath);
-                const pdfArrayBuffer = pdfBytes.buffer;
+                let pdfBytes = await readFile(pdfPath);
+                let pdfArrayBuffer = pdfBytes.buffer;
                 const pdf = await pdfjsLib.getDocument({ data: pdfArrayBuffer }).promise;
+                pdfBytes = null;
+                pdfArrayBuffer = null;
                 
                 const totalPages = pdf.numPages;
+                const docNumber = sourceIdCounters.doc++;
                 const folder = {
                     name: file.name.replace(/\.(pdf|docx|doc)$/i, ''),
                     pages: [],
                     isWord: true,
                     pdfDoc: pdf,
                     totalPages: totalPages,
-                    docNumber: sourceIdCounters.doc
+                    docNumber: docNumber,
+                    fileMd5: fileMd5
                 };
                 
-                sourceIdCounters.doc++;
-                const docNumber = sourceIdCounters.doc;
-                
-                folder.pages = await main_render_pdf_pages_parallel(pdf, totalPages, 4, docNumber);
+                folder.pages = await main_render_pdf_pages_lazy(pdf, totalPages, PDF_INITIAL_RENDER_PAGES, docNumber);
                 
                 state.fileList.push(folder);
                 main_update_file_sidebar_content();
@@ -3949,22 +4054,23 @@ function main_load_pdf() {
                     return;
                 }
                 
-                const pdfArrayBuffer = await file.arrayBuffer();
+                let pdfArrayBuffer = await file.arrayBuffer();
+                const fileMd5 = main_calculate_md5(new Uint8Array(pdfArrayBuffer));
                 const pdf = await pdfjsLib.getDocument({ data: pdfArrayBuffer }).promise;
+                pdfArrayBuffer = null;
                 
                 const totalPages = pdf.numPages;
+                const docNumber = sourceIdCounters.doc++;
                 const folder = {
                     name: file.name.replace('.pdf', ''),
                     pages: [],
                     pdfDoc: pdf,
                     totalPages: totalPages,
-                    docNumber: sourceIdCounters.doc
+                    docNumber: docNumber,
+                    fileMd5: fileMd5
                 };
                 
-                sourceIdCounters.doc++;
-                const docNumber = sourceIdCounters.doc;
-                
-                folder.pages = await main_render_pdf_pages_parallel(pdf, totalPages, 4, docNumber);
+                folder.pages = await main_render_pdf_pages_lazy(pdf, totalPages, PDF_INITIAL_RENDER_PAGES, docNumber);
                 
                 state.fileList.push(folder);
                 main_update_file_sidebar_content();

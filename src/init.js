@@ -468,6 +468,7 @@ document.addEventListener('beforeunload', () => {
     if (window.documentReaderManager) {
         window.documentReaderManager.destroy();
     }
+    window.documentReaderManager?.delete_annotation_cache_files?.();
 });
 
 // 为按钮添加触摸缩放反馈，并初始化窗口最小化监听

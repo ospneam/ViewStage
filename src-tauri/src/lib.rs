@@ -20,10 +20,20 @@ use std::os::windows::process::CommandExt;
 #[cfg(target_os = "windows")]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 
+#[cfg(target_os = "windows")]
+const MEMREDUCT_MEMORY_THRESHOLD: u32 = 80;
+#[cfg(target_os = "windows")]
+const MEMREDUCT_CHECK_INTERVAL_SECS: u64 = 300;
+#[cfg(target_os = "windows")]
+const MEMREDUCT_CLEAN_COOLDOWN_SECS: u64 = 600;
+
 
 
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+
+#[cfg(target_os = "windows")]
+use windows_sys::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
 
 // ==================== 数据结构 ====================
 
@@ -186,6 +196,37 @@ fn cache_delete_all(app: tauri::AppHandle) -> Result<String, String> {
     log::info!("清除缓存: {} 字节, {} 个文件", cleared_size, cleared_files);
     
     Ok(format!("已清除 {} 个文件，共 {:.2} MB", cleared_files, cleared_size as f64 / 1024.0 / 1024.0))
+}
+
+/// Tauri IPC 命令：仅删除文档阅读器批注缓存
+#[tauri::command]
+fn cache_delete_doc_annotations(app: tauri::AppHandle) -> Result<String, String> {
+    let paths = AppPaths::new(&app)?;
+
+    if !paths.cache_dir.exists() {
+        return Ok("批注缓存目录不存在".to_string());
+    }
+
+    let mut deleted = 0u32;
+    if let Ok(entries) = std::fs::read_dir(&paths.cache_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !path.is_file() {
+                continue;
+            }
+            let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+                continue;
+            };
+            if name.starts_with("doc_annotations_") && name.ends_with(".json") {
+                if std::fs::remove_file(&path).is_ok() {
+                    deleted += 1;
+                }
+            }
+        }
+    }
+
+    log::info!("清除文档阅读器批注缓存: {} 个文件", deleted);
+    Ok(format!("已清除 {} 个文档批注缓存文件", deleted))
 }
 
 /// Tauri IPC 命令：检查是否达到自动清理缓存的间隔，若达到则执行清理
@@ -3199,7 +3240,114 @@ async fn filetype_delete_icons_windows() -> Result<(), String> {
     log::info!("文件关联移除完成");
     Ok(())
 }
+#[cfg(target_os = "windows")]
+fn memreduct_fetch_memory_load() -> Option<u32> {
+    let mut status: MEMORYSTATUSEX = unsafe { std::mem::zeroed() };
+    status.dwLength = std::mem::size_of::<MEMORYSTATUSEX>() as u32;
+    let ok = unsafe { GlobalMemoryStatusEx(&mut status) };
+    if ok == 0 {
+        None
+    } else {
+        Some(status.dwMemoryLoad)
+    }
+}
 
+#[cfg(target_os = "windows")]
+fn memreduct_find_executable() -> Option<std::path::PathBuf> {
+    let mut candidates = Vec::new();
+
+    if let Ok(program_files) = std::env::var("ProgramFiles") {
+        candidates.push(std::path::PathBuf::from(&program_files).join("Mem Reduct").join("memreduct.exe"));
+        candidates.push(std::path::PathBuf::from(&program_files).join("MemReduct").join("memreduct.exe"));
+    }
+    if let Ok(program_files_x86) = std::env::var("ProgramFiles(x86)") {
+        candidates.push(std::path::PathBuf::from(&program_files_x86).join("Mem Reduct").join("memreduct.exe"));
+        candidates.push(std::path::PathBuf::from(&program_files_x86).join("MemReduct").join("memreduct.exe"));
+    }
+    if let Ok(local_app_data) = std::env::var("LOCALAPPDATA") {
+        candidates.push(std::path::PathBuf::from(&local_app_data).join("Mem Reduct").join("memreduct.exe"));
+        candidates.push(std::path::PathBuf::from(&local_app_data).join("MemReduct").join("memreduct.exe"));
+    }
+
+    for candidate in candidates {
+        if candidate.exists() {
+            return Some(candidate);
+        }
+    }
+
+    let output = std::process::Command::new("where")
+        .arg("memreduct.exe")
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    stdout
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(std::path::PathBuf::from)
+        .find(|path| path.exists())
+}
+
+#[cfg(target_os = "windows")]
+fn memreduct_start_monitor() {
+    std::thread::spawn(|| {
+        let mut last_clean = std::time::Instant::now()
+            .checked_sub(std::time::Duration::from_secs(MEMREDUCT_CLEAN_COOLDOWN_SECS))
+            .unwrap_or_else(std::time::Instant::now);
+
+        loop {
+            std::thread::sleep(std::time::Duration::from_secs(MEMREDUCT_CHECK_INTERVAL_SECS));
+
+            if last_clean.elapsed().as_secs() < MEMREDUCT_CLEAN_COOLDOWN_SECS {
+                continue;
+            }
+
+            let Some(memory_load) = memreduct_fetch_memory_load() else {
+                log::warn!("Mem Reduct 自动清理: 获取内存占用失败");
+                continue;
+            };
+            if memory_load <= MEMREDUCT_MEMORY_THRESHOLD {
+                continue;
+            }
+
+            let Some(memreduct_path) = memreduct_find_executable() else {
+                log::info!("Mem Reduct 自动清理: RAM {}%，未找到 Mem Reduct", memory_load);
+                continue;
+            };
+
+            match std::process::Command::new(&memreduct_path)
+                .arg("-clean")
+                .creation_flags(CREATE_NO_WINDOW)
+                .spawn()
+            {
+                Ok(_) => {
+                    last_clean = std::time::Instant::now();
+                    log::info!(
+                        "Mem Reduct 自动清理已触发: RAM {}%, path={}",
+                        memory_load,
+                        memreduct_path.display()
+                    );
+                }
+                Err(err) => {
+                    log::warn!(
+                        "Mem Reduct 自动清理触发失败: RAM {}%, path={}, err={}",
+                        memory_load,
+                        memreduct_path.display(),
+                        err
+                    );
+                }
+            }
+        }
+    });
+}
+
+#[cfg(not(target_os = "windows"))]
+fn memreduct_start_monitor() {}
 
 /// 应用入口函数
 ///
@@ -3228,6 +3376,8 @@ pub fn app_init_run() {
         ]);
         log::info!("日志系统初始化成功");
     }
+
+    memreduct_start_monitor();
     
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
@@ -3312,6 +3462,7 @@ pub fn app_init_run() {
             dir_fetch_cache, 
             cache_fetch_size,
             cache_delete_all,
+            cache_delete_doc_annotations,
             cache_validate_auto_clear,
             dir_fetch_config, 
             dir_fetch_log,

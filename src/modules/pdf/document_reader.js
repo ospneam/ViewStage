@@ -46,6 +46,14 @@ class DocumentReaderManager {
         this._was_camera_open_before = false;
         this._last_loaded_index = -1;
         this._page_visible_timeout_id = null;
+        this._resize_raf_id = null;
+        this._gpu_cleanup_delay_ms = 1500;
+        this._tile_keep_distance = 1;
+        this._image_keep_distance = 2;
+        this._blob_keep_distance = 5;
+        this._sidebar_virtual_threshold = 160;
+        this._sidebar_item_height = 128;
+        this._sidebar_overscan = 8;
 
         // 分块渲染相关
         this.batch_draw = null;
@@ -134,8 +142,9 @@ class DocumentReaderManager {
         // 从缓存恢复批注（必须在 tiles 初始化前，_scroll_to_page 触发 _check_page_visibility 会懒 init tiles）
         await this._load_annotations_from_cache();
 
-        // 窗口 resize 时更新 overlay canvas 尺寸
+        // 窗口 resize 时同步页面布局、批注坐标与 overlay canvas 尺寸
         this._window_resize_handler = () => {
+            this._schedule_reader_resize();
             if (!this.batch_draw?._overlayCanvas) return;
             const overlay = this.batch_draw._overlayCanvas;
             if (overlay.width !== window.innerWidth || overlay.height !== window.innerHeight) {
@@ -168,6 +177,10 @@ class DocumentReaderManager {
         if (this._window_resize_handler) {
             window.removeEventListener('resize', this._window_resize_handler);
             this._window_resize_handler = null;
+        }
+        if (this._resize_raf_id !== null) {
+            cancelAnimationFrame(this._resize_raf_id);
+            this._resize_raf_id = null;
         }
 
         this.is_open = false;
@@ -251,11 +264,15 @@ class DocumentReaderManager {
         if (this.folder_index < 0) return;
         const cache_dir = window.cacheDir;
         if (!cache_dir) return;
+        const cache_id = this._get_annotations_cache_id();
+        if (!cache_id) return;
 
         const pages = this.page_manager.pages_list;
+        const folder = window.state.fileList[this.folder_index];
         const cache_data = {
-            version: 1,
+            version: 2,
             folder_index: this.folder_index,
+            file_md5: folder?.fileMd5 || null,
             pages: pages.map(p => ({
                 stroke_history: p.stroke_history,
                 undo_list: p.undo_list,
@@ -265,7 +282,7 @@ class DocumentReaderManager {
 
         try {
             const { writeTextFile } = window.__TAURI__.fs;
-            const file_path = `${cache_dir}/doc_annotations_${this.folder_index}.json`;
+            const file_path = `${cache_dir}/doc_annotations_${cache_id}.json`;
             await writeTextFile(file_path, JSON.stringify(cache_data));
         } catch (err) {
             console.error('[document_reader] 保存批注缓存失败:', err);
@@ -277,10 +294,12 @@ class DocumentReaderManager {
         if (this.folder_index < 0) return;
         const cache_dir = window.cacheDir;
         if (!cache_dir) return;
+        const cache_id = this._get_annotations_cache_id();
+        if (!cache_id) return;
 
         try {
             const { readTextFile } = window.__TAURI__.fs;
-            const file_path = `${cache_dir}/doc_annotations_${this.folder_index}.json`;
+            const file_path = `${cache_dir}/doc_annotations_${cache_id}.json`;
             const json_str = await readTextFile(file_path);
             const cache_data = JSON.parse(json_str);
             if (!cache_data || !cache_data.pages) return;
@@ -302,6 +321,23 @@ class DocumentReaderManager {
         }
     }
 
+    _get_annotations_cache_id() {
+        const folder = window.state?.fileList?.[this.folder_index];
+        if (folder?.fileMd5) {
+            return `md5_${folder.fileMd5}`;
+        }
+        return this.folder_index >= 0 ? `index_${this.folder_index}` : null;
+    }
+
+    async delete_annotation_cache_files() {
+        if (!window.__TAURI__?.core?.invoke) return;
+        try {
+            await window.__TAURI__.core.invoke('cache_delete_doc_annotations');
+        } catch (error) {
+            console.error('[document_reader] 删除批注缓存失败:', error);
+        }
+    }
+
     // ====== DOM 构建 ======
 
     _build_page_dom() {
@@ -314,45 +350,46 @@ class DocumentReaderManager {
         this._zoom_wrapper = wrapper;
         this._scroll_container.appendChild(wrapper);
 
-        // 基准页面宽度（容器可见宽度减 padding）
-        const base_w = Math.max(200, this._scroll_container.clientWidth - 32);
+        // 基准页面宽度（容器可见宽度减 padding），后续 resize 会动态重算
+        const base_w = this._get_page_base_width();
 
         for (let i = 0; i < this.page_manager.pages_list.length; i++) {
             const page_data = this.page_manager.pages_list[i];
             const page_div = document.createElement('div');
             page_div.className = 'doc-reader-page';
             page_div.dataset.page = i;
+            page_data.page_element = page_div;
 
-            // 页面固定宽度（wrapper transform 负责缩放）
-            page_div.style.width = base_w + 'px';
+            // 页面基准尺寸（wrapper transform 负责缩放）
+            this._set_page_box_size(page_data, base_w);
             page_div.style.touchAction = 'none';
 
-            // 图片层（懒加载：data-src 替代 src）
-            const img = document.createElement('img');
-            img.alt = `第 ${page_data.page_num} 页`;
-            img.loading = 'lazy';
-            img.decoding = 'async';
-            if (page_data.image_url) {
-                img.dataset.src = page_data.image_url;
-            }
-            page_div.appendChild(img);
+            if (page_data.loaded || page_data.image_url) {
+                // 图片层（懒加载：data-src 替代 src）
+                const img = document.createElement('img');
+                img.alt = `第 ${page_data.page_num} 页`;
+                img.loading = 'lazy';
+                img.decoding = 'async';
+                if (page_data.image_url) {
+                    img.dataset.src = page_data.image_url;
+                }
+                page_div.appendChild(img);
 
-            // 未加载页面的占位符
-            if (!page_data.loaded) {
+                // Tile 容器（wrapper transform 统一缩放，tiles 不再单独 scale）
+                const tiles_container = document.createElement('div');
+                tiles_container.className = 'doc-reader-page-tiles';
+                page_div.appendChild(tiles_container);
+            } else {
                 const placeholder = document.createElement('div');
-                placeholder.className = 'doc-reader-page-placeholder';
+                placeholder.className = 'doc-reader-page-placeholder doc-reader-page-virtual-placeholder';
                 placeholder.textContent = `第 ${page_data.page_num} 页`;
                 page_div.appendChild(placeholder);
+                page_div.classList.add('virtualized');
+                page_data.is_virtualized = true;
             }
-
-            // Tile 容器（wrapper transform 统一缩放，tiles 不再单独 scale）
-            const tiles_container = document.createElement('div');
-            tiles_container.className = 'doc-reader-page-tiles';
-            page_div.appendChild(tiles_container);
 
             // overlay canvas 延迟到 _on_page_visible 创建（节省大量 getContext 开销）
             wrapper.appendChild(page_div);
-            page_data.page_element = page_div;
             page_data._visible_init_timeout = null;
         }
 
@@ -439,6 +476,7 @@ class DocumentReaderManager {
         const page_data = this.page_manager.pages_list[page_index];
         if (!page_data) return;
         page_data.is_visible = true;
+        this._ensure_page_runtime_dom(page_index);
 
         // 取消待销毁的 tiles（页面快速滚回可见区域时避免闪烁）
         if (this._page_visible_timeout_id !== null) {
@@ -446,27 +484,21 @@ class DocumentReaderManager {
             this._page_visible_timeout_id = null;
         }
 
-        // 懒创建 overlay canvas（首次进入视口时，节省启动时大量 getContext 开销）
-        if (!page_data.overlay_canvas) {
-            const overlay = document.createElement('canvas');
-            overlay.className = 'doc-reader-overlay';
-            page_data.page_element?.appendChild(overlay);
-            page_data.overlay_canvas = overlay;
-            page_data.overlay_ctx = overlay.getContext('2d');
-        }
-
         // 懒加载图片
         const img = page_data.page_element?.querySelector('img');
-        if (img && !img.src && img.dataset.src) {
+        const has_img_src = img?.hasAttribute('src') && img.getAttribute('src');
+        if (img && !has_img_src && img.dataset.src) {
             img.src = img.dataset.src;
             img.onload = () => {
                 // 图片加载后设置页面尺寸并初始化 tiles
                 page_data.page_width = img.naturalWidth || img.clientWidth;
                 page_data.page_height = img.naturalHeight || img.clientHeight;
+                this._refresh_page_aspect(page_data);
+                this._resize_page_layout(page_index, this._get_page_base_width());
                 this._init_page_tiles(page_index);
                 this._update_overlay_size(page_index);
             };
-        } else if (img && img.src && !page_data.is_tiles_initialized) {
+        } else if (img && has_img_src && !page_data.is_tiles_initialized) {
             // 已有图片但 tiles 未初始化 → 延迟初始化（防快速滚动）
             if (page_data._visible_init_timeout !== null) {
                 clearTimeout(page_data._visible_init_timeout);
@@ -476,6 +508,8 @@ class DocumentReaderManager {
                 if (!page_data.is_visible) return; // 已隐藏，跳过
                 page_data.page_width = img.naturalWidth || img.clientWidth;
                 page_data.page_height = img.naturalHeight || img.clientHeight;
+                this._refresh_page_aspect(page_data);
+                this._resize_page_layout(page_index, this._get_page_base_width());
                 this._init_page_tiles(page_index);
                 this._update_overlay_size(page_index);
             }, 100);
@@ -498,27 +532,19 @@ class DocumentReaderManager {
             page_data._visible_init_timeout = null;
         }
 
-        // 离开视口后延迟销毁 tiles（防抖动 + requestIdleCallback 降 GPU 峰值）
+        // 离开视口后延迟释放页面 GPU 资源（防抖动 + requestIdleCallback 降 GPU 峰值）
         if (this._page_visible_timeout_id !== null) {
             clearTimeout(this._page_visible_timeout_id);
         }
         this._page_visible_timeout_id = setTimeout(() => {
             this._page_visible_timeout_id = null;
-            const destroy_fn = () => {
-                for (let i = 0; i < this.page_manager.pages_list.length; i++) {
-                    const pd = this.page_manager.pages_list[i];
-                    if (i === this.active_page_index) continue;
-                    if (!pd.is_visible && pd.is_tiles_initialized && pd.tile_renderer) {
-                        this._destroy_page_tiles(i);
-                    }
-                }
-            };
+            const destroy_fn = () => this._cleanup_hidden_page_gpu();
             if (window.requestIdleCallback) {
                 window.requestIdleCallback(destroy_fn, { timeout: 2000 });
             } else {
                 destroy_fn();
             }
-        }, 5000);
+        }, this._gpu_cleanup_delay_ms);
     }
 
     // ====== PDF 懒加载 ======
@@ -526,13 +552,14 @@ class DocumentReaderManager {
     async _load_pdf_page(page_index) {
         const page_data = this.page_manager.pages_list[page_index];
         if (!page_data || page_data.loaded) return;
+        if (page_data.loading_promise) return page_data.loading_promise;
 
         const folder = window.state.fileList[this.folder_index];
         if (!folder || !folder.pdfDoc) return;
 
-        try {
+        page_data.loading_promise = (async () => {
             const page_num = page_data.page_num;
-            const doc_number = folder.docNumber || null;
+            const doc_number = folder.docNumber ?? null;
 
             // 调用 document_loader 渲染页面
             const { render_pdf_page } = await import('./document_loader.js');
@@ -540,10 +567,11 @@ class DocumentReaderManager {
 
             // 更新页面数据
             page_data.image_url = result.full;
+            page_data.thumbnail_url = result.full;
             page_data.loaded = true;
 
             // 移除占位符
-            const placeholder = page_data.page_element?.querySelector('.doc-reader-page-placeholder');
+            const placeholder = page_data.page_element?.querySelector('.doc-reader-page-placeholder:not(.doc-reader-page-virtual-placeholder)');
             if (placeholder) {
                 placeholder.remove();
             }
@@ -557,6 +585,8 @@ class DocumentReaderManager {
                     img.onload = () => {
                         page_data.page_width = img.naturalWidth || img.clientWidth;
                         page_data.page_height = img.naturalHeight || img.clientHeight;
+                        this._refresh_page_aspect(page_data);
+                        this._resize_page_layout(page_index, this._get_page_base_width());
                         this._init_page_tiles(page_index);
                         this._update_overlay_size(page_index);
                     };
@@ -565,21 +595,312 @@ class DocumentReaderManager {
 
             // 更新侧边栏中的页面数据
             if (folder.pages[page_index]) {
+                if (folder.pages[page_index].thumbnail &&
+                    folder.pages[page_index].thumbnail !== folder.pages[page_index].full &&
+                    folder.pages[page_index].thumbnail.startsWith('blob:')) {
+                    URL.revokeObjectURL(folder.pages[page_index].thumbnail);
+                }
                 folder.pages[page_index].full = result.full;
                 folder.pages[page_index].thumbnail = result.full;
                 folder.pages[page_index].loaded = true;
+                folder.pages[page_index].width = result.width;
+                folder.pages[page_index].height = result.height;
             }
+
+            this._update_page_sidebar_thumbnail(page_index, result.full);
+        })();
+
+        try {
+            return await page_data.loading_promise;
         } catch (error) {
             console.error(`加载 PDF 页面 ${page_index + 1} 失败:`, error);
+        } finally {
+            page_data.loading_promise = null;
         }
     }
 
     // ====== TileRenderer 集成 ======
 
+    _is_page_near_active(page_index, distance) {
+        if (this.active_page_index < 0) return false;
+        return Math.abs(page_index - this.active_page_index) <= distance;
+    }
+
+    _cleanup_hidden_page_gpu() {
+        if (!this.page_manager?.pages_list) return;
+
+        for (let i = 0; i < this.page_manager.pages_list.length; i++) {
+            const pd = this.page_manager.pages_list[i];
+            if (!pd || pd.is_visible || i === this.active_page_index) continue;
+
+            if (!this._is_page_near_active(i, this._tile_keep_distance) && pd.is_tiles_initialized) {
+                this._destroy_page_tiles(i);
+            }
+
+            if (!this._is_page_near_active(i, this._image_keep_distance)) {
+                this._virtualize_page(i);
+            }
+
+            if (!this._is_page_near_active(i, this._blob_keep_distance)) {
+                this._release_page_blob_url(i);
+            }
+        }
+    }
+
+    _ensure_page_runtime_dom(page_index) {
+        const page_data = this.page_manager.pages_list[page_index];
+        const page_el = page_data?.page_element;
+        if (!page_el) return;
+
+        page_el.classList.remove('virtualized');
+        page_data.is_virtualized = false;
+
+        page_el.querySelectorAll('.doc-reader-page-virtual-placeholder').forEach(el => el.remove());
+
+        let img = page_el.querySelector('img');
+        if (!img) {
+            img = document.createElement('img');
+            img.alt = `第 ${page_data.page_num} 页`;
+            img.loading = 'lazy';
+            img.decoding = 'async';
+            page_el.prepend(img);
+        }
+        if (page_data.image_url) {
+            img.dataset.src = page_data.image_url;
+        }
+
+        const existing_placeholder = page_el.querySelector('.doc-reader-page-placeholder:not(.doc-reader-page-virtual-placeholder)');
+        if (!page_data.loaded && !existing_placeholder) {
+            const placeholder = document.createElement('div');
+            placeholder.className = 'doc-reader-page-placeholder';
+            placeholder.textContent = `第 ${page_data.page_num} 页`;
+            page_el.appendChild(placeholder);
+        } else if (page_data.loaded && existing_placeholder) {
+            existing_placeholder.remove();
+        }
+
+        if (!page_el.querySelector('.doc-reader-page-tiles')) {
+            const tiles_container = document.createElement('div');
+            tiles_container.className = 'doc-reader-page-tiles';
+            page_el.appendChild(tiles_container);
+        }
+
+        this._set_page_box_size(page_data, page_data.coord_width || this._get_page_base_width());
+    }
+
+    _virtualize_page(page_index) {
+        const page_data = this.page_manager.pages_list[page_index];
+        const page_el = page_data?.page_element;
+        if (!page_el || page_data.is_virtualized || page_data.is_visible) return;
+
+        this._destroy_page_tiles(page_index);
+        this._release_page_image(page_index);
+
+        const placeholder = document.createElement('div');
+        placeholder.className = 'doc-reader-page-placeholder doc-reader-page-virtual-placeholder';
+        placeholder.textContent = `第 ${page_data.page_num} 页`;
+
+        page_el.replaceChildren(placeholder);
+        page_el.classList.add('virtualized');
+        page_data.is_virtualized = true;
+    }
+
+    _release_page_image(page_index) {
+        const page_data = this.page_manager.pages_list[page_index];
+        const img = page_data?.page_element?.querySelector('img');
+        if (!img || !img.hasAttribute('src')) return;
+
+        img.onload = null;
+        img.removeAttribute('src');
+        // blob URL 保留在 dataset.src，页面再次可见时复用；移除 src 后浏览器可回收解码纹理。
+    }
+
+    _release_page_blob_url(page_index) {
+        const page_data = this.page_manager.pages_list[page_index];
+        if (!page_data || page_data.is_visible || page_index === this.active_page_index) return;
+
+        const image_url = page_data.image_url;
+        const thumbnail_url = page_data.thumbnail_url;
+        if (!image_url && !thumbnail_url) return;
+
+        const revoke_urls = new Set();
+        if (image_url?.startsWith('blob:')) revoke_urls.add(image_url);
+        if (thumbnail_url?.startsWith('blob:')) revoke_urls.add(thumbnail_url);
+        if (revoke_urls.size === 0) return;
+
+        const img = page_data.page_element?.querySelector('img');
+        if (img) {
+            img.onload = null;
+            img.removeAttribute('src');
+            img.removeAttribute('data-src');
+        }
+
+        const sidebar_img = document.querySelector(`#drPageSidebar .dr-page-sidebar-thumb[data-page="${page_index}"]`);
+        if (sidebar_img) {
+            sidebar_img.removeAttribute('src');
+            sidebar_img.classList.add('is-loading');
+            sidebar_img.closest('.dr-page-sidebar-item')?.classList.add('loading');
+        }
+
+        revoke_urls.forEach(url => URL.revokeObjectURL(url));
+
+        page_data.image_url = null;
+        page_data.thumbnail_url = null;
+        page_data.loaded = false;
+
+        const folder_page = window.state?.fileList?.[this.folder_index]?.pages?.[page_index];
+        if (folder_page) {
+            folder_page.full = null;
+            folder_page.thumbnail = null;
+            folder_page.loaded = false;
+        }
+
+        const has_placeholder = page_data.page_element?.querySelector('.doc-reader-page-placeholder');
+        if (page_data.page_element && !has_placeholder) {
+            const placeholder = document.createElement('div');
+            placeholder.className = 'doc-reader-page-placeholder';
+            placeholder.textContent = `第 ${page_data.page_num} 页`;
+            page_data.page_element.appendChild(placeholder);
+        }
+    }
+
+    _get_page_base_width() {
+        if (!this._scroll_container) return 800;
+        return Math.max(200, this._scroll_container.clientWidth - 32);
+    }
+
+    _refresh_page_aspect(page_data) {
+        if (!page_data?.page_width || !page_data.page_height) return;
+        page_data.aspect_ratio = page_data.page_width / page_data.page_height;
+    }
+
+    _get_page_aspect(page_data) {
+        return page_data?.aspect_ratio || 0.70710678;
+    }
+
+    _set_page_box_size(page_data, width) {
+        if (!page_data?.page_element) return;
+        const safe_w = Math.max(200, Math.round(width));
+        const aspect = this._get_page_aspect(page_data);
+        const safe_h = Math.max(200, Math.round(safe_w / aspect));
+
+        page_data.page_element.style.width = safe_w + 'px';
+        page_data.page_element.style.height = safe_h + 'px';
+
+        const img = page_data.page_element.querySelector('img');
+        if (img) {
+            img.style.width = '100%';
+            img.style.height = '100%';
+        }
+
+        const tiles_container = page_data.page_element.querySelector('.doc-reader-page-tiles');
+        if (tiles_container) {
+            tiles_container.style.width = safe_w + 'px';
+            tiles_container.style.height = safe_h + 'px';
+        }
+    }
+
+    _schedule_reader_resize() {
+        if (!this.is_open || this._resize_raf_id !== null) return;
+        this._resize_raf_id = requestAnimationFrame(() => {
+            this._resize_raf_id = null;
+            this._handle_reader_resize();
+        });
+    }
+
+    _handle_reader_resize() {
+        if (!this.is_open || !this._zoom_wrapper || !this._scroll_container) return;
+
+        const new_w = this._get_page_base_width();
+        const active = this.page_manager.pages_list[this.active_page_index]
+            || this.page_manager.get_current_page();
+        const active_offset = active?.page_element
+            ? active.page_element.offsetTop * this.dr_scale + this.dr_canvas_y
+            : null;
+
+        for (let i = 0; i < this.page_manager.pages_list.length; i++) {
+            this._resize_page_layout(i, new_w);
+        }
+
+        if (active?.page_element && active_offset !== null) {
+            this.dr_canvas_y = active_offset - active.page_element.offsetTop * this.dr_scale;
+        }
+
+        this._dr_apply_scale();
+    }
+
+    _resize_page_layout(page_index, new_w) {
+        const page_data = this.page_manager.pages_list[page_index];
+        if (!page_data?.page_element) return;
+
+        const old_w = page_data.coord_width || Math.round(parseFloat(page_data.page_element.style.width)) || 0;
+        const old_h = page_data.coord_height || Math.round(parseFloat(page_data.page_element.style.height)) || 0;
+        this._set_page_box_size(page_data, new_w);
+        const new_h = Math.round(parseFloat(page_data.page_element.style.height)) || 0;
+
+        if (old_w > 0 && old_h > 0 && (Math.abs(old_w - new_w) >= 1 || Math.abs(old_h - new_h) >= 1)) {
+            this._scale_page_annotations(page_data, new_w / old_w, old_h > 0 ? new_h / old_h : new_w / old_w);
+        }
+
+        page_data.coord_width = new_w;
+        page_data.coord_height = new_h;
+
+        if (page_data.is_tiles_initialized) {
+            this._destroy_page_tiles(page_index);
+            this._init_page_tiles(page_index);
+        }
+        this._update_overlay_size(page_index);
+    }
+
+    _scale_page_annotations(page_data, sx, sy) {
+        if (!page_data || sx === 1 && sy === 1) return;
+        const seen = new WeakSet();
+        const scale_stroke = (stroke) => {
+            if (!stroke || seen.has(stroke)) return;
+            seen.add(stroke);
+            const sw = (sx + sy) / 2;
+            if (Array.isArray(stroke.points)) {
+                for (const p of stroke.points) {
+                    if (typeof p.fromX === 'number') p.fromX *= sx;
+                    if (typeof p.toX === 'number') p.toX *= sx;
+                    if (typeof p.fromY === 'number') p.fromY *= sy;
+                    if (typeof p.toY === 'number') p.toY *= sy;
+                }
+            }
+            if (stroke.bounds) {
+                if (typeof stroke.bounds.minX === 'number') stroke.bounds.minX *= sx;
+                if (typeof stroke.bounds.maxX === 'number') stroke.bounds.maxX *= sx;
+                if (typeof stroke.bounds.minY === 'number') stroke.bounds.minY *= sy;
+                if (typeof stroke.bounds.maxY === 'number') stroke.bounds.maxY *= sy;
+            }
+            if (typeof stroke.lineWidth === 'number') stroke.lineWidth *= sw;
+            if (typeof stroke.eraserSize === 'number') stroke.eraserSize *= sw;
+            if (typeof stroke.eraserSizeRaw === 'number') stroke.eraserSizeRaw *= sw;
+            if (Array.isArray(stroke.storedWidths)) {
+                stroke.storedWidths = stroke.storedWidths.map(w => typeof w === 'number' ? w * sw : w);
+            }
+        };
+        const scale_command = (cmd) => {
+            if (!cmd) return;
+            scale_stroke(cmd.stroke);
+            if (Array.isArray(cmd.savedStrokeHistory)) cmd.savedStrokeHistory.forEach(scale_stroke);
+            if (Array.isArray(cmd.beforeStrokes)) cmd.beforeStrokes.forEach(scale_stroke);
+            if (Array.isArray(cmd.afterStrokes)) cmd.afterStrokes.forEach(scale_stroke);
+        };
+
+        page_data.stroke_history.forEach(scale_stroke);
+        page_data.undo_list.forEach(scale_command);
+        page_data.redo_list.forEach(scale_command);
+
+        if (page_data.index === this.page_manager.current_index) {
+            history_state.undo_list.forEach(scale_command);
+            history_state.redo_list.forEach(scale_command);
+        }
+    }
+
     _init_page_tiles(page_index) {
         const page_data = this.page_manager.pages_list[page_index];
         if (!page_data || page_data.is_tiles_initialized) return;
-        if (!page_data.page_width || !page_data.page_height) return;
 
         const tiles_container = page_data.page_element?.querySelector('.doc-reader-page-tiles');
         if (!tiles_container) return;
@@ -587,11 +908,12 @@ class DocumentReaderManager {
         // tile 坐标系使用页面的 CSS 宽度（固定基准，wrapper transform 负责缩放）
         const page_el = page_data.page_element;
         const tile_w = Math.round(parseFloat(page_el.style.width) || page_el.clientWidth || 800);
-        const aspect = page_data.page_width / page_data.page_height;
-        const tile_h = Math.round(tile_w / aspect);
+        const tile_h = Math.round(parseFloat(page_el.style.height) || page_el.clientHeight || (tile_w / this._get_page_aspect(page_data)));
 
         tiles_container.style.width = tile_w + 'px';
         tiles_container.style.height = tile_h + 'px';
+        page_data.coord_width = tile_w;
+        page_data.coord_height = tile_h;
 
         const tile_renderer = new TileRenderer({
             canvasW: tile_w,
@@ -705,13 +1027,22 @@ class DocumentReaderManager {
             page_data.tile_renderer = null;
         }
 
-        // 清空 per-page overlay canvas 释放 GPU 显存
+        // 清理历史版本可能已创建的 per-page overlay canvas，避免滚动大量页面后驻留纹理
         if (page_data.overlay_canvas) {
             const ctx = page_data.overlay_canvas.getContext('2d');
             if (ctx) {
                 ctx.clearRect(0, 0, page_data.overlay_canvas.width, page_data.overlay_canvas.height);
             }
+            page_data.overlay_canvas.width = 0;
+            page_data.overlay_canvas.height = 0;
+            if (page_data.overlay_canvas.parentNode) {
+                page_data.overlay_canvas.parentNode.removeChild(page_data.overlay_canvas);
+            }
         }
+        page_data.overlay_canvas = null;
+        page_data.overlay_ctx = null;
+        page_data._overlay_cached_w = 0;
+        page_data._overlay_cached_h = 0;
 
         const tiles_container = page_data.page_element?.querySelector('.doc-reader-page-tiles');
         if (tiles_container) tiles_container.innerHTML = '';
@@ -739,12 +1070,13 @@ class DocumentReaderManager {
         const visible_top = Math.max(0, container_rect.top - rect.top);
         const visible_right = Math.min(rect.width, container_rect.right - rect.left);
         const visible_bottom = Math.min(rect.height, container_rect.bottom - rect.top);
+        const inv = this.dr_cached_inv_scale || 1;
 
         return {
-            x: visible_left,
-            y: visible_top,
-            width: Math.max(0, visible_right - visible_left),
-            height: Math.max(0, visible_bottom - visible_top)
+            x: visible_left * inv,
+            y: visible_top * inv,
+            width: Math.max(0, visible_right - visible_left) * inv,
+            height: Math.max(0, visible_bottom - visible_top) * inv
         };
     }
 
@@ -1315,40 +1647,34 @@ class DocumentReaderManager {
         const content = document.createElement('div');
         content.className = 'dr-page-sidebar-content';
 
-        pages.forEach((page, index) => {
-            const is_active = index === current_index;
-            const page_label = `第 ${page.page_num || index + 1} 页`;
-            const item = document.createElement('div');
-            item.className = `dr-page-sidebar-item ${is_active ? 'active' : ''}`;
-            item.dataset.page = index;
-
-            const img = document.createElement('img');
-            img.src = page.image_url || '';
-            img.alt = page_label;
-            img.loading = 'lazy';
-
-            const label = document.createElement('span');
-            label.textContent = page_label;
-
-            item.appendChild(img);
-            item.appendChild(label);
-            content.appendChild(item);
-        });
+        const use_virtual_sidebar = pages.length > this._sidebar_virtual_threshold;
+        if (use_virtual_sidebar) {
+            content.classList.add('virtualized');
+        } else {
+            pages.forEach((page, index) => {
+                content.appendChild(this._create_page_sidebar_item(page, index, current_index));
+            });
+        }
 
         sidebar.appendChild(content);
         document.body.appendChild(sidebar);
+        if (use_virtual_sidebar) {
+            this._setup_virtual_page_sidebar(content, pages, current_index);
+        } else {
+            this._setup_page_sidebar_thumbnail_loading(content);
+        }
 
         // 绑定点击事件
-        content.querySelectorAll('.dr-page-sidebar-item').forEach(item => {
-            item.addEventListener('click', () => {
-                const page_index = parseInt(item.dataset.page);
-                this._scroll_to_page(page_index);
-                this.page_manager.current_index = page_index;
-                this.active_page_index = page_index;
-                this._update_page_indicator();
-                this._sync_page_buttons();
-                sidebar.remove();
-            });
+        content.addEventListener('click', (event) => {
+            const item = event.target.closest('.dr-page-sidebar-item');
+            if (!item || !content.contains(item)) return;
+            const page_index = parseInt(item.dataset.page);
+            this._scroll_to_page(page_index);
+            this.page_manager.current_index = page_index;
+            this.active_page_index = page_index;
+            this._update_page_indicator();
+            this._sync_page_buttons();
+            sidebar.remove();
         });
 
         // 点击外部关闭
@@ -1359,6 +1685,170 @@ class DocumentReaderManager {
             }
         };
         setTimeout(() => document.addEventListener('click', close_handler), 100);
+    }
+
+    _create_page_sidebar_item(page, index, current_index) {
+        const is_active = index === current_index;
+        const page_label = `第 ${page.page_num || index + 1} 页`;
+        const item = document.createElement('div');
+        item.className = `dr-page-sidebar-item ${is_active ? 'active' : ''}`;
+        item.dataset.page = index;
+
+        const thumbnail_src = page.image_url || page.thumbnail_url;
+        let thumb_el;
+        if (thumbnail_src) {
+            const img = document.createElement('img');
+            img.className = 'dr-page-sidebar-thumb';
+            img.dataset.page = index;
+            img.src = thumbnail_src;
+            img.alt = page_label;
+            img.loading = 'lazy';
+            thumb_el = img;
+        } else {
+            thumb_el = document.createElement('div');
+            thumb_el.className = 'dr-page-sidebar-thumb is-loading';
+            thumb_el.dataset.page = index;
+            thumb_el.setAttribute('role', 'img');
+            thumb_el.setAttribute('aria-label', page_label);
+            item.classList.add('loading');
+        }
+
+        const label = document.createElement('span');
+        label.textContent = page_label;
+
+        item.appendChild(thumb_el);
+        item.appendChild(label);
+        return item;
+    }
+
+    _setup_virtual_page_sidebar(content, pages, current_index) {
+        let render_raf = null;
+        const render_window = () => {
+            render_raf = null;
+            const item_h = this._sidebar_item_height;
+            const viewport_h = content.clientHeight || 480;
+            const start = Math.max(0, Math.floor(content.scrollTop / item_h) - this._sidebar_overscan);
+            const end = Math.min(
+                pages.length,
+                Math.ceil((content.scrollTop + viewport_h) / item_h) + this._sidebar_overscan
+            );
+
+            const spacer = document.createElement('div');
+            spacer.className = 'dr-page-sidebar-virtual-spacer';
+            spacer.style.height = `${pages.length * item_h}px`;
+
+            for (let i = start; i < end; i++) {
+                const item = this._create_page_sidebar_item(pages[i], i, current_index);
+                item.style.top = `${i * item_h}px`;
+                item.style.height = `${item_h - 6}px`;
+                spacer.appendChild(item);
+            }
+
+            content.replaceChildren(spacer);
+            this._setup_page_sidebar_thumbnail_loading(content);
+        };
+
+        const schedule_render = () => {
+            if (render_raf !== null) return;
+            render_raf = requestAnimationFrame(render_window);
+        };
+
+        content.addEventListener('scroll', schedule_render, { passive: true });
+        content.scrollTop = Math.max(0, current_index * this._sidebar_item_height - this._sidebar_item_height);
+        render_window();
+    }
+
+    _setup_page_sidebar_thumbnail_loading(content) {
+        const unloaded_imgs = Array.from(content.querySelectorAll('.dr-page-sidebar-thumb.is-loading'));
+        if (unloaded_imgs.length === 0) return;
+
+        const priority_imgs = unloaded_imgs
+            .filter(img => {
+                const page_index = parseInt(img.dataset.page);
+                const page = this.page_manager.pages_list[page_index];
+                return page?.is_visible || page_index === this.active_page_index;
+            })
+            .sort((a, b) => {
+                const ai = parseInt(a.dataset.page);
+                const bi = parseInt(b.dataset.page);
+                return Math.abs(ai - this.active_page_index) - Math.abs(bi - this.active_page_index);
+            });
+
+        priority_imgs.forEach(img => {
+            this._load_page_sidebar_thumbnail(parseInt(img.dataset.page), img);
+        });
+
+        const deferred_imgs = unloaded_imgs.filter(img => !priority_imgs.includes(img));
+        if (deferred_imgs.length === 0) return;
+
+        if (!window.IntersectionObserver) {
+            deferred_imgs.slice(0, 8).forEach(img => {
+                this._load_page_sidebar_thumbnail(parseInt(img.dataset.page), img);
+            });
+            return;
+        }
+
+        const observer = new IntersectionObserver((entries) => {
+            for (const entry of entries) {
+                if (!entry.isIntersecting) continue;
+                const img = entry.target;
+                observer.unobserve(img);
+                this._load_page_sidebar_thumbnail(parseInt(img.dataset.page), img);
+            }
+        }, {
+            root: content,
+            rootMargin: '120px 0px',
+            threshold: 0.01
+        });
+
+        deferred_imgs.forEach(img => observer.observe(img));
+    }
+
+    async _load_page_sidebar_thumbnail(page_index, img) {
+        const page = this.page_manager.pages_list[page_index];
+        if (!page || !img) return;
+
+        const existing_src = page.image_url || page.thumbnail_url;
+        if (existing_src) {
+            this._set_sidebar_thumbnail_src(img, page_index, existing_src);
+            return;
+        }
+        if (page.sidebar_thumbnail_loading) return;
+
+        page.sidebar_thumbnail_loading = true;
+        try {
+            await this._load_pdf_page(page_index);
+            const loaded_src = page.image_url || page.thumbnail_url;
+            if (loaded_src) {
+                this._update_page_sidebar_thumbnail(page_index, loaded_src);
+            }
+        } catch (error) {
+            console.error(`加载侧边栏原图 ${page_index + 1} 失败:`, error);
+        } finally {
+            page.sidebar_thumbnail_loading = false;
+        }
+    }
+
+    _update_page_sidebar_thumbnail(page_index, src) {
+        const img = document.querySelector(`#drPageSidebar .dr-page-sidebar-thumb[data-page="${page_index}"]`);
+        if (!img || !src) return;
+        this._set_sidebar_thumbnail_src(img, page_index, src);
+    }
+
+    _set_sidebar_thumbnail_src(thumb_el, page_index, src) {
+        if (!thumb_el || !src) return;
+        let img = thumb_el;
+        if (thumb_el.tagName !== 'IMG') {
+            img = document.createElement('img');
+            img.className = 'dr-page-sidebar-thumb';
+            img.dataset.page = page_index;
+            img.alt = `第 ${page_index + 1} 页`;
+            img.loading = 'lazy';
+            thumb_el.replaceWith(img);
+        }
+        img.src = src;
+        img.classList.remove('is-loading');
+        img.closest('.dr-page-sidebar-item')?.classList.remove('loading');
     }
 
     // ====== 缩放与 LOD ======
@@ -1429,7 +1919,7 @@ class DocumentReaderManager {
         // 更新所有已初始化页面的 TileRenderer LOD
         for (let i = 0; i < this.page_manager.pages_list.length; i++) {
             const pd = this.page_manager.pages_list[i];
-            if (pd.tile_renderer) {
+            if (pd.tile_renderer && (pd.is_visible || this._is_page_near_active(i, this._tile_keep_distance))) {
                 pd.tile_renderer.update_visible_tile_dpr(s, false, true);
             }
         }
@@ -1448,12 +1938,7 @@ class DocumentReaderManager {
         if (!this.is_open) return;
         if (this.is_drawing) return;
 
-        // Ctrl+滚轮缩放，无 Ctrl 则跳过
-        if (!e.ctrlKey && !e.metaKey) {
-            // 无 Ctrl：让页面内可上下滑动（但 scroll-container overflow:hidden）
-            // 此时两指触控或触控板仍可触发普通滚动，无需拦截
-            return;
-        }
+        // 阅读器内部无原生滚动条，滚轮直接用于缩放。
         e.preventDefault();
 
         const max_s = this.dr_max_scale;
