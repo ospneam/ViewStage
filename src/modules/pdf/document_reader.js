@@ -103,9 +103,6 @@ class DocumentReaderManager {
         this._drag_velocity_samples = [];          // 最近速度采样（平滑用，最多5个）
         this._inertia_raf_id = null;              // 惯性滚动 rAF ID
 
-        this._touch_start_time = 0;               // 触摸开始时间戳（手掌误触判定）
-        this._touch_is_palm = false;              // 是否判定为手掌触摸
-
         // 自适应 DPR（按缩放级别 + 内存压力动态降级，减少 4K 屏幕 GPU 显存占用）
         this._adaptive_dpr_enabled = true;
 
@@ -353,9 +350,6 @@ class DocumentReaderManager {
         this._drag_velocity = { x: 0, y: 0 };
         this._drag_last_time = 0;
         this._drag_last_pos = { x: 0, y: 0 };
-        this._touch_start_time = 0;
-        this._touch_is_palm = false;
-
         const panel = document.getElementById('documentReaderPanel');
         if (panel) panel.classList.remove('active');
 
@@ -1827,17 +1821,6 @@ class DocumentReaderManager {
         const page_index = parseInt(target.dataset.page);
         if (isNaN(page_index)) return;
 
-        // 手掌误触判定：触摸事件记录起始时间和压力
-        const is_touch = e.pointerType === 'touch';
-        if (is_touch) {
-            this._touch_start_time = Date.now();
-            // contactSize 为触摸面积（部分设备支持），压力过小或面积过大视为手掌
-            const contact_size = e.width * e.height;
-            this._touch_is_palm = (contact_size > 800) || (e.pressure === 0 && e.pressure !== undefined);
-        } else {
-            this._touch_is_palm = false;
-        }
-
         // 停止正在进行的惯性滚动
         if (this._inertia_raf_id !== null) {
             cancelAnimationFrame(this._inertia_raf_id);
@@ -1877,9 +1860,6 @@ class DocumentReaderManager {
             this._drag_last_pos = { x: e.clientX, y: e.clientY };
             this._drag_velocity_samples = [];
         } else if (this.draw_mode === 'comment' || this.draw_mode === 'eraser') {
-            // 手掌误触跳过
-            if (this._touch_is_palm) return;
-
             e.preventDefault();
             this.is_drawing = true;
             // 批注时屏蔽浏览器原生滚动
@@ -1897,9 +1877,6 @@ class DocumentReaderManager {
     }
 
     _handle_pointer_move(e) {
-        // 手掌误触期间跳过批注绘制（触摸事件 + 快速移动 + 接触面积过大）
-        if (this._touch_is_palm && this.draw_mode !== 'move') return;
-
         // 拖拽平移
         if (this.dr_is_dragging) {
             e.preventDefault();
@@ -1927,18 +1904,6 @@ class DocumentReaderManager {
         }
 
         if (!this.is_drawing || this.active_page_index < 0) return;
-
-        // 手掌误触检测：触摸事件在 50ms 内移动超过 10px 视为误触
-        if (e.pointerType === 'touch') {
-            const elapsed = Date.now() - this._touch_start_time;
-            if (elapsed < 50) {
-                const move_dist = Math.abs(e.clientX - this._drag_last_pos.x) + Math.abs(e.clientY - this._drag_last_pos.y);
-                if (move_dist > 10) {
-                    this._touch_is_palm = true;
-                    return;
-                }
-            }
-        }
 
         e.preventDefault();
 
@@ -1981,20 +1946,6 @@ class DocumentReaderManager {
     }
 
     async _handle_pointer_up(e) {
-        // 手掌误触：取消笔画
-        if (this._touch_is_palm) {
-            this._touch_is_palm = false;
-            if (this.is_drawing) {
-                this.is_drawing = false;
-                this.draw_canvas_rect = null;
-                this.current_stroke = null;
-                if (this.batch_draw) {
-                    this.batch_draw.batch_draw_delete_all();
-                }
-            }
-            return;
-        }
-
         // 停止拖拽，启动惯性滚动
         if (this.dr_is_dragging) {
             this.dr_is_dragging = false;
@@ -2123,7 +2074,12 @@ class DocumentReaderManager {
                 cmd.page_index = this.active_page_index;
                 await history_execute_command(cmd, false);
                 this._trim_undo_stack();
-                await this._render_all_strokes(stroke_bounds);
+
+                if (page.tile_renderer) {
+                    const tr = page.tile_renderer;
+                    tr._strokeHistoryRef = page.stroke_history;
+                    tr.add_stroke(this.current_stroke);
+                }
             }
         }
 
