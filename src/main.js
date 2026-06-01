@@ -4541,11 +4541,11 @@ function main_apply_camera_filters() {
     const img = dom.imageElement;
     if (!video && !img) return;
 
-    const b = state.camera_brightness ?? 0; // -100 .. 100 (linear adjust)
-    const c = state.camera_contrast ?? 1.0; // multiplier
-    const g = state.camera_grayscale ?? 0; // 0 or 1
+    const b = state.camera_brightness ?? 10;
+    const c = state.camera_contrast ?? 1.4;
+    const g = state.camera_grayscale ?? 0;
 
-    // CSS filter: brightness() expects a multiplier where 1 is normal. We'll map brightness value to a multiplier.
+    // CSS filter: brightness() expects a multiplier where 1 is normal.
     const brightnessMultiplier = Math.max(0, 1 + b / 100);
     const contrastMultiplier = Math.max(0, c);
     const grayscaleFraction = Math.max(0, Math.min(1, g));
