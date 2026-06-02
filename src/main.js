@@ -829,7 +829,7 @@ function main_setup_pdf_file_open() {
                 filePath = decodeURIComponent(filePath.replace('file://', ''));
             }
             console.log('最终文件路径:', filePath);
-            main_load_pdf_from_path(filePath);
+            main_load_pdf_from_path(filePath, true);
         } else {
             console.error('无法解析文件路径，payload:', event.payload);
             main_show_error_dialog(
@@ -860,7 +860,7 @@ function main_setup_pdf_file_open() {
                 filePath = decodeURIComponent(filePath.replace('file://', ''));
             }
             console.log('最终文件路径:', filePath);
-            main_load_pdf_from_path(filePath);
+            main_load_pdf_from_path(filePath, true);
         }
     }).catch(err => {
         console.log('opener 事件监听可选:', err);
@@ -997,7 +997,7 @@ async function main_render_pdf_pages_lazy(pdf, totalPages, initialPages = 3, doc
 
 const PDF_INITIAL_RENDER_PAGES = 20;
 
-async function main_load_pdf_from_path(filePath) {
+async function main_load_pdf_from_path(filePath, autoOpen = false) {
     if (currentSourceId) {
         main_save_current_source_data();
     }
@@ -1155,6 +1155,12 @@ async function main_load_pdf_from_path(filePath) {
             main_hide_loading_overlay();
             console.log(`文件已导入: ${folder.name}，共${folder.pages.length}页`);
             
+            if (autoOpen && window.documentReaderManager) {
+                const fileIndex = state.fileList.length - 1;
+                main_hide_file_sidebar();
+                window.documentReaderManager.open(fileIndex);
+            }
+            
             if (wasCameraOpen) await main_update_camera_state(true);
             
             try {
@@ -1247,6 +1253,12 @@ async function main_load_pdf_from_path(filePath) {
         
         main_hide_loading_overlay();
         console.log(`文件已导入: ${folder.name}，共${folder.pages.length}页`);
+        
+        if (autoOpen && window.documentReaderManager) {
+            const fileIndex = state.fileList.length - 1;
+            main_hide_file_sidebar();
+            window.documentReaderManager.open(fileIndex);
+        }
         
         if (wasCameraOpen) await main_update_camera_state(true);
     } catch (error) {
