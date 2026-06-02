@@ -48,6 +48,9 @@ function main_update_transform_schedule(x, y, scale) {
                     window.tileRenderer.cancel_idle_shrink();
                     window.tileRenderer.update_visible_tile_dpr(pt.scale);
                 }
+                if (window.batchDrawManager) {
+                    window.batchDrawManager.update_overlay_dpr(pt.scale);
+                }
             }
             transform_raf_id = null;
         });
@@ -925,6 +928,9 @@ function main_setup_pdf_file_open() {
             settings.dprMax !== undefined || settings.dprStep !== undefined) {
             if (window.tileRenderer) {
                 window.tileRenderer.update_visible_tile_dpr(state.scale, true, true);
+            }
+            if (window.batchDrawManager) {
+                window.batchDrawManager.update_overlay_dpr(state.scale, true);
             }
         }
 
@@ -2524,6 +2530,9 @@ async function main_handle_touch_end(e) {
                 window.tileRenderer.update_visible_tile_dpr(state.scale, false, true);
                 window.tileRenderer.mark_all();
             }
+            if (window.batchDrawManager) {
+                window.batchDrawManager.update_overlay_dpr(state.scale);
+            }
         } else if (state.isDrawing) {
             state.isDrawing = false;
             dom.canvasWrapper.style.transform = `translate3d(${state.canvasX}px, ${state.canvasY}px, 0) scale(${state.scale})`;
@@ -2579,6 +2588,9 @@ function main_update_canvas_transform() {
     if (window.tileRenderer) {
         window.tileRenderer.update_visible_tile_dpr(state.scale, false, true);
     }
+    if (window.batchDrawManager) {
+        window.batchDrawManager.update_overlay_dpr(state.scale);
+    }
 }
 
 function main_update_canvas_transform_smooth(targetX, targetY, targetScale, duration = 200) {
@@ -2604,6 +2616,9 @@ function main_update_canvas_transform_smooth(targetX, targetY, targetScale, dura
 
     if (window.tileRenderer) {
         window.tileRenderer.update_visible_tile_dpr(state.scale);
+    }
+    if (window.batchDrawManager) {
+        window.batchDrawManager.update_overlay_dpr(state.scale);
     }
     
     currentAnimationId = setTimeout(() => {

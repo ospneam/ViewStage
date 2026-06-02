@@ -49,16 +49,57 @@ class RealtimeBatchDrawManager {
         this._overlayTransformScale = 0;
         this._overlayTransformX = 0;
         this._overlayTransformY = 0;
+        this._overlayDpr = 1;
+        this._overlayDprSettleTimerId = null;
+        this._overlayDprSettleMs = 300;
 
         this._tileRenderer = null;
+    }
+
+    _calc_overlay_dpr(scale) {
+        const cfg = window.DRAW_CONFIG;
+        if (cfg.dynamicDprEnabled === false) return Math.min(cfg.dpr, 2);
+        const baseDpr = cfg.baseDpr || window.devicePixelRatio || 1;
+        const minDpr = cfg.dprMin || 1;
+        const maxDpr = Math.min(cfg.dprMax || 4, 2);
+        const step = cfg.dprStep || 0.5;
+        let dpr = baseDpr * scale;
+        dpr = Math.round(dpr / step) * step;
+        return Math.max(minDpr, Math.min(maxDpr, dpr));
+    }
+
+    update_overlay_dpr(scale, force) {
+        if (this._overlayDprSettleTimerId != null) {
+            clearTimeout(this._overlayDprSettleTimerId);
+            this._overlayDprSettleTimerId = null;
+        }
+        this._overlayDprSettleTimerId = setTimeout(() => {
+            this._overlayDprSettleTimerId = null;
+            const targetDpr = this._calc_overlay_dpr(scale);
+            if (targetDpr !== this._overlayDpr || force) {
+                this._apply_overlay_dpr(targetDpr);
+            }
+        }, this._overlayDprSettleMs);
+    }
+
+    _apply_overlay_dpr(newDpr) {
+        if (!this._overlayCanvas) return;
+        const screenW = window.DRAW_CONFIG.screenW;
+        const screenH = window.DRAW_CONFIG.screenH;
+        this._overlayDpr = newDpr;
+        this._overlayCanvas.width = Math.ceil(screenW * newDpr);
+        this._overlayCanvas.height = Math.ceil(screenH * newDpr);
+        this._overlayTransformScale = 0;
+        this._overlayTransformX = 0;
+        this._overlayTransformY = 0;
     }
 
     init_overlay(container, screenW, screenH, dpr) {
         this._overlayCanvas = document.createElement('canvas');
         this._overlayCanvas.className = 'canvas-tile draw-overlay';
-        const capped = Math.min(dpr, 1);
-        this._overlayCanvas.width = Math.ceil(screenW * capped);
-        this._overlayCanvas.height = Math.ceil(screenH * capped);
+        this._overlayDpr = this._calc_overlay_dpr(window.state.scale || 1);
+        this._overlayCanvas.width = Math.ceil(screenW * this._overlayDpr);
+        this._overlayCanvas.height = Math.ceil(screenH * this._overlayDpr);
         this._overlayCanvas.style.width = screenW + 'px';
         this._overlayCanvas.style.height = screenH + 'px';
         container.appendChild(this._overlayCanvas);
@@ -71,9 +112,9 @@ class RealtimeBatchDrawManager {
 
     resize_overlay(screenW, screenH, dpr) {
         if (this._overlayCanvas) {
-            const capped = Math.min(dpr, 1);
-            this._overlayCanvas.width = Math.ceil(screenW * capped);
-            this._overlayCanvas.height = Math.ceil(screenH * capped);
+            this._overlayDpr = this._calc_overlay_dpr(window.state.scale || 1);
+            this._overlayCanvas.width = Math.ceil(screenW * this._overlayDpr);
+            this._overlayCanvas.height = Math.ceil(screenH * this._overlayDpr);
             this._overlayCanvas.style.width = screenW + 'px';
             this._overlayCanvas.style.height = screenH + 'px';
         }
@@ -92,7 +133,7 @@ class RealtimeBatchDrawManager {
 
     _sync_overlay_transform() {
         if (!this._overlayCtx) return;
-        const dpr = Math.min(window.DRAW_CONFIG.dpr, 1);
+        const dpr = this._overlayDpr;
         const scale = window.state.scale || 1;
         const canvasX = window.state.canvasX || 0;
         const canvasY = window.state.canvasY || 0;
