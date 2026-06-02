@@ -887,6 +887,8 @@ body {
     cursor: pointer;
     transition: all 0.15s ease;
     flex-shrink: 0;
+    width: 100%;
+    box-sizing: border-box;
 }
 
 .sidebar-folder-item img {
@@ -913,6 +915,8 @@ body {
 .folder-count {
     color: var(--color-muted);
     font-size: 12px;
+    flex-shrink: 0;
+    white-space: nowrap;
 }
 
 .folder-back-btn {
